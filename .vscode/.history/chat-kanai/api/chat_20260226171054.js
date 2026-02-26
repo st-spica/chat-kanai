@@ -93,10 +93,11 @@ ${CLINIC_KNOWLEDGE}
 `.trim();
 
 function setCors(res, origin) {
-  // 当面は全オリジン許可（院内向けツール想定／CORSエラー回避のため）
-  // 必要になったら特定ドメインのみに絞り込む
-  res.setHeader("Access-Control-Allow-Origin", origin || "*");
-  res.setHeader("Vary", "Origin");
+  // 許可リストに含まれるOriginのみ許可
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
@@ -135,7 +136,10 @@ export default async function handler(req, res) {
   // Preflight
   if (req.method === "OPTIONS") return res.status(204).end();
 
-  // ここでは Origin で弾かず、フロント側の利用ドメインで制御する方針
+  // 許可リストに含まれないOriginは拒否（直叩き対策）
+  if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
+    return res.status(403).json({ error: "Forbidden origin" });
+  }
 
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
