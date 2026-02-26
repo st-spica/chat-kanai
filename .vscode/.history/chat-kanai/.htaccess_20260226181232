@@ -1,0 +1,7 @@
+AuthUserFile （先ほど調べたフルパス）/.htpasswd
+AuthName "hogehoge"
+AuthType Basic
+require valid-user
+<Files ~ "^.(htpasswd|htaccess)$">
+  deny from all
+</Files>

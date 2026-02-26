@@ -1,0 +1,7 @@
+AuthUserFile /home/spica8217/spica8217.xsrv.jp/public_html/api-chat/.htpasswd
+AuthName "hogehoge"
+AuthType Basic
+require valid-user
+<Files ~ "^.(htpasswd|htaccess)$">
+  deny from all
+</Files>
