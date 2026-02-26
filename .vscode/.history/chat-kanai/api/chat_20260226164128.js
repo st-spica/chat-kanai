@@ -1,23 +1,86 @@
 import OpenAI from "openai";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ★ここを固定（許可するフロントURL）
-const ALLOWED_ORIGIN = "https://chat.kanai.or.jp";
+// ★許可するフロントURL（本番ドメイン＋テスト環境ドメインなど複数許可）
+const ALLOWED_ORIGINS = [
+  "https://chat.kanai.or.jp",       // 本番想定ドメイン
+  "https://spica8217.xsrv.jp",      // Xserver テスト環境（https://spica8217.xsrv.jp/api-chat/ など）
+];
 
-// 重要：院内情報（まずはMVP要約。必要に応じて増やしてOK）
-const CLINIC_KNOWLEDGE = `
-【金井産婦人科（院内FAQ要約・抜粋）】
-- 当日受診：当日の予約は取らず、直接来院。
-- 支払い：クレジットカード利用可。ただし予納金・予約金は現金のみ。
-- 駐車場：8台。利用可能時間 8:30〜20:00。20:00以降は翌朝8:30まで閉鎖。出入りは今里筋から。
-- 妊娠判定の受診目安：生理予定日から7〜10日遅れたら受診の目安。
-- 初診費用の目安：約10,000円目安（初診料＋超音波＋必要なら尿検査）。
-- 子宮がん検診：予約なしでも受付時間内なら随時。電話予約の運用あり（番号非通知は不可）。
-- 検査結果：当日には出ない。検査により1〜2週間程度必要。
-- 乳がん検診：現在行っていない。
-- アフターピル：診療時間内に随時対応可能。
-`.trim();
+// CSVファイルから院内情報を読み込み（起動時に1回だけ実行）
+function loadClinicKnowledge() {
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const filePath = join(__dirname, "../data/clinic-knowledge.csv");
+    const csvContent = readFileSync(filePath, "utf-8");
+    
+    // CSVをパース（カテゴリ,質問,回答,参照URLの形式）
+    const lines = csvContent
+      .split("\n")
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+    
+    if (lines.length < 2) {
+      throw new Error("CSVファイルの形式が正しくありません");
+    }
+    
+    // ヘッダー行をスキップしてデータを処理
+    const faqItems = [];
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      // CSVのカンマ区切りを解析（ダブルクォート内のカンマに対応）
+      const columns = [];
+      let current = "";
+      let inQuotes = false;
+      
+      for (let j = 0; j < line.length; j++) {
+        const char = line[j];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          columns.push(current.trim());
+          current = "";
+        } else {
+          current += char;
+        }
+      }
+      columns.push(current.trim()); // 最後の列
+      
+      if (columns.length >= 3) {
+        const [category, question, answer, url] = columns;
+        faqItems.push({
+          category: category || "",
+          question: question || "",
+          answer: answer || "",
+          url: url || ""
+        });
+      }
+    }
+    
+    // 質問と回答のペアを明確に提示する形式で整形
+    const formattedItems = faqItems.map(item => {
+      let text = `Q: ${item.question}\nA: ${item.answer}`;
+      if (item.category) {
+        text = `[${item.category}] ${text}`;
+      }
+      return text;
+    });
+    
+    return `【金井産婦人科（院内FAQ要約・抜粋）】\n\n${formattedItems.join("\n\n")}`;
+  } catch (error) {
+    // フォールバック：デフォルト値
+    console.error("CSVファイルの読み込みに失敗しました:", error.message);
+    return `【金井産婦人科（院内FAQ要約・抜粋）】\n- 情報の読み込みに失敗しました。`;
+  }
+}
+
+// 起動時に1回だけ読み込む（処理を軽くするため）
+const CLINIC_KNOWLEDGE = loadClinicKnowledge();
 
 const SYSTEM = `
 あなたは産婦人科サイトの相談チャットボットです。
@@ -29,14 +92,15 @@ const SYSTEM = `
 - 個人情報（氏名、住所、電話番号、保険番号など）を求めない。入力されたら控えるよう促す。
 - 院内情報は「KNOWLEDGE」を最優先し、根拠がないことは断言しない。
 - 回答は日本語、簡潔、箇条書き中心。
+- ユーザーの質問が「KNOWLEDGE」内の質問と意味的に近い場合は、対応する回答を参照して回答してください。完全一致でなくても、意味が近ければ適切な回答を提供できます。
 
 【KNOWLEDGE】
 ${CLINIC_KNOWLEDGE}
 `.trim();
 
 function setCors(res, origin) {
-  // Origin一致のみ許可
-  if (origin === ALLOWED_ORIGIN) {
+  // 許可リストに含まれるOriginのみ許可
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   }
@@ -78,8 +142,8 @@ export default async function handler(req, res) {
   // Preflight
   if (req.method === "OPTIONS") return res.status(204).end();
 
-  // Origin一致以外は拒否（直叩き対策）
-  if (origin !== ALLOWED_ORIGIN) {
+  // 許可リストに含まれないOriginは拒否（直叩き対策）
+  if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
     return res.status(403).json({ error: "Forbidden origin" });
   }
 

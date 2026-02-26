@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>金井産婦人科｜相談チャット</title>
+
+  <!-- 検索エンジンに載せない（公開初期は推奨） -->
+  <meta name="robots" content="noindex,nofollow" />
+
+  <!-- リファラを送らない -->
+  <meta name="referrer" content="no-referrer" />
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 16px;
+      background: #fafafa;
+    }
+    h1 {
+      font-size: 22px;
+      margin-bottom: 12px;
+    }
+    .box {
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 14px;
+      background: #fff;
+    }
+    .msgs {
+      min-height: 360px;
+      max-height: 520px;
+      overflow-y: auto;
+    }
+    pre {
+      white-space: pre-wrap;
+      margin: 0;
+      line-height: 1.6;
+      font-family: inherit;
+    }
+    input {
+      width: 100%;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      font-size: 15px;
+    }
+    button {
+      padding: 12px 16px;
+      border-radius: 10px;
+      border: 1px solid #333;
+      background: #fff;
+      cursor: pointer;
+      font-size: 15px;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .muted {
+      color: #555;
+      font-size: 13px;
+    }
+    .assistant {
+      background: #f4f8ff;
+      padding: 10px;
+      border-radius: 8px;
+    }
+    .user {
+      background: #f5f5f5;
+      padding: 10px;
+      border-radius: 8px;
+    }
+    .error {
+      color: #b00020;
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+
+<h1>相談チャット</h1>
+
+<div class="box" id="consentBox">
+  <pre class="muted" id="disclaimer"></pre>
+
+  <label style="display:flex; gap:8px; align-items:center; margin-top:12px;">
+    <input type="checkbox" id="agreeChk" />
+    上記内容に同意して利用します
+  </label>
+
+  <button id="startBtn" disabled style="margin-top:12px;">
+    チャットを開始
+  </button>
+</div>
+
+<div id="chatUI" style="display:none;">
+
+  <div class="box" style="margin-bottom:12px;">
+    <pre class="muted" id="disclaimerFixed"></pre>
+  </div>
+
+  <div class="box msgs" id="msgs"></div>
+
+  <div class="row">
+    <input
+      id="input"
+      placeholder="症状やご相談内容を入力してください（個人情報は入力しないでください）"
+    />
+    <button id="sendBtn">送信</button>
+  </div>
+
+</div>
+
+<script>
+  // ▼ あなたのVercel API
+  const API_URL = "https://chat-kanai.vercel.app/api/chat";
+
+  const disclaimerText =
+`このチャットは一般的な医療情報の提供を目的としたものであり、診断や治療の代替ではありません。
+大量出血、強い腹痛、意識がもうろう、高熱、破水が疑われる、胎動が少ない等の症状がある場合は、すぐに医療機関へ連絡・受診してください。必要に応じて119もご検討ください。
+個人情報（氏名、住所、電話番号、保険番号など）は入力しないでください。`;
+
+  const consentBox = document.getElementById("consentBox");
+  const chatUI = document.getElementById("chatUI");
+  const disclaimer = document.getElementById("disclaimer");
+  const disclaimerFixed = document.getElementById("disclaimerFixed");
+  const agreeChk = document.getElementById("agreeChk");
+  const startBtn = document.getElementById("startBtn");
+  const msgsEl = document.getElementById("msgs");
+  const inputEl = document.getElementById("input");
+  const sendBtn = document.getElementById("sendBtn");
+
+  disclaimer.textContent = disclaimerText;
+  disclaimerFixed.textContent = disclaimerText;
+
+  agreeChk.addEventListener("change", () => {
+    startBtn.disabled = !agreeChk.checked;
+  });
+
+  startBtn.addEventListener("click", () => {
+    if (!agreeChk.checked) return;
+    consentBox.style.display = "none";
+    chatUI.style.display = "block";
+  });
+
+  const history = [];
+
+  function addMessage(role, content) {
+    const wrap = document.createElement("div");
+    wrap.style.marginBottom = "12px";
+
+    const label = document.createElement("div");
+    label.style.fontWeight = "bold";
+    label.textContent = role === "user" ? "あなた" : "チャット";
+
+    const bubble = document.createElement("div");
+    bubble.className = role === "user" ? "user" : "assistant";
+
+    const pre = document.createElement("pre");
+    pre.textContent = content;
+
+    bubble.appendChild(pre);
+    wrap.appendChild(label);
+    wrap.appendChild(bubble);
+    msgsEl.appendChild(wrap);
+
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+  }
+
+  async function sendMessage() {
+    const text = inputEl.value.trim();
+    if (!text) return;
+
+    inputEl.value = "";
+    addMessage("user", text);
+    history.push({ role: "user", content: text });
+
+    addMessage("assistant", "確認しています…");
+
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          history: history.slice(-8)
+        })
+      });
+
+      const data = await res.json();
+      msgsEl.removeChild(msgsEl.lastChild);
+
+      if (res.status === 429) {
+        addMessage("assistant", "アクセスが集中しています。少し時間をおいてお試しください。");
+        return;
+      }
+
+      if (!res.ok) {
+        addMessage("assistant", "サーバエラーが発生しました。時間をおいて再度お試しください。");
+        return;
+      }
+
+      addMessage("assistant", data.answer || "応答が取得できませんでした。");
+      history.push({ role: "assistant", content: data.answer || "" });
+
+    } catch (e) {
+      msgsEl.removeChild(msgsEl.lastChild);
+      addMessage("assistant", "通信エラーが発生しました。");
+    }
+  }
+
+  sendBtn.addEventListener("click", sendMessage);
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendMessage();
+  });
+</script>
+
+</body>
+</html>
