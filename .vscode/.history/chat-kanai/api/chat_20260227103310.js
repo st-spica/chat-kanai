@@ -62,32 +62,16 @@ function loadClinicKnowledge() {
     }
     
     // 質問と回答のペアを明確に提示する形式で整形
-    const formattedItems = [];
-    const referenceUrls = [];
-    
-    faqItems.forEach(item => {
-      // 回答がURLのみの場合（参考URLとして扱う）
-      if (item.answer && (item.answer.startsWith("http://") || item.answer.startsWith("https://"))) {
-        referenceUrls.push(`${item.question}: ${item.answer}`);
-      } else {
-        // 通常のQ&A形式
-        let text = `Q: ${item.question}\nA: ${item.answer}`;
-        // カテゴリが空の場合はカテゴリ表示をスキップ（基本情報など）
-        if (item.category && item.category.trim() !== "") {
-          text = `[${item.category}] ${text}`;
-        }
-        formattedItems.push(text);
+    const formattedItems = faqItems.map(item => {
+      let text = `Q: ${item.question}\nA: ${item.answer}`;
+      // カテゴリが空の場合はカテゴリ表示をスキップ（基本情報など）
+      if (item.category && item.category.trim() !== "") {
+        text = `[${item.category}] ${text}`;
       }
+      return text;
     });
     
-    let knowledgeText = `【金井産婦人科（院内FAQ要約・抜粋）】\n\n${formattedItems.join("\n\n")}`;
-    
-    // 参考URLがある場合は追加
-    if (referenceUrls.length > 0) {
-      knowledgeText += `\n\n【参考URL】\n${referenceUrls.map(url => `- ${url}`).join("\n")}`;
-    }
-    
-    return knowledgeText;
+    return `【金井産婦人科（院内FAQ要約・抜粋）】\n\n${formattedItems.join("\n\n")}`;
   } catch (error) {
     // フォールバック：デフォルト値
     console.error("CSVファイルの読み込みに失敗しました:", error.message);
@@ -116,14 +100,7 @@ const SYSTEM = `
 - 必要に応じて改行し、読みやすさを意識する。
 - 必要に応じて段落を分け、読みやすさを意識する。
 - 箇条書きは、注意点や選択肢を整理するときにだけ使い、それ以外は文章中心で説明する。
-- **見やすさを向上させるため、適切に絵文字やMarkdown形式の装飾を使用する**：
-  - 重要な情報は **太字（**テキスト**）** で強調する
-  - 受診を促す場合は 📞 や ⚠️ などの絵文字を適度に使用する
-  - 電話番号や時間などの重要な情報は **太字** で強調する
-  - 箇条書きの先頭に適切な絵文字（✅、📋、💡、ℹ️ など）を付けるとより見やすくなる
-  - ただし、絵文字の使いすぎは避け、適度に使用する
 - 参考webページがある場合（当院サイトに限る）は対象のwebページへの誘導も添える。
-- 「KNOWLEDGE」内の「参考URL」セクションに記載されているURLは、関連する質問があった場合に回答の最後に箇条書きで表示する。
 - ユーザーが不安そうな場合は、安心感を与える一言を添える。ただし不必要な保証はしない。
 - ユーザーの質問が「KNOWLEDGE」内の質問と意味的に近い場合は、対応する回答をもとに、自然な文章に言い換えて説明する。完全一致でなくてもよい。
 
