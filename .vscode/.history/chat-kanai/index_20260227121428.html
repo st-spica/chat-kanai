@@ -197,29 +197,12 @@
     const bubble = document.createElement("div");
     bubble.className = role === "user" ? "user" : "assistant";
 
-    // ユーザーのメッセージはそのまま表示、アシスタントはタイピング風アニメーション＋Markdown
+    // ユーザーのメッセージはそのまま、アシスタントのメッセージはMarkdown変換
     if (role === "assistant") {
       const div = document.createElement("div");
+      div.innerHTML = formatMessage(content);
       div.style.lineHeight = "1.6";
       bubble.appendChild(div);
-
-      // タイピング風に1文字ずつ表示し、完了後にMarkdownで整形
-      const original = content || "";
-      let i = 0;
-      const typingSpeed = 15; // 小さいほど速く表示
-
-      function step() {
-        if (i <= original.length) {
-          div.textContent = original.slice(0, i);
-          i += 1;
-          setTimeout(step, typingSpeed);
-        } else {
-          // 最後にMarkdown＋リンク付きのHTMLに差し替え
-          div.innerHTML = formatMessage(original);
-        }
-      }
-
-      step();
     } else {
       const pre = document.createElement("pre");
       pre.textContent = content;
@@ -229,11 +212,6 @@
     wrap.appendChild(label);
     wrap.appendChild(bubble);
     msgsEl.appendChild(wrap);
-
-    // ふわっと表示されるアニメーション
-    requestAnimationFrame(() => {
-      bubble.classList.add("bubble-show");
-    });
 
     msgsEl.scrollTop = msgsEl.scrollHeight;
   }
