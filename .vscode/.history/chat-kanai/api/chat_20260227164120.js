@@ -1,8 +1,29 @@
+import { ratelimit } from "./_ratelimit.js";
+
+export default async function handler(req, res) {
+  // （CORS/Origin制限の前後どちらでもOKだが、基本は早めに弾く）
+
+  const ip =
+    (req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
+    req.socket?.remoteAddress ||
+    "ip";
+
+  const { success } = await ratelimit.limit(ip);
+
+  if (!success) {
+    return res.status(429).json({
+      answer: "アクセスが集中しています。少し時間をおいてからお試しください。",
+      emergency: false,
+      ratelimited: true,
+    });
+  }
+
+  // ↓ここから既存処理
+}
 import OpenAI from "openai";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import { ratelimit } from "./_ratelimit.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -198,21 +219,6 @@ export default async function handler(req, res) {
 
     if (req.method !== "POST") {
       return res.status(405).json({ error: "Method not allowed" });
-    }
-
-    // ---- レート制限（IPごと）----
-    const ip =
-      (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim() ||
-      req.socket?.remoteAddress ||
-      "ip";
-
-    const { success } = await ratelimit.limit(ip);
-    if (!success) {
-      return res.status(429).json({
-        answer: "アクセスが集中しています。少し時間をおいてからお試しください。",
-        emergency: false,
-        ratelimited: true,
-      });
     }
 
     // 許可していないOriginからのアクセスは拒否
