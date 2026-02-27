@@ -11,6 +11,9 @@
   <!-- リファラを送らない -->
   <meta name="referrer" content="no-referrer" />
 
+  <!--Cloudflare TURNSTILE-->
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+
   <style>
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
@@ -310,6 +313,57 @@
     typingWrap = null;
   }
 
+  async function sendMessage() {
+    const text = inputEl.value.trim();
+    if (!text) return;
+
+    inputEl.value = "";
+    addMessage("user", text);
+    history.push({ role: "user", content: text });
+
+    showTyping();
+
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          history: history.slice(-8)
+        })
+      });
+
+      const data = await res.json();
+      hideTyping();
+
+      if (res.status === 429) {
+        addMessage("assistant", "アクセスが集中しています。少し時間をおいてお試しください。");
+        return;
+      }
+
+      if (!res.ok) {
+        addMessage("assistant", "サーバエラーが発生しました。時間をおいて再度お試しください。");
+        return;
+      }
+
+      addMessage("assistant", data.answer || "応答が取得できませんでした。");
+      history.push({ role: "assistant", content: data.answer || "" });
+
+    } catch (e) {
+      hideTyping();
+      addMessage("assistant", "通信エラーが発生しました。");
+    }
+  }
+
+  sendBtn.addEventListener("click", sendMessage);
+  inputEl.addEventListener("keydown", (e) => {
+    // Enter 単体は「変換確定／改行」として使い、送信は Command + Enter のみ
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
   let turnstileToken = null;
 
 window.onloadTurnstileCallback = function () {
@@ -333,7 +387,7 @@ async function sendMessage() {
   addMessage("user", text);
   history.push({ role: "user", content: text });
 
-  showTyping();
+  addMessage("assistant", "確認しています…");
 
   try {
     const res = await fetch(API_URL, {
@@ -350,7 +404,7 @@ async function sendMessage() {
     turnstileToken = null;
 
     const data = await res.json();
-    hideTyping();
+    msgsEl.removeChild(msgsEl.lastChild);
 
     if (res.status === 429) {
       addMessage("assistant", "アクセスが集中しています。少し時間をおいてください。");
@@ -358,7 +412,7 @@ async function sendMessage() {
     }
 
     if (!res.ok) {
-      addMessage("assistant", "サーバエラーが発生しました。時間をおいて再度お試しください。");
+      addMessage("assistant", "認証エラーが発生しました。");
       return;
     }
 
@@ -366,19 +420,10 @@ async function sendMessage() {
     history.push({ role: "assistant", content: data.answer });
 
   } catch {
-    hideTyping();
+    msgsEl.removeChild(msgsEl.lastChild);
     addMessage("assistant", "通信エラーが発生しました。");
   }
 }
-
-sendBtn.addEventListener("click", sendMessage);
-inputEl.addEventListener("keydown", (e) => {
-  // Enter 単体は「変換確定／改行」として使い、送信は Command + Enter のみ
-  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault();
-    sendMessage();
-  }
-});
 </script>
 
 <script

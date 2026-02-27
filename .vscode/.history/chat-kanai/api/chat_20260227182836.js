@@ -22,6 +22,17 @@ async function verifyTurnstile(token) {
   return data.success === true;
 }
 
+const { message, history, turnstileToken } = req.body || {};
+
+if (!turnstileToken) {
+  return res.status(400).json({ error: "Turnstile required" });
+}
+
+const human = await verifyTurnstile(turnstileToken);
+if (!human) {
+  return res.status(403).json({ error: "Turnstile verification failed" });
+}
+
 // 許可するフロントエンドのOrigin（今回は Xserver 上のページのみ許可）
 const ALLOWED_ORIGINS = [
   "https://spica8217.xsrv.jp",
@@ -236,28 +247,7 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: "Forbidden origin" });
     }
 
-    const { message, history, turnstileToken } = req.body || {};
-
-    // ---- Turnstile（ボット対策） ----
-    if (!process.env.TURNSTILE_SECRET_KEY) {
-      // シークレットキー未設定時は検証をスキップ（開発・検証用）
-      console.warn("TURNSTILE_SECRET_KEY が設定されていないため、Turnstile 検証をスキップします。");
-    } else {
-      if (!turnstileToken) {
-        return res.status(400).json({
-          answer: "ブラウザの確認に失敗しました。ページを再読み込みしてからお試しください。",
-          emergency: false,
-        });
-      }
-      const human = await verifyTurnstile(turnstileToken);
-      if (!human) {
-        return res.status(403).json({
-          answer: "自動アクセスの可能性があるため、処理を中断しました。時間をおいて再度お試しください。",
-          emergency: false,
-        });
-      }
-    }
-
+    const { message, history } = req.body || {};
     const userMessage = (message || "").trim();
     if (!userMessage) {
       return res.status(400).json({ answer: "メッセージが空です。", emergency: false });
