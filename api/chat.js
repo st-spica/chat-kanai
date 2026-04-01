@@ -6,26 +6,21 @@ import { ratelimit } from "./_ratelimit.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-async function verifyTurnstile(token) {
-  const secret = process.env.TURNSTILE_SECRET_KEY;
+// 許可するフロントエンドのOrigin（環境変数 ALLOWED_ORIGINS にカンマ区切りで追加可能）
+const DEFAULT_ALLOWED_ORIGINS = [
+  "https://spica8217.xsrv.jp",
+  "https://www.spica8217.xsrv.jp",
+];
 
-  const response = await fetch(
-    "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `secret=${secret}&response=${token}`
-    }
-  );
-
-  const data = await response.json();
-  return data.success === true;
+function loadAllowedOrigins() {
+  const extra = (process.env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return [...new Set([...DEFAULT_ALLOWED_ORIGINS, ...extra])];
 }
 
-// 許可するフロントエンドのOrigin（今回は Xserver 上のページのみ許可）
-const ALLOWED_ORIGINS = [
-  "https://spica8217.xsrv.jp",
-];
+const ALLOWED_ORIGINS = loadAllowedOrigins();
 
 // CSVファイルから院内情報を読み込み（起動時に1回だけ実行）
 function loadClinicKnowledge() {
@@ -231,32 +226,17 @@ export default async function handler(req, res) {
       });
     }
 
-    // 許可していないOriginからのアクセスは拒否
+    // 許可していないOriginからのアクセスは拒否（ブラウザの fetch では Origin ヘッダが付く）
     if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
-      return res.status(403).json({ error: "Forbidden origin" });
+      return res.status(403).json({
+        answer:
+          "接続元が許可されていないため送信できません。（ページの公開URLとサーバ設定の許可リストをご確認ください）",
+        emergency: false,
+        error: "Forbidden origin",
+      });
     }
 
-    const { message, history, turnstileToken } = req.body || {};
-
-    // ---- Turnstile（ボット対策） ----
-    if (!process.env.TURNSTILE_SECRET_KEY) {
-      // シークレットキー未設定時は検証をスキップ（開発・検証用）
-      console.warn("TURNSTILE_SECRET_KEY が設定されていないため、Turnstile 検証をスキップします。");
-    } else {
-      if (!turnstileToken) {
-        return res.status(400).json({
-          answer: "ブラウザの確認に失敗しました。ページを再読み込みしてからお試しください。",
-          emergency: false,
-        });
-      }
-      const human = await verifyTurnstile(turnstileToken);
-      if (!human) {
-        return res.status(403).json({
-          answer: "自動アクセスの可能性があるため、処理を中断しました。時間をおいて再度お試しください。",
-          emergency: false,
-        });
-      }
-    }
+    const { message, history } = req.body || {};
 
     const userMessage = (message || "").trim();
     if (!userMessage) {
