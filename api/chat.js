@@ -6,6 +6,9 @@ import { ratelimit } from "./_ratelimit.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// Chat Completions 用（未設定時は利用しやすい gpt-4o-mini）
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
 // 許可するフロントエンドのOrigin（環境変数 ALLOWED_ORIGINS にカンマ区切りで追加可能）
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://spica8217.xsrv.jp",
@@ -250,18 +253,22 @@ export default async function handler(req, res) {
 
     const safeHistory = Array.isArray(history) ? history.slice(-8) : [];
 
-    const input = [
+    const messages = [
       { role: "system", content: SYSTEM },
-      ...safeHistory.map(h => ({ role: h.role, content: String(h.content || "") })),
-      { role: "user", content: userMessage }
+      ...safeHistory
+        .filter((h) => h && (h.role === "user" || h.role === "assistant"))
+        .map((h) => ({ role: h.role, content: String(h.content || "") })),
+      { role: "user", content: userMessage },
     ];
 
-    const resp = await client.responses.create({
-      model: "gpt-4.1-mini",
-      input
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages,
     });
 
-    const answer = (resp.output_text || "").trim() || "すみません、うまく回答を生成できませんでした。";
+    const answer =
+      (completion.choices[0]?.message?.content || "").trim() ||
+      "すみません、うまく回答を生成できませんでした。";
     return res.status(200).json({ answer, emergency: false });
   } catch (e) {
     console.error("chat handler error:", e);
