@@ -6,10 +6,24 @@ import { ratelimit } from "./_ratelimit.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// 許可するフロントエンドのOrigin（今回は Xserver 上のページのみ許可）
-const ALLOWED_ORIGINS = [
+// Chat Completions 用（未設定時は利用しやすい gpt-4o-mini）
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
+// 許可するフロントエンドのOrigin（環境変数 ALLOWED_ORIGINS にカンマ区切りで追加可能）
+const DEFAULT_ALLOWED_ORIGINS = [
   "https://spica8217.xsrv.jp",
+  "https://www.spica8217.xsrv.jp",
 ];
+
+function loadAllowedOrigins() {
+  const extra = (process.env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return [...new Set([...DEFAULT_ALLOWED_ORIGINS, ...extra])];
+}
+
+const ALLOWED_ORIGINS = loadAllowedOrigins();
 
 // CSVファイルから院内情報を読み込み（起動時に1回だけ実行）
 function loadClinicKnowledge() {
@@ -129,7 +143,7 @@ const SYSTEM = `
 - 相談に答えるような、寄り添った文章で話す。
 - 必要に応じて改行し、読みやすさを意識する。
 - 必要に応じて段落を分け、読みやすさを意識する。
-- 箇条書きは、注意点や選択肢を整理するときにだけ使い、それ以外は文章中心で説明する。
+- 箇条書きを使う場合は、先頭に日本語の中黒「・」を使い、「・持ち物は〇〇の順番で記載します。」のように日本語の文章として書く。半角/全角コロン「:」「：」は使わず、「〜について」「〜は」などの表現に言い換える。
 - **見やすさを向上させるため、適切に絵文字やMarkdown形式の装飾を使用する**：
   - 重要な情報は **太字（**テキスト**）** で強調する
   - 受診を促す場合は 📞 や ⚠️ などの絵文字を適度に使用する
@@ -215,12 +229,18 @@ export default async function handler(req, res) {
       });
     }
 
-    // 許可していないOriginからのアクセスは拒否
+    // 許可していないOriginからのアクセスは拒否（ブラウザの fetch では Origin ヘッダが付く）
     if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
-      return res.status(403).json({ error: "Forbidden origin" });
+      return res.status(403).json({
+        answer:
+          "接続元が許可されていないため送信できません。（ページの公開URLとサーバ設定の許可リストをご確認ください）",
+        emergency: false,
+        error: "Forbidden origin",
+      });
     }
 
     const { message, history } = req.body || {};
+
     const userMessage = (message || "").trim();
     if (!userMessage) {
       return res.status(400).json({ answer: "メッセージが空です。", emergency: false });
@@ -233,18 +253,22 @@ export default async function handler(req, res) {
 
     const safeHistory = Array.isArray(history) ? history.slice(-8) : [];
 
-    const input = [
+    const messages = [
       { role: "system", content: SYSTEM },
-      ...safeHistory.map(h => ({ role: h.role, content: String(h.content || "") })),
-      { role: "user", content: userMessage }
+      ...safeHistory
+        .filter((h) => h && (h.role === "user" || h.role === "assistant"))
+        .map((h) => ({ role: h.role, content: String(h.content || "") })),
+      { role: "user", content: userMessage },
     ];
 
-    const resp = await client.responses.create({
-      model: "gpt-4.1-mini",
-      input
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages,
     });
 
-    const answer = (resp.output_text || "").trim() || "すみません、うまく回答を生成できませんでした。";
+    const answer =
+      (completion.choices[0]?.message?.content || "").trim() ||
+      "すみません、うまく回答を生成できませんでした。";
     return res.status(200).json({ answer, emergency: false });
   } catch (e) {
     console.error("chat handler error:", e);

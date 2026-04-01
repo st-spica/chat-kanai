@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import OpenAI, { APIConnectionError, APIError } from "openai";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -169,6 +169,53 @@ function setCors(res, origin) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
 }
 
+/**
+ * JSON ボディを取得する。
+ * Vercel は req.body を事前パースするが、Promise で渡る場合がある。
+ * Node のストリームからの再読み取りは二重消費でハング/空振りしやすいので行わない。
+ */
+async function readJsonBody(req) {
+  try {
+    let raw = req.body;
+    if (raw != null && typeof raw.then === "function") {
+      raw = await raw;
+    }
+    if (raw == null) {
+      return {};
+    }
+    if (Buffer.isBuffer(raw)) {
+      try {
+        return JSON.parse(raw.toString("utf8") || "{}");
+      } catch {
+        return {};
+      }
+    }
+    if (typeof raw === "string") {
+      try {
+        return JSON.parse(raw || "{}");
+      } catch {
+        return {};
+      }
+    }
+    if (typeof raw === "object") {
+      return raw;
+    }
+    return {};
+  } catch (e) {
+    console.error("readJsonBody error:", e?.message || e);
+    return {};
+  }
+}
+
+async function safeRateLimit(ip) {
+  try {
+    return await ratelimit.limit(ip);
+  } catch (e) {
+    console.error("ratelimit error (request allowed):", e?.message || e);
+    return { success: true };
+  }
+}
+
 function detectEmergency(text) {
   const t = (text || "").toLowerCase();
   const keywords = [
@@ -210,6 +257,16 @@ export default async function handler(req, res) {
       return res.status(200).end();
     }
 
+    // デプロイ確認・設定確認用（ブラウザで開かない想定）
+    if (req.method === "GET") {
+      return res.status(200).json({
+        ok: true,
+        hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
+        model: OPENAI_MODEL,
+        emergencyRoutingWorks: detectEmergency("大量出血しています"),
+      });
+    }
+
     if (req.method !== "POST") {
       return res.status(405).json({ error: "Method not allowed" });
     }
@@ -220,7 +277,7 @@ export default async function handler(req, res) {
       req.socket?.remoteAddress ||
       "ip";
 
-    const { success } = await ratelimit.limit(ip);
+    const { success } = await safeRateLimit(ip);
     if (!success) {
       return res.status(429).json({
         answer: "アクセスが集中しています。少し時間をおいてからお試しください。",
@@ -239,7 +296,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const { message, history } = req.body || {};
+    const { message, history } = await readJsonBody(req);
 
     const userMessage = (message || "").trim();
     if (!userMessage) {
@@ -249,6 +306,14 @@ export default async function handler(req, res) {
     // 危険サインはモデルに投げずに即時誘導（安全のため）
     if (detectEmergency(userMessage)) {
       return res.status(200).json({ answer: emergencyMessage(), emergency: true });
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      console.error("OPENAI_API_KEY is not configured");
+      return res.status(500).json({
+        answer: "AI連携の設定が完了していません。管理者に連絡してください。",
+        emergency: false,
+      });
     }
 
     const safeHistory = Array.isArray(history) ? history.slice(-8) : [];
@@ -271,7 +336,62 @@ export default async function handler(req, res) {
       "すみません、うまく回答を生成できませんでした。";
     return res.status(200).json({ answer, emergency: false });
   } catch (e) {
-    console.error("chat handler error:", e);
+    const detail = e?.message || String(e);
+    const status = e?.status ?? e?.response?.status;
+    const code = e?.code;
+    console.error(
+      "chat handler error:",
+      detail,
+      status != null ? `http=${status}` : "",
+      code != null ? `code=${code}` : ""
+    );
+
+    if (e instanceof APIConnectionError) {
+      return res.status(500).json({
+        answer: "AIサービスへ接続できませんでした。時間をおいて再度お試しください。",
+        emergency: false,
+      });
+    }
+
+    if (status === 401) {
+      return res.status(500).json({
+        answer:
+          "AIサービスの認証に失敗しました。本番環境の OPENAI_API_KEY をダッシュボードで確認してください。",
+        emergency: false,
+      });
+    }
+
+    if (status === 403) {
+      return res.status(500).json({
+        answer:
+          "AIの利用がこのキーでは許可されていません（組織・プロジェクト設定を確認してください）。",
+        emergency: false,
+      });
+    }
+
+    if (status === 404) {
+      return res.status(500).json({
+        answer: `AIモデル「${OPENAI_MODEL}」が利用できません。Vercel の OPENAI_MODEL を gpt-4o-mini などに設定し直してください。`,
+        emergency: false,
+      });
+    }
+
+    if (status === 429 || code === "insufficient_quota") {
+      return res.status(500).json({
+        answer:
+          "AIサービス側の混雑、または利用上限に達しています。しばらくしてからお試しいただくか、請求・枠をご確認ください。",
+        emergency: false,
+      });
+    }
+
+    if (status === 400 && e instanceof APIError) {
+      return res.status(500).json({
+        answer:
+          "AIへのリクエストが拒否されました（モデル名・入力内容の制限）。管理者が OPENAI_MODEL 等を確認してください。",
+        emergency: false,
+      });
+    }
+
     return res.status(500).json({ answer: "サーバ側でエラーが発生しました。", emergency: false });
   }
 }
