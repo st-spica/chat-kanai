@@ -203,8 +203,13 @@
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
 
+    // 行頭の Markdown 箇条書き（- / *）を「・」に統一
+    const withJapaneseBullets = escaped
+      .replace(/^(\s*)-\s+/gm, "$1・")
+      .replace(/^(\s*)\*\s+/gm, "$1・");
+
     // 改行を<br>に変換しつつ、簡易Markdown→HTML変換
-    let html = escaped
+    let html = withJapaneseBullets
       .replace(/\n/g, "<br>")
       // **太字** を <strong>太字</strong> に変換
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
