@@ -76,7 +76,7 @@ function loadClinicKnowledge() {
       }
     }
     
-    // 質問と回答のペアを明確に提示する形式で整形（全文用）
+    // 質問と回答のペアを明確に提示する形式で整形
     const formattedItems = [];
     const referenceUrls = [];
     
@@ -112,82 +112,17 @@ function loadClinicKnowledge() {
     if (referenceUrls.length > 0) {
       knowledgeText += `\n\n【参考URL】\n${referenceUrls.map(url => `- ${url}`).join("\n")}`;
     }
-
-    return {
-      faqItems,
-      referenceUrls,
-      knowledgeText,
-    };
+    
+    return knowledgeText;
   } catch (error) {
     // フォールバック：デフォルト値
     console.error("CSVファイルの読み込みに失敗しました:", error.message);
-    return {
-      faqItems: [],
-      referenceUrls: [],
-      knowledgeText: `【金井産婦人科（院内FAQ要約・抜粋）】\n- 情報の読み込みに失敗しました。`,
-    };
+    return `【金井産婦人科（院内FAQ要約・抜粋）】\n- 情報の読み込みに失敗しました。`;
   }
 }
 
 // 起動時に1回だけ読み込む（処理を軽くするため）
-const { faqItems: CLINIC_FAQ_ITEMS, referenceUrls: CLINIC_REFERENCE_URLS, knowledgeText: CLINIC_KNOWLEDGE_TEXT } =
-  loadClinicKnowledge();
-
-// ユーザーの質問に関連が高そうな院内情報だけを数件ピックアップして渡す
-function buildClinicKnowledgeSnippet(userMessage) {
-  const text = (userMessage || "").trim();
-  if (!text || !Array.isArray(CLINIC_FAQ_ITEMS) || CLINIC_FAQ_ITEMS.length === 0) {
-    return CLINIC_KNOWLEDGE_TEXT || "";
-  }
-
-  const lowered = text.toLowerCase();
-
-  const scored = CLINIC_FAQ_ITEMS.map((item) => {
-    const q = String(item.question || "");
-    const tokens = q.split(/[\s、。・,]+/).filter((t) => t.length >= 2);
-    let score = 0;
-    for (const tok of tokens) {
-      if (lowered.includes(tok.toLowerCase())) {
-        score += tok.length;
-      }
-    }
-    // カテゴリ名も少しだけ重みをつける
-    if (item.category && lowered.includes(String(item.category).toLowerCase())) {
-      score += 3;
-    }
-    return { item, score };
-  });
-
-  // スコア順に並べて上位数件だけ使う
-  const top = scored
-    .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 6)
-    .map(({ item }) => item);
-
-  // 一致がまったくないときは、全文よりも軽い「代表的な数件」を返す
-  const useItems = top.length > 0 ? top : CLINIC_FAQ_ITEMS.slice(0, 5);
-
-  const parts = useItems.map((item) => {
-    let text = `Q: ${item.question}\nA: ${item.answer}`;
-    if (item.url && (item.url.startsWith("http://") || item.url.startsWith("https://"))) {
-      text += `\n参考ページ: ${item.url}`;
-    }
-    if (item.category && item.category.trim() !== "") {
-      text = `[${item.category}] ${text}`;
-    }
-    return text;
-  });
-
-  let snippet = `【金井産婦人科（院内FAQ 抜粋・関連が高そうな項目のみ）】\n\n${parts.join("\n\n")}`;
-
-  // 参考URLを軽く添える
-  if (Array.isArray(CLINIC_REFERENCE_URLS) && CLINIC_REFERENCE_URLS.length > 0) {
-    snippet += `\n\n【参考URL（院内サイト）】\n${CLINIC_REFERENCE_URLS.map((u) => `- ${u}`).join("\n")}`;
-  }
-
-  return snippet;
-}
+const CLINIC_KNOWLEDGE = loadClinicKnowledge();
 
 const SYSTEM = `
 あなたは産婦人科サイトの相談チャットボットです。
@@ -223,7 +158,7 @@ const SYSTEM = `
 - 文末に絵文字を使用する場合は、句読点は表示しない。
 
 【院内情報データ（システム専用。ユーザー向けの回答テキストには、この名称を出さない）】
-このあと別の system メッセージとして与えられる「院内情報データの抜粋」（Q&A形式と参考URL）を主な根拠として回答を作成すること。
+${CLINIC_KNOWLEDGE}
 `.trim();
 
 function setCors(res, origin) {
@@ -383,21 +318,10 @@ export default async function handler(req, res) {
       });
     }
 
-    const safeHistory = Array.isArray(history) ? history.slice(-4) : [];
-
-    const clinicSnippet = buildClinicKnowledgeSnippet(userMessage);
+    const safeHistory = Array.isArray(history) ? history.slice(-8) : [];
 
     const messages = [
       { role: "system", content: SYSTEM },
-      // 院内情報データ（関連する項目だけを抜粋）
-      ...(clinicSnippet
-        ? [
-            {
-              role: "system",
-              content: clinicSnippet,
-            },
-          ]
-        : []),
       ...safeHistory
         .filter((h) => h && (h.role === "user" || h.role === "assistant"))
         .map((h) => ({ role: h.role, content: String(h.content || "") })),
