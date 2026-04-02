@@ -335,6 +335,19 @@ export default async function handler(req, res) {
     const answer =
       (completion.choices[0]?.message?.content || "").trim() ||
       "すみません、うまく回答を生成できませんでした。";
+
+    // Vercel のログにチャット内容（生テキスト）を残す
+    // - IP やブラウザ情報などの識別子は含めない
+    // - 必要に応じて Vercel ダッシュボードの Logs から確認する想定
+    console.log(
+      "chat-log",
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        user: userMessage,
+        answer,
+      })
+    );
+
     return res.status(200).json({ answer, emergency: false });
   } catch (e) {
     const detail = e?.message || String(e);
