@@ -4,7 +4,16 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { ratelimit } from "./_ratelimit.js";
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+let client = null;
+function getOpenAIClient() {
+  if (!process.env.OPENAI_API_KEY) {
+    return null;
+  }
+  if (!client) {
+    client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return client;
+}
 
 // Chat Completions 用（未設定時は利用しやすい gpt-4o-mini）
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
@@ -218,7 +227,7 @@ const SYSTEM = `
   - ただし、絵文字の使いすぎは避け、適度に使用する
 - 参考webページがある場合（当院サイトに限る）は対象のwebページへの誘導も添える。その際は、回答本文とは別に**文末に改行を入れてから**、次の形式でまとめて表示すること：  
   「【参考ページ】」の見出しのあとに改行し、  
-  「・https://www.kanai.or.jp/〜」のように **URLのみ** を箇条書きで並べる（テキストリンク `[タイトル](URL)` ではなく、生のURLを表示する）。
+  「・https://www.kanai.or.jp/〜」のように **URLのみ** を箇条書きで並べる（テキストリンク形式ではなく、生のURL文字列をそのまま表示する）。
 - 以下の院内情報データの「参考URL」セクションに記載されているURLは、関連する質問があった場合に**必ず回答の一番下に【参考ページ】として箇条書きで表示する**。
 - ユーザーが不安そうな場合は、安心感を与える一言を添える。ただし不必要な保証はしない。
 - ユーザーの質問が以下の院内情報データ内の質問と意味的に近い場合は、対応する回答をもとに、自然な文章に言い換えて説明する。完全一致でなくてもよい。
@@ -377,7 +386,8 @@ export default async function handler(req, res) {
       return res.status(200).json({ answer: emergencyMessage(), emergency: true });
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    const openai = getOpenAIClient();
+    if (!openai) {
       console.error("OPENAI_API_KEY is not configured");
       return res.status(500).json({
         answer: "AI連携の設定が完了していません。管理者に連絡してください。",
@@ -406,7 +416,7 @@ export default async function handler(req, res) {
       { role: "user", content: userMessage },
     ];
 
-    const completion = await client.chat.completions.create({
+    const completion = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages,
     });
