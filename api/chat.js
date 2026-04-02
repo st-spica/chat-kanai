@@ -427,11 +427,16 @@ export default async function handler(req, res) {
 
     // Vercel のログにチャット内容（生テキスト）を残す
     // - IP やブラウザ情報などの識別子は含めない
-    // - 必要に応じて Vercel ダッシュボードの Logs から確認する想定
+    // - JST と ISO の両方のタイムスタンプを記録して、あとから見やすくする
+    const now = new Date();
+    const tsIso = now.toISOString();
+    const tsJst = now.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+
     console.log(
       "chat-log",
       JSON.stringify({
-        ts: new Date().toISOString(),
+        ts: tsIso,
+        ts_jst: tsJst,
         user: userMessage,
         answer,
       })
