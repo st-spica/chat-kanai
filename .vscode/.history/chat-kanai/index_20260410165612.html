@@ -275,31 +275,15 @@
       .replace(/^(\s*)-\s+/gm, "$1・")
       .replace(/^(\s*)\*\s+/gm, "$1・");
 
-    // 文頭が絵文字の行は、先頭の「・」を外す（例: "・✅ ..." -> "✅ ..."）
-    const withEmojiHeadCleanup = withJapaneseBullets.replace(
-      /^(\s*)・\s*([✅📋💡ℹ️⚠️📞🚗🅿️🕒📝⭐✨👉])/gm,
-      "$1$2"
-    );
-
     // 改行を<br>に変換しつつ、簡易Markdown→HTML変換
-    let html = withEmojiHeadCleanup
+    let html = withJapaneseBullets
       .replace(/\n/g, "<br>")
       // **太字** を <strong>太字</strong> に変換
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       // *斜体* を <em>斜体</em> に変換（必要に応じて）
       .replace(/\*(.+?)\*/g, "<em>$1</em>")
-      // URL文字列をクリック可能なリンクに変換（疑似URLはリンク化しない）
-      .replace(/(https?:\/\/[^\s<]+)/g, (u) => {
-        const trimmed = String(u || "").trim();
-        if (
-          trimmed.includes("〜") ||
-          trimmed.endsWith("/〜") ||
-          /\/~($|[/?#])/i.test(trimmed)
-        ) {
-          return trimmed;
-        }
-        return `<a href="${trimmed}" target="_blank" rel="noopener noreferrer">${trimmed}</a>`;
-      })
+      // URL文字列をクリック可能なリンクに変換
+      .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>')
       // 変換しきれなかった **（タイピング途中・奇数個など）は表示しない
       .replace(/\*\*/g, "");
 

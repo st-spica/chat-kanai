@@ -230,9 +230,8 @@
   }
 
   const disclaimerText =
-`このチャットでは、安心してご利用いただくために、お名前やご住所、電話番号などの個人情報の入力はお控えください。
-また、出血が多い・強い腹痛がある・意識がぼんやりする・高い熱があるなど、気になる症状がある場合は、無理をせず医療機関へご連絡・受診をご検討ください。
-状況によっては、救急（119）の利用もご検討ください。`;
+`個人情報（氏名、住所、電話番号、保険番号など）は入力しないでください。
+大量出血、強い腹痛、意識がもうろう、高熱、破水が疑われる、胎動が少ない等の症状がある場合は、すぐに医療機関へ連絡・受診してください。必要に応じて119もご検討ください。`;
 
   const consentBox = document.getElementById("consentBox");
   const chatUI = document.getElementById("chatUI");
@@ -275,31 +274,15 @@
       .replace(/^(\s*)-\s+/gm, "$1・")
       .replace(/^(\s*)\*\s+/gm, "$1・");
 
-    // 文頭が絵文字の行は、先頭の「・」を外す（例: "・✅ ..." -> "✅ ..."）
-    const withEmojiHeadCleanup = withJapaneseBullets.replace(
-      /^(\s*)・\s*([✅📋💡ℹ️⚠️📞🚗🅿️🕒📝⭐✨👉])/gm,
-      "$1$2"
-    );
-
     // 改行を<br>に変換しつつ、簡易Markdown→HTML変換
-    let html = withEmojiHeadCleanup
+    let html = withJapaneseBullets
       .replace(/\n/g, "<br>")
       // **太字** を <strong>太字</strong> に変換
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       // *斜体* を <em>斜体</em> に変換（必要に応じて）
       .replace(/\*(.+?)\*/g, "<em>$1</em>")
-      // URL文字列をクリック可能なリンクに変換（疑似URLはリンク化しない）
-      .replace(/(https?:\/\/[^\s<]+)/g, (u) => {
-        const trimmed = String(u || "").trim();
-        if (
-          trimmed.includes("〜") ||
-          trimmed.endsWith("/〜") ||
-          /\/~($|[/?#])/i.test(trimmed)
-        ) {
-          return trimmed;
-        }
-        return `<a href="${trimmed}" target="_blank" rel="noopener noreferrer">${trimmed}</a>`;
-      })
+      // URL文字列をクリック可能なリンクに変換
+      .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>')
       // 変換しきれなかった **（タイピング途中・奇数個など）は表示しない
       .replace(/\*\*/g, "");
 
