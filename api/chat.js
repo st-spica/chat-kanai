@@ -16,6 +16,11 @@ function getOpenAIClient() {
 // Chat Completions 用（未設定時は利用しやすい gpt-4o-mini）
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
+// true のとき、サイト HTML の取得・抜粋は「当院・手続きっぽい質問」のときだけ行う（応答を軽くする）
+const SITE_KNOWLEDGE_GATED = ["true", "1", "yes"].includes(
+  (process.env.SITE_KNOWLEDGE_GATED || "").toLowerCase().trim()
+);
+
 // 許可するフロントエンドのOrigin（環境変数 ALLOWED_ORIGINS にカンマ区切りで追加可能）
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://spica8217.xsrv.jp",
@@ -256,6 +261,37 @@ function detectEmergency(text) {
   return keywords.some(k => t.includes(k.toLowerCase()));
 }
 
+/**
+ * 公式サイトを読みにいくかどうか（現在の入力＋直近のユーザー発話をざっくり判定）
+ */
+function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
+  const chunks = [String(userMessage || "")];
+  if (Array.isArray(safeHistory)) {
+    for (const h of safeHistory) {
+      if (h && h.role === "user") {
+        chunks.push(String(h.content || ""));
+      }
+    }
+  }
+  const text = chunks.join("\n").slice(-4000);
+
+  const triggers = [
+    /当院|本院|金井産婦人科|医療法人\s*金井/,
+    /公式サイト|ホームページ|HP|ＨＰ|ウェブ|web\s*予約|ＷＥＢ予約/i,
+    /診療時間|診察時間|受付時間|休診|夜診|午前診|午後診|日曜|祝日|土曜/,
+    /予約|初診|再診|キャンセル/,
+    /料金|費用|支払い|クレジット|現金|予納金|予約金/,
+    /駐車場|パーキング|アクセス|行き方|場所|住所|地図|最寄|蒲生|鴫野|今福/,
+    /教室|産前教室|産後|面会|立ち会い分娩|立ち会い|入院|個室|レストラン/i,
+    /母乳ケア|妊婦健診|乳児健診|健診枠/,
+    /里帰り|分娩|出産|産科|婦人科|産後ケア/,
+    /Q&A|よくある質問|クイック/,
+    /電話|番号|06[-‐]?6931/i,
+  ];
+
+  return triggers.some((re) => re.test(text));
+}
+
 function emergencyMessage() {
   return [
     "⚠️ 現在の症状からは、**緊急性が高い可能性があります。**",
@@ -291,6 +327,7 @@ export default async function handler(req, res) {
         model: OPENAI_MODEL,
         emergencyRoutingWorks: detectEmergency("大量出血しています"),
         knowledgeSource: "site",
+        siteKnowledgeGated: SITE_KNOWLEDGE_GATED,
         siteKnowledge: peekSiteKnowledgeStatus(),
       });
     }
@@ -347,8 +384,11 @@ export default async function handler(req, res) {
 
     const safeHistory = Array.isArray(history) ? history.slice(-4) : [];
 
-    const { snippet, state } = await getSiteKnowledgeSnippet(userMessage);
-    const clinicSnippet = snippet || state?.knowledgeText || "";
+    let clinicSnippet = "";
+    if (!SITE_KNOWLEDGE_GATED || shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory)) {
+      const { snippet, state } = await getSiteKnowledgeSnippet(userMessage);
+      clinicSnippet = snippet || state?.knowledgeText || "";
+    }
 
     const messages = [
       { role: "system", content: SYSTEM },
