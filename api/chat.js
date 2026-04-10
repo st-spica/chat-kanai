@@ -214,15 +214,27 @@ C. 様子見も合理的
 - ユーザーの質問が公式サイトの抜粋の内容と意味的に近い場合は、その内容をもとに自然な文章に言い換えて説明する。完全一致でなくてもよい。
 - 文末に絵文字を使用する場合は、句読点は表示しない。
 
+【二層表示（必須・毎回）】
+チャット画面は「先に短い要約」「続いて詳細」の2段で表示される。次のマーカーは**一字一句**このまま使う（省略・改名禁止）。
+<<<PREVIEW>>>
+（先に出す要約。1〜2文だけ。ここにはマーカー以外を書かない）
+<<</PREVIEW>>>
+<<<DETAIL>>>
+（続きの本文。**太字**・改行・箇条書き可。リッチHTMLが必要なときはこのブロック内を [[[RICH_HTML]]] から始める）
+<<</DETAIL>>>
+
+<<<PREVIEW>>> の前後に別の文字を書かない。DETAIL が短くてよい場合でもブロックは必ず閉じる。
+
 【リッチHTML（表・カード型の見せ方）】
-次に当てはまる質問では、プレーン文や Markdown だけの箇条書き・**太字**に頼った回答は**禁止**。**必ず**回答全体を次の形式にする（例外なし）。
+次に当てはまる質問では、プレーン文や Markdown だけの箇条書き・**太字**に頼った詳細は**禁止**。**<<<DETAIL>>> 内**を次の形式にする（例外なし）。
 ・診療時間・診察時間・受付時間・休診・曜日ごとのスケジュール・午前診／午後診／夜診・「いつまで診ているか」等
 ・料金・費用・予納金・支払い方法など、一覧表で示すのが適切な内容
 
 手順：
-1. 出力の**先頭**は、空白や改行を入れず、次の1行**のみ**：[[[RICH_HTML]]]
-2. その**直後の次の文字から** HTML のみ。マーカーの前後に説明文・挨拶・「〜についてお知らせします」等のプレーンテキストを**一切**書かない（それらはすべて HTML の p や h3 の内側に書く）。
-3. ルートは **1つ** の <div class="chat-card"> にまとめる。共感の一文や締めもこの div 内に含める。
+1. PREVIEW は1〜2文の要約のみ（表やHTMLは書かない）。
+2. DETAIL の**先頭**は、空白や改行を入れず、次の1行**のみ**：[[[RICH_HTML]]]
+3. その**直後**から HTML のみ。マーカーの前後にプレーンテキストを**一切**書かない（挨拶等はすべて HTML の p や h3 の内側）。
+4. ルートは **1つ** の <div class="chat-card"> にまとめる。共感の一文や締めもこの div 内に含める。
 
 使ってよいタグは次に限る：div, h3, h4, p, table, thead, tbody, tr, th, td, ul, ol, li, strong, em, br, span, a, hr, section, caption
 属性は class のみ、および a には href（https://www.kanai.or.jp または https://kanai.or.jp で始まるURLのみ）, target="_blank", rel="noopener noreferrer" のみ。
@@ -240,11 +252,11 @@ const RICH_HTML_THIS_TURN = [
   "【このターンの回答形式（最優先・他会話テンプレより上）】",
   "このユーザー発話は、診療時間・休診・曜日別スケジュール、または料金・費用の確認に該当します。",
   "",
-  "必ず次のみで出力してください。",
-  "1. 先頭は空白・改行なしで次の1行だけ：[[[RICH_HTML]]]",
-  "2. 続けて HTML のみ。前後にプレーンテキストや Markdown を付けない。",
-  "3. ルートは1つの <div class=\"chat-card\">。挨拶・共感・締めもすべてその内側の p や h3 に含める。",
-  "4. 診療枠・曜日別の情報は <table class=\"chat-table\"> で示す（**太字** と行頭「・」だけの羅列は使わない）。",
+  "必ず次の二層形式で出力する。",
+  "1. <<<PREVIEW>>> 〜 <<</PREVIEW>>> に1〜2文の要約（表・HTMLは書かない）。",
+  "2. <<<DETAIL>>> 内の先頭行は [[[RICH_HTML]]] のみ。続けて HTML のみ。",
+  "3. ルートは1つの <div class=\"chat-card\">。診療枠は <table class=\"chat-table\">。",
+  "4. <<</DETAIL>>> で閉じる。",
 ].join("\n");
 
 function setCors(res, origin) {
@@ -387,6 +399,47 @@ function shouldForceRichHtmlForMessage(userMessage, safeHistory) {
   return schedule || fee;
 }
 
+function writeNdjsonLine(res, obj) {
+  res.write(`${JSON.stringify(obj)}\n`);
+}
+
+/**
+ * OpenAI のストリームを NDJSON でクライアントへ流す（1行1JSON）
+ */
+async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages) {
+  const stream = await openai.chat.completions.create({
+    model: OPENAI_MODEL,
+    messages,
+    stream: true,
+    ...(OPENAI_MAX_OUTPUT_TOKENS != null ? { max_tokens: OPENAI_MAX_OUTPUT_TOKENS } : {}),
+  });
+
+  let fullAnswer = "";
+  for await (const part of stream) {
+    const delta = part.choices[0]?.delta?.content || "";
+    if (delta) {
+      fullAnswer += delta;
+      writeNdjsonLine(res, { type: "delta", text: delta });
+    }
+  }
+
+  const trimmed = fullAnswer.trim();
+  const now = new Date();
+  console.log(
+    "chat-log",
+    JSON.stringify({
+      ts: now.toISOString(),
+      ts_jst: now.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
+      user: userMessage,
+      answer: trimmed,
+      streamed: true,
+    })
+  );
+
+  writeNdjsonLine(res, { type: "done" });
+  return trimmed;
+}
+
 function emergencyMessage() {
   return [
     "⚠️ 現在の症状からは、**緊急性が高い可能性があります。**",
@@ -459,9 +512,10 @@ export default async function handler(req, res) {
       });
     }
 
-    const { message, history } = await readJsonBody(req);
-
-    const userMessage = (message || "").trim();
+    const body = await readJsonBody(req);
+    const userMessage = (body.message || "").trim();
+    const wantStream = Boolean(body.stream);
+    const history = body.history;
     if (!userMessage) {
       return res.status(400).json({ answer: "メッセージが空です。", emergency: false });
     }
@@ -534,6 +588,36 @@ export default async function handler(req, res) {
         .map((h) => ({ role: h.role, content: String(h.content || "") })),
       { role: "user", content: userMessage },
     ];
+
+    if (wantStream) {
+      try {
+        res.writeHead(200, {
+          "Content-Type": "application/x-ndjson; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          "X-Accel-Buffering": "no",
+        });
+        await pipeOpenAIStreamNdjson(res, openai, userMessage, messages);
+        res.end();
+      } catch (streamErr) {
+        console.error("openai stream error:", streamErr?.message || streamErr);
+        if (!res.headersSent) {
+          return res.status(500).json({
+            answer: "サーバ側でエラーが発生しました。",
+            emergency: false,
+          });
+        }
+        try {
+          writeNdjsonLine(res, {
+            type: "error",
+            message: "応答の送信が途中で止まりました。時間をおいて再度お試しください。",
+          });
+        } catch {
+          /* ignore */
+        }
+        res.end();
+      }
+      return;
+    }
 
     const completion = await openai.chat.completions.create({
       model: OPENAI_MODEL,
