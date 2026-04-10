@@ -122,6 +122,93 @@
       color: #b00020;
       font-weight: bold;
     }
+
+    /* [[[RICH_HTML]]] 用（アシスタント吹き出し内のカード） */
+    .assistant .chat-card {
+      max-width: 100%;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+      padding: 14px 16px;
+      line-height: 1.55;
+      color: #222;
+    }
+    .assistant .chat-card-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .assistant .chat-card-icon {
+      font-size: 1.25em;
+      line-height: 1;
+    }
+    .assistant .chat-card-title {
+      margin: 0;
+      font-size: 1.15em;
+      font-weight: 700;
+    }
+    .assistant .chat-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      margin: 10px 0;
+    }
+    .assistant .chat-table th,
+    .assistant .chat-table td {
+      border: 1px solid #ddd;
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .assistant .chat-table thead th {
+      background: #e8eaee;
+      font-weight: 700;
+    }
+    .assistant .chat-table tbody tr:nth-child(even) {
+      background: #fafafa;
+    }
+    .assistant .chat-note {
+      font-size: 13px;
+      color: #444;
+      margin: 6px 0 0;
+    }
+    .assistant .chat-pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 14px 0 4px;
+    }
+    .assistant a.chat-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border-radius: 10px;
+      border: 1px solid #2563eb;
+      background: #eff6ff;
+      color: #1d4ed8;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .assistant a.chat-pill:hover {
+      background: #dbeafe;
+    }
+    .assistant .chat-section {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 14px 0 6px;
+      font-weight: 700;
+    }
+    .assistant .chat-list {
+      margin: 0;
+      padding-left: 1.25em;
+    }
+    .assistant .chat-list li {
+      margin: 4px 0;
+    }
   </style>
 </head>
 
@@ -159,8 +246,45 @@
 
 </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
 <script>
   const API_URL = "https://st-spica-chat-kanai.vercel.app/api/chat";
+
+  const RICH_HTML_PREFIX = "[[[RICH_HTML]]]";
+
+  (function initRichHtmlSanitizer() {
+    if (typeof DOMPurify === "undefined") return;
+    const KANAI_HREF = /^https?:\/\/(www\.)?kanai\.or\.jp(\/|$)/i;
+    DOMPurify.addHook("uponSanitizeAttribute", (node, data) => {
+      if (data.attrName === "href" && node.tagName === "A") {
+        if (!KANAI_HREF.test(String(data.attrValue || "").trim())) {
+          data.keepAttr = false;
+        }
+      }
+    });
+  })();
+
+  function stripRichHtmlPrefix(text) {
+    if (text == null || typeof text !== "string") return null;
+    const trimmed = text.trimStart();
+    if (!trimmed.startsWith(RICH_HTML_PREFIX)) return null;
+    return trimmed.slice(RICH_HTML_PREFIX.length).replace(/^\s*\n?/, "");
+  }
+
+  function sanitizeRichHtml(html) {
+    if (typeof DOMPurify === "undefined") {
+      const d = document.createElement("div");
+      d.textContent = html;
+      return d.innerHTML;
+    }
+    return DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: [
+        "div", "h3", "h4", "p", "table", "thead", "tbody", "tr", "th", "td",
+        "ul", "ol", "li", "strong", "em", "br", "span", "a", "hr", "section", "caption",
+      ],
+      ALLOWED_ATTR: ["class", "href", "target", "rel"],
+    });
+  }
 
   const disclaimerText =
 `このチャットは一般的な医療情報の提供を目的としたものであり、診断や治療の代替ではありません。
@@ -238,21 +362,29 @@
       div.style.lineHeight = "1.6";
       bubble.appendChild(div);
 
-      // タイピング風に1文字ずつ表示し、その都度Markdown・リンクを反映
       const original = content || "";
-      let i = 0;
-      const typingSpeed = 15; // 小さいほど速く表示
+      const richBody = stripRichHtmlPrefix(original);
 
-      function step() {
-        if (i <= original.length) {
-          const partial = original.slice(0, i);
-          div.innerHTML = formatMessage(partial);
-          i += 1;
-          setTimeout(step, typingSpeed);
+      if (richBody != null) {
+        div.innerHTML = sanitizeRichHtml(richBody);
+        requestAnimationFrame(() => {
+          msgsEl.scrollTop = msgsEl.scrollHeight;
+        });
+      } else {
+        let i = 0;
+        const typingSpeed = 15; // 小さいほど速く表示
+
+        function step() {
+          if (i <= original.length) {
+            const partial = original.slice(0, i);
+            div.innerHTML = formatMessage(partial);
+            i += 1;
+            setTimeout(step, typingSpeed);
+          }
         }
-      }
 
-      step();
+        step();
+      }
     } else {
       const pre = document.createElement("pre");
       pre.textContent = content;
