@@ -224,6 +224,7 @@ C. 様子見も合理的
 <<</DETAIL>>>
 
 <<<PREVIEW>>> の前後に別の文字を書かない。DETAIL が短くてよい場合でもブロックは必ず閉じる。
+閉じタグは **<<</PREVIEW>>>** と **<<</DETAIL>>>** と完全一致させる（先頭は山括弧3つ、閉じはスラッシュ＋名前のあと山括弧が3つ）。**<<</DETAIL>>** のように末尾の山括弧が足りないと、ユーザーにソースが見えてしまう。
 
 【リッチHTML（表・カード型の見せ方）】
 次に当てはまる質問では、プレーン文や Markdown だけの箇条書き・**太字**に頼った詳細は**禁止**。**<<<DETAIL>>> 内**を次の形式にする（例外なし）。
@@ -239,7 +240,8 @@ C. 様子見も合理的
 使ってよいタグは次に限る：div, h3, h4, p, table, thead, tbody, tr, th, td, ul, ol, li, strong, em, br, span, a, hr, section, caption
 属性は class のみ、および a には href（https://www.kanai.or.jp または https://kanai.or.jp で始まるURLのみ）, target="_blank", rel="noopener noreferrer" のみ。
 script, style, iframe, onclick、data-*、id は使わない。
-ルートの枠は class="chat-card"、見出し周りは class="chat-card-head" / class="chat-card-icon" / class="chat-card-title"、表は class="chat-table"、※注記は class="chat-note"、当院ページへの導線は class="chat-pill-row" と a.chat-pill、まとめ見出しは class="chat-section"、まとめリストは class="chat-list"。
+ルートの枠は class="chat-card"、見出しは **div.chat-card-head** の内側に span.chat-card-icon と **h3.chat-card-title** を置く（h3 に chat-card-head を直接付けない）。
+表は class="chat-table"、※注記は class="chat-note"、当院ページへの導線は class="chat-pill-row" と a.chat-pill、まとめ見出しは class="chat-section"、まとめリストは class="chat-list"。
 
 カード内に当院サイトへのリンクを含めていれば【参考ページ】の URL 箇条書きは**省略してよい**。
 

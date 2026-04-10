@@ -139,6 +139,11 @@
       gap: 8px;
       margin-bottom: 8px;
     }
+    .assistant h3.chat-card-head {
+      display: block;
+      margin: 0 0 8px;
+      font-size: 1.15em;
+    }
     .assistant .chat-card-icon {
       font-size: 1.25em;
       line-height: 1;
@@ -276,9 +281,45 @@
   const RICH_HTML_PREFIX = "[[[RICH_HTML]]]";
 
   const LAYER_PREVIEW_OPEN = "<<<PREVIEW>>>";
-  const LAYER_PREVIEW_CLOSE = "<<</PREVIEW>>>";
   const LAYER_DETAIL_OPEN = "<<<DETAIL>>>";
-  const LAYER_DETAIL_CLOSE = "<<</DETAIL>>>";
+  /** モデルが > の数を間違えやすいので複数パターンで閉じを探す */
+  const LAYER_PREVIEW_CLOSE_VARIANTS = ["<<</PREVIEW>>>", "<<</PREVIEW>>"];
+  const LAYER_DETAIL_CLOSE_VARIANTS = ["<<</DETAIL>>>", "<<</DETAIL>>", "<</DETAIL>>>"];
+
+  function firstCloseMarker(s, variants) {
+    let bestIdx = -1;
+    let needle = "";
+    for (const v of variants) {
+      const i = s.indexOf(v);
+      if (i !== -1 && (bestIdx === -1 || i < bestIdx)) {
+        bestIdx = i;
+        needle = v;
+      }
+    }
+    return bestIdx === -1 ? null : { index: bestIdx, needle };
+  }
+
+  /** 画面に出してはいけない制御用マーカーを除去（取りこぼし対策）。長いパターンを先に除去 */
+  function stripLayerMarkers(s) {
+    let t = String(s || "");
+    const markers = [
+      "<<</PREVIEW>>>",
+      "<<</DETAIL>>>",
+      "<<<PREVIEW>>>",
+      "<<<DETAIL>>>",
+      "<</DETAIL>>>",
+      "<<</PREVIEW>>",
+      "<<</DETAIL>>",
+    ];
+    for (const m of markers) {
+      t = t.split(m).join("");
+    }
+    return t.trim();
+  }
+
+  function trimDetailTrailingMarkerNoise(text) {
+    return String(text || "").replace(/\s*<<<\/?DETAIL[\s\S]*$/i, "").trim();
+  }
 
   (function initRichHtmlSanitizer() {
     if (typeof DOMPurify === "undefined") return;
@@ -314,40 +355,47 @@
       return { hasStructure: false, preview: "", detail: t.trim() };
     }
     const afterPO = t.slice(po + LAYER_PREVIEW_OPEN.length);
-    const pc = afterPO.indexOf(LAYER_PREVIEW_CLOSE);
-    const preview = pc === -1 ? afterPO.trim() : afterPO.slice(0, pc).trim();
-    const afterPC = pc === -1 ? "" : afterPO.slice(pc + LAYER_PREVIEW_CLOSE.length);
+    const pcRes = firstCloseMarker(afterPO, LAYER_PREVIEW_CLOSE_VARIANTS);
+    const preview = pcRes
+      ? stripLayerMarkers(afterPO.slice(0, pcRes.index).trim())
+      : stripLayerMarkers(afterPO.trim());
+    const afterPC = pcRes
+      ? afterPO.slice(pcRes.index + pcRes.needle.length)
+      : "";
     const d0 = afterPC.indexOf(LAYER_DETAIL_OPEN);
     if (d0 === -1) {
       return { hasStructure: true, preview, detail: "" };
     }
     const afterDO = afterPC.slice(d0 + LAYER_DETAIL_OPEN.length);
-    const d1 = afterDO.indexOf(LAYER_DETAIL_CLOSE);
-    const detail = d1 === -1 ? afterDO.trim() : afterDO.slice(0, d1).trim();
+    const d1Res = firstCloseMarker(afterDO, LAYER_DETAIL_CLOSE_VARIANTS);
+    let detail = d1Res
+      ? afterDO.slice(0, d1Res.index).trim()
+      : trimDetailTrailingMarkerNoise(afterDO.trim());
+    detail = stripLayerMarkers(detail);
     return { hasStructure: true, preview, detail };
   }
 
   function updateStreamingAssistantUI(accum, previewEl, detailEl, streamEnded) {
     const po = accum.indexOf(LAYER_PREVIEW_OPEN);
     if (po === -1) {
-      previewEl.innerHTML = formatMessage(accum.trim());
+      previewEl.innerHTML = formatMessage(stripLayerMarkers(accum.trim()));
       detailEl.innerHTML = "";
       detailEl.style.marginTop = "";
       return;
     }
 
     const afterPO = accum.slice(po + LAYER_PREVIEW_OPEN.length);
-    const pc = afterPO.indexOf(LAYER_PREVIEW_CLOSE);
-    const previewText = pc === -1 ? afterPO : afterPO.slice(0, pc);
-    previewEl.innerHTML = formatMessage(previewText.trim());
+    const pcRes = firstCloseMarker(afterPO, LAYER_PREVIEW_CLOSE_VARIANTS);
+    const previewText = pcRes ? afterPO.slice(0, pcRes.index) : afterPO;
+    previewEl.innerHTML = formatMessage(stripLayerMarkers(previewText.trim()));
 
-    if (pc === -1) {
+    if (!pcRes) {
       detailEl.innerHTML = "";
       detailEl.style.marginTop = "";
       return;
     }
 
-    const afterPC = afterPO.slice(pc + LAYER_PREVIEW_CLOSE.length);
+    const afterPC = afterPO.slice(pcRes.index + pcRes.needle.length);
     const d0 = afterPC.indexOf(LAYER_DETAIL_OPEN);
     if (d0 === -1) {
       detailEl.innerHTML = "";
@@ -356,15 +404,20 @@
     }
 
     const afterDO = afterPC.slice(d0 + LAYER_DETAIL_OPEN.length);
-    const d1 = afterDO.indexOf(LAYER_DETAIL_CLOSE);
-    const detailText = d1 === -1 ? afterDO : afterDO.slice(0, d1);
-    const detailClosed = d1 !== -1;
+    const d1Res = firstCloseMarker(afterDO, LAYER_DETAIL_CLOSE_VARIANTS);
+    let detailText = d1Res ? afterDO.slice(0, d1Res.index) : afterDO;
+    const detailClosed = d1Res != null;
 
     detailEl.style.marginTop = "12px";
 
-    const richBody = stripRichHtmlPrefix(detailText);
+    let richBody = stripRichHtmlPrefix(detailText);
     if (richBody != null) {
-      if (detailClosed && streamEnded) {
+      richBody = trimDetailTrailingMarkerNoise(richBody);
+    }
+
+    if (richBody != null) {
+      // ストリーム終了後は閉じタグの取りこぼしがあってもカード描画（コード表示で止まらない）
+      if (streamEnded) {
         detailEl.classList.remove("assistant-detail-building");
         detailEl.innerHTML = sanitizeRichHtml(richBody);
       } else {
@@ -374,7 +427,7 @@
       }
     } else {
       detailEl.classList.remove("assistant-detail-building");
-      detailEl.innerHTML = formatMessage(detailText);
+      detailEl.innerHTML = formatMessage(stripLayerMarkers(detailText));
     }
   }
 
