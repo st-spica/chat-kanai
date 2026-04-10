@@ -3,6 +3,10 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { ratelimit } from "./_ratelimit.js";
+import { getSiteKnowledgeSnippet, peekSiteKnowledgeStatus } from "./_siteKnowledge.js";
+
+// 院内情報の取得元: sitemap（公式サイト） / csv（従来のCSV） / auto（sitemap優先、失敗時はCSV）
+const KNOWLEDGE_SOURCE = (process.env.KNOWLEDGE_SOURCE || "auto").toLowerCase();
 
 let client = null;
 function getOpenAIClient() {
@@ -324,7 +328,7 @@ C. 様子見も合理的
 - 文末に絵文字を使用する場合は、句読点は表示しない。
 
 【院内情報データ（システム専用。ユーザー向けの回答テキストには、この名称を出さない）】
-このあと別の system メッセージとして与えられる「院内情報データの抜粋」（Q&A形式と参考URL）を主な根拠として回答を作成すること。
+このあと別の system メッセージとして与えられる「院内情報の抜粋」（公式サイトのページ本文の抜粋、またはQ&A形式と参考URL）を主な根拠として回答を作成すること。
 `.trim();
 
 function setCors(res, origin) {
@@ -432,6 +436,8 @@ export default async function handler(req, res) {
         hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
         model: OPENAI_MODEL,
         emergencyRoutingWorks: detectEmergency("大量出血しています"),
+        knowledgeSource: KNOWLEDGE_SOURCE,
+        siteKnowledge: peekSiteKnowledgeStatus(),
       });
     }
 
@@ -487,11 +493,24 @@ export default async function handler(req, res) {
 
     const safeHistory = Array.isArray(history) ? history.slice(-4) : [];
 
-    const clinicSnippet = buildClinicKnowledgeSnippet(userMessage);
+    let clinicSnippet = "";
+    if (KNOWLEDGE_SOURCE === "csv") {
+      clinicSnippet = buildClinicKnowledgeSnippet(userMessage);
+    } else if (KNOWLEDGE_SOURCE === "sitemap") {
+      const { snippet, state } = await getSiteKnowledgeSnippet(userMessage);
+      clinicSnippet = snippet || state?.knowledgeText || "";
+    } else {
+      const { snippet, state } = await getSiteKnowledgeSnippet(userMessage);
+      if (state?.chunks?.length) {
+        clinicSnippet = snippet;
+      } else {
+        clinicSnippet = buildClinicKnowledgeSnippet(userMessage);
+      }
+    }
 
     const messages = [
       { role: "system", content: SYSTEM },
-      // 院内情報データ（関連する項目だけを抜粋）
+      // 院内情報（サイト抜粋またはCSV由来）
       ...(clinicSnippet
         ? [
             {
