@@ -673,6 +673,17 @@ async function sendMessage() {
           }
           if (obj.type === "delta" && obj.text) {
             accum += obj.text;
+            const normalized = normalizeLegacyTwoLayerAnswer(accum);
+            const isRich = stripRichHtmlPrefix(normalized) != null;
+            // 最初の3点リーダーは、実際に本文を描画する直前まで維持する
+            if (!isRich) {
+              if (!shell) {
+                hideTyping();
+                shell = addStreamingAssistantShell();
+              }
+              updateStreamingAssistantUI(accum, shell.contentEl, false);
+              msgsEl.scrollTop = msgsEl.scrollHeight;
+            }
           }
           if (obj.type === "done") {
             sawDone = true;
