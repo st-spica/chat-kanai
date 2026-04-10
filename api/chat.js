@@ -180,26 +180,43 @@ C. 様子見も合理的
   - ただし、絵文字の使いすぎは避け、適度に使用する。また、**💕💖 の絵文字は使用しない**（その他の絵文字のみ適度に使用する）。
 - 参考webページがある場合（当院サイトに限る）は対象のwebページへの誘導も添える。その際は、回答本文とは別に**文末に改行を入れてから**、次の形式でまとめて表示すること：    
   「・https://www.kanai.or.jp/〜」のように **URLのみ** を箇条書きで並べる（テキストリンク形式ではなく、生のURL文字列をそのまま表示する）。
-- 別メッセージで与えられる公式サイトの抜粋に含まれるURLは、関連する質問があった場合に**必ず回答の一番下に箇条書きで表示する**。
+- 別メッセージで与えられる公式サイトの抜粋に含まれるURLは、関連する質問があった場合に**必ず回答の一番下に箇条書きで表示する**（ただし【リッチHTML必須】に該当する回答でカード内に同じURLへの a.chat-pill 等を含めた場合は、この箇条書きは省略してよい）。
 - ユーザーが不安そうな場合は、安心感を与える一言を添える。ただし不必要な保証はしない。
 - ユーザーの質問が公式サイトの抜粋の内容と意味的に近い場合は、その内容をもとに自然な文章に言い換えて説明する。完全一致でなくてもよい。
 - 文末に絵文字を使用する場合は、句読点は表示しない。
 
 【リッチHTML（表・カード型の見せ方）】
-診療時間・料金表・曜日ごとのスケジュールなど、「表やカードでまとめた方が分かりやすい」ときは、回答の**先頭を次の1行だけ**にし、その直後にHTMLのみを続ける（このマーカーより前に説明文を書かないこと）。
-[[[RICH_HTML]]]
+次に当てはまる質問では、プレーン文や Markdown だけの箇条書き・**太字**に頼った回答は**禁止**。**必ず**回答全体を次の形式にする（例外なし）。
+・診療時間・診察時間・受付時間・休診・曜日ごとのスケジュール・午前診／午後診／夜診・「いつまで診ているか」等
+・料金・費用・予納金・支払い方法など、一覧表で示すのが適切な内容
 
-続くHTMLのルートは **1つ** の <div class="chat-card"> にまとめる。
+手順：
+1. 出力の**先頭**は、空白や改行を入れず、次の1行**のみ**：[[[RICH_HTML]]]
+2. その**直後の次の文字から** HTML のみ。マーカーの前後に説明文・挨拶・「〜についてお知らせします」等のプレーンテキストを**一切**書かない（それらはすべて HTML の p や h3 の内側に書く）。
+3. ルートは **1つ** の <div class="chat-card"> にまとめる。共感の一文や締めもこの div 内に含める。
+
 使ってよいタグは次に限る：div, h3, h4, p, table, thead, tbody, tr, th, td, ul, ol, li, strong, em, br, span, a, hr, section, caption
 属性は class のみ、および a には href（https://www.kanai.or.jp または https://kanai.or.jp で始まるURLのみ）, target="_blank", rel="noopener noreferrer" のみ。
 script, style, iframe, onclick、data-*、id は使わない。
 ルートの枠は class="chat-card"、見出し周りは class="chat-card-head" / class="chat-card-icon" / class="chat-card-title"、表は class="chat-table"、※注記は class="chat-note"、当院ページへの導線は class="chat-pill-row" と a.chat-pill、まとめ見出しは class="chat-section"、まとめリストは class="chat-list"。
 
-この形式のときは、カード内に当院サイトへのリンクを含めていれば【参考ページ】ブロックは**省略してよい**。
+カード内に当院サイトへのリンクを含めていれば【参考ページ】の URL 箇条書きは**省略してよい**。
 
 【院内サイト抜粋（システム専用。ユーザー向けの回答テキストには、この名称を出さない）】
 このあと別の system メッセージとして与えられる「当院公式サイトのページ本文の抜粋（URL付き）」を主な根拠として回答を作成すること。
 `.trim();
+
+/** このターンだけリッチHTMLを強く指示（モデルがプレーン文に逃げるのを防ぐ） */
+const RICH_HTML_THIS_TURN = [
+  "【このターンの回答形式（最優先・他会話テンプレより上）】",
+  "このユーザー発話は、診療時間・休診・曜日別スケジュール、または料金・費用の確認に該当します。",
+  "",
+  "必ず次のみで出力してください。",
+  "1. 先頭は空白・改行なしで次の1行だけ：[[[RICH_HTML]]]",
+  "2. 続けて HTML のみ。前後にプレーンテキストや Markdown を付けない。",
+  "3. ルートは1つの <div class=\"chat-card\">。挨拶・共感・締めもすべてその内側の p や h3 に含める。",
+  "4. 診療枠・曜日別の情報は <table class=\"chat-table\"> で示す（**太字** と行頭「・」だけの羅列は使わない）。",
+].join("\n");
 
 function setCors(res, origin) {
   // 許可リストに含まれるOriginのみ許可
@@ -301,6 +318,30 @@ function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
   ];
 
   return triggers.some((re) => re.test(text));
+}
+
+/**
+ * 診療時間・料金など「表・カード必須」の質問か（現在＋直近ユーザー発話）
+ */
+function shouldForceRichHtmlForMessage(userMessage, safeHistory) {
+  const chunks = [String(userMessage || "")];
+  if (Array.isArray(safeHistory)) {
+    for (const h of safeHistory) {
+      if (h && h.role === "user") {
+        chunks.push(String(h.content || ""));
+      }
+    }
+  }
+  const text = chunks.join("\n").slice(-4000);
+
+  const schedule =
+    /診療時間|診察時間|受付時間|休診|夜診|午前診|午後診|日曜|祝日|開いてい|何時から|何時まで|診療.*いつ|いつ.*診療/.test(
+      text
+    );
+  const fee =
+    /料金|費用|予納金|予約金|いくら|支払い|クレジット|クレカ|現金/.test(text);
+
+  return schedule || fee;
 }
 
 function emergencyMessage() {
@@ -411,6 +452,9 @@ export default async function handler(req, res) {
               content: clinicSnippet,
             },
           ]
+        : []),
+      ...(shouldForceRichHtmlForMessage(userMessage, safeHistory)
+        ? [{ role: "system", content: RICH_HTML_THIS_TURN }]
         : []),
       ...safeHistory
         .filter((h) => h && (h.role === "user" || h.role === "assistant"))
