@@ -11,6 +11,11 @@ const REDIS_KEY = "chat:site-knowledge:v1";
 
 const DEFAULT_MAX_PAGES = parseInt(process.env.SITE_FETCH_MAX_PAGES || "12", 10);
 const DEFAULT_MAX_CHARS = parseInt(process.env.SITE_MAX_CHARS_PER_PAGE || "5000", 10);
+/** 1リクエストあたりプロンプトに載せる関連チャンク数（小さいほど入力が軽く速い） */
+const SNIPPET_TOP_CHUNKS = Math.min(
+  10,
+  Math.max(1, parseInt(process.env.SITE_SNIPPET_TOP_CHUNKS || "4", 10))
+);
 const DEFAULT_TTL_MS = parseInt(process.env.SITE_KNOWLEDGE_TTL_MS || String(24 * 60 * 60 * 1000), 10);
 const FETCH_TIMEOUT_MS = parseInt(process.env.SITE_FETCH_TIMEOUT_MS || "8000", 10);
 const MAX_SITEMAP_URLS = parseInt(process.env.SITE_SITEMAP_MAX_URLS || "300", 10);
@@ -375,10 +380,10 @@ export function buildSiteKnowledgeSnippet(userMessage, state) {
   const top = scored
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 5)
+    .slice(0, SNIPPET_TOP_CHUNKS)
     .map((s) => s.c);
 
-  const use = top.length > 0 ? top : chunks.slice(0, 4);
+  const use = top.length > 0 ? top : chunks.slice(0, SNIPPET_TOP_CHUNKS);
 
   const parts = use.map((c) => `【${c.title}】\nURL: ${c.url}\n${c.text}`);
 
@@ -412,5 +417,6 @@ export function peekSiteKnowledgeStatus() {
     registeredUrlCount: registeredCount,
     ttlMs: DEFAULT_TTL_MS,
     maxPages: DEFAULT_MAX_PAGES,
+    snippetTopChunks: SNIPPET_TOP_CHUNKS,
   };
 }

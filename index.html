@@ -340,8 +340,10 @@
       // *斜体* を <em>斜体</em> に変換（必要に応じて）
       .replace(/\*(.+?)\*/g, "<em>$1</em>")
       // URL文字列をクリック可能なリンクに変換
-      .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
-    
+      .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>')
+      // 変換しきれなかった **（タイピング途中・奇数個など）は表示しない
+      .replace(/\*\*/g, "");
+
     return html;
   }
 

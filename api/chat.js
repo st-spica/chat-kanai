@@ -16,6 +16,20 @@ function getOpenAIClient() {
 // Chat Completions 用（未設定時は利用しやすい gpt-4o-mini）
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
+// 未設定なら送らない（長いリッチHTML が必要なら空のまま）
+const OPENAI_MAX_OUTPUT_TOKENS = (() => {
+  const raw = (process.env.OPENAI_MAX_OUTPUT_TOKENS || "").trim();
+  if (!raw) return undefined;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+})();
+
+// 院内抜粋を API に載せる最大文字数（入力トークン削減＝待ち時間・コスト削減）
+const SITE_SNIPPET_MAX_CHARS = Math.max(
+  2000,
+  parseInt(process.env.SITE_SNIPPET_MAX_CHARS || "12000", 10)
+);
+
 // true のとき、サイト HTML の取得・抜粋は「当院・手続きっぽい質問」のときだけ行う（応答を軽くする）
 const SITE_KNOWLEDGE_GATED = ["true", "1", "yes"].includes(
   (process.env.SITE_KNOWLEDGE_GATED || "").toLowerCase().trim()
@@ -377,6 +391,8 @@ export default async function handler(req, res) {
         ok: true,
         hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
         model: OPENAI_MODEL,
+        maxOutputTokens: OPENAI_MAX_OUTPUT_TOKENS ?? null,
+        siteSnippetMaxChars: SITE_SNIPPET_MAX_CHARS,
         emergencyRoutingWorks: detectEmergency("大量出血しています"),
         knowledgeSource: "site",
         siteKnowledgeGated: SITE_KNOWLEDGE_GATED,
@@ -440,6 +456,11 @@ export default async function handler(req, res) {
     if (!SITE_KNOWLEDGE_GATED || shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory)) {
       const { snippet, state } = await getSiteKnowledgeSnippet(userMessage);
       clinicSnippet = snippet || state?.knowledgeText || "";
+      if (clinicSnippet.length > SITE_SNIPPET_MAX_CHARS) {
+        clinicSnippet =
+          clinicSnippet.slice(0, SITE_SNIPPET_MAX_CHARS) +
+          "\n\n（以降、文字数制限のため省略しました）";
+      }
     }
 
     const messages = [
@@ -465,6 +486,7 @@ export default async function handler(req, res) {
     const completion = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages,
+      ...(OPENAI_MAX_OUTPUT_TOKENS != null ? { max_tokens: OPENAI_MAX_OUTPUT_TOKENS } : {}),
     });
 
     const answer =
