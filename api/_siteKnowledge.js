@@ -1,7 +1,8 @@
 /**
- * 当院サイトの sitemap から URL を収集し、HTML を取得してテキスト化する。
+ * 当院サイトの HTML を取得してテキスト化する。
+ * - 優先: 環境変数 SITE_URL_LIST（改行・カンマ・| 区切り）で URL を直接指定 → sitemap を読まず高速
+ * - 未指定時: sitemap から URL を収集
  * - メモリキャッシュ + 任意で Upstash Redis（既存の UPSTASH_* があれば利用）
- * - Vercel の関数時間制限を考慮し、取得ページ数はデフォルト控えめ
  */
 
 import { Redis } from "@upstash/redis";
@@ -20,6 +21,8 @@ let memoryCache = {
   referenceUrls: [],
   knowledgeText: "",
   error: null,
+  /** @type {"url_list"|"sitemap"|null} */
+  fetchMode: null,
 };
 
 let inflight = null;
@@ -45,6 +48,34 @@ function urlPriority(u) {
   if (/\/visit|\/lesson|\/obstetrics|\/gynecology|\/restaurant|\/about/i.test(u)) s += 8;
   if (/\/news|\/info|\/column/i.test(u)) s += 3;
   return s;
+}
+
+/**
+ * Vercel の SITE_URL_LIST に登録した URL のみ取得する（sitemap 不要・速い）
+ * 区切り: 改行 / カンマ / |
+ */
+function parseRegisteredUrlList() {
+  const raw = (process.env.SITE_URL_LIST || "").trim();
+  if (!raw) return [];
+
+  const parts = raw
+    .split(/[\n\r|,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const out = [];
+  for (const p of parts) {
+    if (!/^https?:\/\//i.test(p)) continue;
+    try {
+      const { hostname } = new URL(p);
+      if (!allowedHost(hostname)) continue;
+      if (isSkippableUrl(p)) continue;
+      out.push(p);
+    } catch {
+      /* skip */
+    }
+  }
+  return [...new Set(out)];
 }
 
 async function fetchText(url) {
@@ -180,9 +211,20 @@ async function resolveEntrySitemapUrl() {
 }
 
 async function buildFreshKnowledge(maxPages, maxChars) {
-  const entry = await resolveEntrySitemapUrl();
-  const allUrls = await collectAllPageUrls(entry);
-  const picked = filterAndRankUrls(allUrls, maxPages);
+  const registered = parseRegisteredUrlList();
+  let picked;
+  /** @type {"url_list"|"sitemap"} */
+  let fetchMode;
+
+  if (registered.length > 0) {
+    fetchMode = "url_list";
+    picked = registered.slice(0, maxPages);
+  } else {
+    fetchMode = "sitemap";
+    const entry = await resolveEntrySitemapUrl();
+    const allUrls = await collectAllPageUrls(entry);
+    picked = filterAndRankUrls(allUrls, maxPages);
+  }
 
   const chunks = (await Promise.all(picked.map((u) => fetchPageChunk(u, maxChars)))).filter(Boolean);
 
@@ -194,6 +236,7 @@ async function buildFreshKnowledge(maxPages, maxChars) {
     referenceUrls,
     knowledgeText,
     error: chunks.length ? null : "no_chunks",
+    fetchMode,
   };
 }
 
@@ -212,6 +255,7 @@ async function readFromRedis() {
       referenceUrls: parsed.referenceUrls || [],
       knowledgeText: parsed.knowledgeText || "",
       error: parsed.error || null,
+      fetchMode: parsed.fetchMode ?? null,
       fromRedis: true,
       builtAt: parsed.builtAt,
     };
@@ -242,7 +286,7 @@ async function writeToRedis(payload) {
 export async function ensureSiteKnowledgeLoaded() {
   const now = Date.now();
   if (memoryCache.chunks.length && now - memoryCache.at < DEFAULT_TTL_MS) {
-    return { ...memoryCache, fromCache: "memory" };
+    return { ...memoryCache, fromCache: "memory", fetchMode: memoryCache.fetchMode };
   }
 
   const fromRedis = await readFromRedis();
@@ -253,6 +297,7 @@ export async function ensureSiteKnowledgeLoaded() {
       referenceUrls: fromRedis.referenceUrls,
       knowledgeText: fromRedis.knowledgeText,
       error: fromRedis.error,
+      fetchMode: fromRedis.fetchMode ?? null,
     };
     return { ...memoryCache, fromCache: "redis" };
   }
@@ -270,12 +315,14 @@ export async function ensureSiteKnowledgeLoaded() {
         referenceUrls: built.referenceUrls,
         knowledgeText: built.knowledgeText,
         error: built.error,
+        fetchMode: built.fetchMode ?? null,
       };
       await writeToRedis({
         chunks: built.chunks,
         referenceUrls: built.referenceUrls,
         knowledgeText: built.knowledgeText,
         error: built.error,
+        fetchMode: built.fetchMode,
       });
       return { ...memoryCache, fromCache: "fresh" };
     } catch (e) {
@@ -286,6 +333,7 @@ export async function ensureSiteKnowledgeLoaded() {
         referenceUrls: [],
         knowledgeText: "",
         error: e?.message || String(e),
+        fetchMode: null,
       };
       return { ...memoryCache, fromCache: "error" };
     } finally {
@@ -355,10 +403,13 @@ export async function getSiteKnowledgeSnippet(userMessage) {
 export function peekSiteKnowledgeStatus() {
   const now = Date.now();
   const fresh = memoryCache.chunks.length > 0 && now - memoryCache.at < DEFAULT_TTL_MS;
+  const registeredCount = parseRegisteredUrlList().length;
   return {
     memoryCached: fresh,
     chunkCount: fresh ? memoryCache.chunks.length : 0,
     lastError: memoryCache.error,
+    fetchMode: memoryCache.fetchMode,
+    registeredUrlCount: registeredCount,
     ttlMs: DEFAULT_TTL_MS,
     maxPages: DEFAULT_MAX_PAGES,
   };

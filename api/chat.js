@@ -1,12 +1,6 @@
 import OpenAI, { APIConnectionError, APIError } from "openai";
-import { readFileSync } from "fs";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
 import { ratelimit } from "./_ratelimit.js";
 import { getSiteKnowledgeSnippet, peekSiteKnowledgeStatus } from "./_siteKnowledge.js";
-
-// 院内情報の取得元: sitemap（公式サイト） / csv（従来のCSV） / auto（sitemap優先、失敗時はCSV）
-const KNOWLEDGE_SOURCE = (process.env.KNOWLEDGE_SOURCE || "auto").toLowerCase();
 
 let client = null;
 function getOpenAIClient() {
@@ -38,170 +32,6 @@ function loadAllowedOrigins() {
 
 const ALLOWED_ORIGINS = loadAllowedOrigins();
 
-// CSVファイルから院内情報を読み込み（起動時に1回だけ実行）
-function loadClinicKnowledge() {
-  try {
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
-    const filePath = join(__dirname, "../data/clinic-knowledge.csv");
-    const csvContent = readFileSync(filePath, "utf-8");
-    
-    // CSVをパース（カテゴリ,質問,回答,参照URLの形式）
-    const lines = csvContent
-      .split("\n")
-      .map(line => line.trim())
-      .filter(line => line.length > 0);
-    
-    if (lines.length < 2) {
-      throw new Error("CSVファイルの形式が正しくありません");
-    }
-    
-    // ヘッダー行をスキップしてデータを処理
-    const faqItems = [];
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
-      // CSVのカンマ区切りを解析（ダブルクォート内のカンマに対応）
-      const columns = [];
-      let current = "";
-      let inQuotes = false;
-      
-      for (let j = 0; j < line.length; j++) {
-        const char = line[j];
-        if (char === '"') {
-          inQuotes = !inQuotes;
-        } else if (char === ',' && !inQuotes) {
-          columns.push(current.trim());
-          current = "";
-        } else {
-          current += char;
-        }
-      }
-      columns.push(current.trim()); // 最後の列
-      
-      if (columns.length >= 3) {
-        const [category, question, answer, url] = columns;
-        faqItems.push({
-          category: category || "",
-          question: question || "",
-          answer: answer || "",
-          url: url || ""
-        });
-      }
-    }
-    
-    // 質問と回答のペアを明確に提示する形式で整形（全文用）
-    const formattedItems = [];
-    const referenceUrls = [];
-    
-    faqItems.forEach(item => {
-      const hasHttpAnswer =
-        item.answer && (item.answer.startsWith("http://") || item.answer.startsWith("https://"));
-
-      // 回答がURLのみの場合（純粋な参考URLとして扱う）
-      if (hasHttpAnswer && (!item.question || item.question.trim() === "")) {
-        referenceUrls.push(item.answer);
-        return;
-      }
-
-      // 通常のQ&A形式
-      let text = `Q: ${item.question}\nA: ${item.answer}`;
-
-      // 参照URL列がある場合は、回答の末尾に「参考ページ」としてURLを添える
-      if (item.url && (item.url.startsWith("http://") || item.url.startsWith("https://"))) {
-        text += `\n参考ページ: ${item.url}`;
-      }
-
-      // カテゴリが空の場合はカテゴリ表示をスキップ（基本情報など）
-      if (item.category && item.category.trim() !== "") {
-        text = `[${item.category}] ${text}`;
-      }
-
-      formattedItems.push(text);
-    });
-    
-    let knowledgeText = `【金井産婦人科（院内FAQ要約・抜粋）】\n\n${formattedItems.join("\n\n")}`;
-    
-    // 参考URLがある場合は追加
-    if (referenceUrls.length > 0) {
-      knowledgeText += `\n\n【参考URL】\n${referenceUrls.map(url => `- ${url}`).join("\n")}`;
-    }
-
-    return {
-      faqItems,
-      referenceUrls,
-      knowledgeText,
-    };
-  } catch (error) {
-    // フォールバック：デフォルト値
-    console.error("CSVファイルの読み込みに失敗しました:", error.message);
-    return {
-      faqItems: [],
-      referenceUrls: [],
-      knowledgeText: `【金井産婦人科（院内FAQ要約・抜粋）】\n- 情報の読み込みに失敗しました。`,
-    };
-  }
-}
-
-// 起動時に1回だけ読み込む（処理を軽くするため）
-const { faqItems: CLINIC_FAQ_ITEMS, referenceUrls: CLINIC_REFERENCE_URLS, knowledgeText: CLINIC_KNOWLEDGE_TEXT } =
-  loadClinicKnowledge();
-
-// ユーザーの質問に関連が高そうな院内情報だけを数件ピックアップして渡す
-function buildClinicKnowledgeSnippet(userMessage) {
-  const text = (userMessage || "").trim();
-  if (!text || !Array.isArray(CLINIC_FAQ_ITEMS) || CLINIC_FAQ_ITEMS.length === 0) {
-    return CLINIC_KNOWLEDGE_TEXT || "";
-  }
-
-  const lowered = text.toLowerCase();
-
-  const scored = CLINIC_FAQ_ITEMS.map((item) => {
-    const q = String(item.question || "");
-    const tokens = q.split(/[\s、。・,]+/).filter((t) => t.length >= 2);
-    let score = 0;
-    for (const tok of tokens) {
-      if (lowered.includes(tok.toLowerCase())) {
-        score += tok.length;
-      }
-    }
-    // カテゴリ名も少しだけ重みをつける
-    if (item.category && lowered.includes(String(item.category).toLowerCase())) {
-      score += 3;
-    }
-    return { item, score };
-  });
-
-  // スコア順に並べて上位数件だけ使う
-  const top = scored
-    .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 6)
-    .map(({ item }) => item);
-
-  // 一致がまったくないときは、全文よりも軽い「代表的な数件」を返す
-  const useItems = top.length > 0 ? top : CLINIC_FAQ_ITEMS.slice(0, 5);
-
-  const parts = useItems.map((item) => {
-    let text = `Q: ${item.question}\nA: ${item.answer}`;
-    if (item.url && (item.url.startsWith("http://") || item.url.startsWith("https://"))) {
-      text += `\n参考ページ: ${item.url}`;
-    }
-    if (item.category && item.category.trim() !== "") {
-      text = `[${item.category}] ${text}`;
-    }
-    return text;
-  });
-
-  let snippet = `【金井産婦人科（院内FAQ 抜粋・関連が高そうな項目のみ）】\n\n${parts.join("\n\n")}`;
-
-  // 参考URLを軽く添える
-  if (Array.isArray(CLINIC_REFERENCE_URLS) && CLINIC_REFERENCE_URLS.length > 0) {
-    snippet += `\n\n【参考URL（院内サイト）】\n${CLINIC_REFERENCE_URLS.map((u) => `- ${u}`).join("\n")}`;
-  }
-
-  return snippet;
-}
-
 const SYSTEM = `
 あなたは産婦人科サイトの相談窓口として案内するアシスタントです。目的は診断や医療判断をすることではありません。
 目的：患者の不安に寄り添う、受診前の一般的な案内、受診目安の一般情報の提供。
@@ -222,10 +52,10 @@ const SYSTEM = `
 - 相談に答えるような、寄り添った文章で話す。
 - 危険サインが疑われる場合は、一般説明を最小限にして「至急受診／救急」誘導を最優先する。
 - 個人情報（氏名、住所、電話番号、保険番号など）を求めない。入力されたら控えるよう促す。
-- 院内情報は、以下の「院内情報データ」に基づいて回答し、根拠がないことは断言しない。
+- 院内情報は、別メッセージで与えられる公式サイトの抜粋に基づいて回答し、根拠がないことは断言しない。
 - 受診を促す場合（「受診してください」「来院してください」「ご相談ください」など）は、必ず電話番号（06-6931-2391）も併せて表示する。
-- 以下の院内情報データや当院サイトに明確な情報がないテーマについては、情報がないと断定せず、「当院サイトに記載がないため、詳細はお電話で相談してほしい」ことを丁寧に伝える（必要に応じて一般的な背景説明を短く添える程度にとどめる）。
-- 回答内では「院内情報データ」や「KNOWLEDGE」などの内部用語は一切出さない。
+- 公式サイトの抜粋や当院サイトに明確な情報がないテーマについては、情報がないと断定せず、「当院サイトに記載がないため、詳細はお電話で相談してほしい」ことを丁寧に伝える（必要に応じて一般的な背景説明を短く添える程度にとどめる）。
+- 回答内では「院内サイト抜粋」「KNOWLEDGE」などの内部用語は一切出さない。
 - 回答内で「チャットボット」「AI」などと自称しない。必要な場合も「相談窓口としてご案内します」と表現する。
 - 感情を一度受け止め、不安を言語化・整理する。次の行動を「患者主体」で返す。
 - 不安を否定しない。他院批判に乗らない。当院の期待値をコントロールする。
@@ -322,13 +152,13 @@ C. 様子見も合理的
 - 参考webページがある場合（当院サイトに限る）は対象のwebページへの誘導も添える。その際は、回答本文とは別に**文末に改行を入れてから**、次の形式でまとめて表示すること：  
   「【参考ページ】」の見出しのあとに改行し、  
   「・https://www.kanai.or.jp/〜」のように **URLのみ** を箇条書きで並べる（テキストリンク形式ではなく、生のURL文字列をそのまま表示する）。
-- 以下の院内情報データの「参考URL」セクションに記載されているURLは、関連する質問があった場合に**必ず回答の一番下に【参考ページ】として箇条書きで表示する**。
+- 別メッセージで与えられる公式サイトの抜粋に含まれるURLは、関連する質問があった場合に**必ず回答の一番下に【参考ページ】として箇条書きで表示する**。
 - ユーザーが不安そうな場合は、安心感を与える一言を添える。ただし不必要な保証はしない。
-- ユーザーの質問が以下の院内情報データ内の質問と意味的に近い場合は、対応する回答をもとに、自然な文章に言い換えて説明する。完全一致でなくてもよい。
+- ユーザーの質問が公式サイトの抜粋の内容と意味的に近い場合は、その内容をもとに自然な文章に言い換えて説明する。完全一致でなくてもよい。
 - 文末に絵文字を使用する場合は、句読点は表示しない。
 
-【院内情報データ（システム専用。ユーザー向けの回答テキストには、この名称を出さない）】
-このあと別の system メッセージとして与えられる「院内情報の抜粋」（公式サイトのページ本文の抜粋、またはQ&A形式と参考URL）を主な根拠として回答を作成すること。
+【院内サイト抜粋（システム専用。ユーザー向けの回答テキストには、この名称を出さない）】
+このあと別の system メッセージとして与えられる「当院公式サイトのページ本文の抜粋（URL付き）」を主な根拠として回答を作成すること。
 `.trim();
 
 function setCors(res, origin) {
@@ -436,7 +266,7 @@ export default async function handler(req, res) {
         hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
         model: OPENAI_MODEL,
         emergencyRoutingWorks: detectEmergency("大量出血しています"),
-        knowledgeSource: KNOWLEDGE_SOURCE,
+        knowledgeSource: "site",
         siteKnowledge: peekSiteKnowledgeStatus(),
       });
     }
@@ -493,24 +323,12 @@ export default async function handler(req, res) {
 
     const safeHistory = Array.isArray(history) ? history.slice(-4) : [];
 
-    let clinicSnippet = "";
-    if (KNOWLEDGE_SOURCE === "csv") {
-      clinicSnippet = buildClinicKnowledgeSnippet(userMessage);
-    } else if (KNOWLEDGE_SOURCE === "sitemap") {
-      const { snippet, state } = await getSiteKnowledgeSnippet(userMessage);
-      clinicSnippet = snippet || state?.knowledgeText || "";
-    } else {
-      const { snippet, state } = await getSiteKnowledgeSnippet(userMessage);
-      if (state?.chunks?.length) {
-        clinicSnippet = snippet;
-      } else {
-        clinicSnippet = buildClinicKnowledgeSnippet(userMessage);
-      }
-    }
+    const { snippet, state } = await getSiteKnowledgeSnippet(userMessage);
+    const clinicSnippet = snippet || state?.knowledgeText || "";
 
     const messages = [
       { role: "system", content: SYSTEM },
-      // 院内情報（サイト抜粋またはCSV由来）
+      // 院内情報（公式サイトの HTML 抜粋。SITE_URL_LIST または sitemap 由来）
       ...(clinicSnippet
         ? [
             {
