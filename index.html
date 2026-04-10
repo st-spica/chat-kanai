@@ -215,16 +215,7 @@
       margin: 4px 0;
     }
 
-    .assistant-preview {
-      font-size: 1.05em;
-      font-weight: 600;
-      line-height: 1.55;
-      color: #1a1a1a;
-    }
-    .assistant-detail {
-      line-height: 1.6;
-    }
-    .assistant-detail-raw {
+    .assistant-stream-raw {
       font-size: 13px;
       white-space: pre-wrap;
       word-break: break-word;
@@ -233,7 +224,7 @@
       color: #555;
       line-height: 1.5;
     }
-    .assistant-detail-building .assistant-detail-raw {
+    .assistant-stream-building .assistant-stream-raw {
       border-left: 3px solid #93c5fd;
       padding-left: 10px;
     }
@@ -280,47 +271,6 @@
 
   const RICH_HTML_PREFIX = "[[[RICH_HTML]]]";
 
-  const LAYER_PREVIEW_OPEN = "<<<PREVIEW>>>";
-  const LAYER_DETAIL_OPEN = "<<<DETAIL>>>";
-  /** モデルが > の数を間違えやすいので複数パターンで閉じを探す */
-  const LAYER_PREVIEW_CLOSE_VARIANTS = ["<<</PREVIEW>>>", "<<</PREVIEW>>"];
-  const LAYER_DETAIL_CLOSE_VARIANTS = ["<<</DETAIL>>>", "<<</DETAIL>>", "<</DETAIL>>>"];
-
-  function firstCloseMarker(s, variants) {
-    let bestIdx = -1;
-    let needle = "";
-    for (const v of variants) {
-      const i = s.indexOf(v);
-      if (i !== -1 && (bestIdx === -1 || i < bestIdx)) {
-        bestIdx = i;
-        needle = v;
-      }
-    }
-    return bestIdx === -1 ? null : { index: bestIdx, needle };
-  }
-
-  /** 画面に出してはいけない制御用マーカーを除去（取りこぼし対策）。長いパターンを先に除去 */
-  function stripLayerMarkers(s) {
-    let t = String(s || "");
-    const markers = [
-      "<<</PREVIEW>>>",
-      "<<</DETAIL>>>",
-      "<<<PREVIEW>>>",
-      "<<<DETAIL>>>",
-      "<</DETAIL>>>",
-      "<<</PREVIEW>>",
-      "<<</DETAIL>>",
-    ];
-    for (const m of markers) {
-      t = t.split(m).join("");
-    }
-    return t.trim();
-  }
-
-  function trimDetailTrailingMarkerNoise(text) {
-    return String(text || "").replace(/\s*<<<\/?DETAIL[\s\S]*$/i, "").trim();
-  }
-
   (function initRichHtmlSanitizer() {
     if (typeof DOMPurify === "undefined") return;
     const KANAI_HREF = /^https?:\/\/(www\.)?kanai\.or\.jp(\/|$)/i;
@@ -348,86 +298,20 @@
       .replace(/"/g, "&quot;");
   }
 
-  function parseTwoLayerAnswer(text) {
-    const t = String(text || "");
-    const po = t.indexOf(LAYER_PREVIEW_OPEN);
-    if (po === -1) {
-      return { hasStructure: false, preview: "", detail: t.trim() };
-    }
-    const afterPO = t.slice(po + LAYER_PREVIEW_OPEN.length);
-    const pcRes = firstCloseMarker(afterPO, LAYER_PREVIEW_CLOSE_VARIANTS);
-    const preview = pcRes
-      ? stripLayerMarkers(afterPO.slice(0, pcRes.index).trim())
-      : stripLayerMarkers(afterPO.trim());
-    const afterPC = pcRes
-      ? afterPO.slice(pcRes.index + pcRes.needle.length)
-      : "";
-    const d0 = afterPC.indexOf(LAYER_DETAIL_OPEN);
-    if (d0 === -1) {
-      return { hasStructure: true, preview, detail: "" };
-    }
-    const afterDO = afterPC.slice(d0 + LAYER_DETAIL_OPEN.length);
-    const d1Res = firstCloseMarker(afterDO, LAYER_DETAIL_CLOSE_VARIANTS);
-    let detail = d1Res
-      ? afterDO.slice(0, d1Res.index).trim()
-      : trimDetailTrailingMarkerNoise(afterDO.trim());
-    detail = stripLayerMarkers(detail);
-    return { hasStructure: true, preview, detail };
-  }
-
-  function updateStreamingAssistantUI(accum, previewEl, detailEl, streamEnded) {
-    const po = accum.indexOf(LAYER_PREVIEW_OPEN);
-    if (po === -1) {
-      previewEl.innerHTML = formatMessage(stripLayerMarkers(accum.trim()));
-      detailEl.innerHTML = "";
-      detailEl.style.marginTop = "";
-      return;
-    }
-
-    const afterPO = accum.slice(po + LAYER_PREVIEW_OPEN.length);
-    const pcRes = firstCloseMarker(afterPO, LAYER_PREVIEW_CLOSE_VARIANTS);
-    const previewText = pcRes ? afterPO.slice(0, pcRes.index) : afterPO;
-    previewEl.innerHTML = formatMessage(stripLayerMarkers(previewText.trim()));
-
-    if (!pcRes) {
-      detailEl.innerHTML = "";
-      detailEl.style.marginTop = "";
-      return;
-    }
-
-    const afterPC = afterPO.slice(pcRes.index + pcRes.needle.length);
-    const d0 = afterPC.indexOf(LAYER_DETAIL_OPEN);
-    if (d0 === -1) {
-      detailEl.innerHTML = "";
-      detailEl.style.marginTop = "";
-      return;
-    }
-
-    const afterDO = afterPC.slice(d0 + LAYER_DETAIL_OPEN.length);
-    const d1Res = firstCloseMarker(afterDO, LAYER_DETAIL_CLOSE_VARIANTS);
-    let detailText = d1Res ? afterDO.slice(0, d1Res.index) : afterDO;
-    const detailClosed = d1Res != null;
-
-    detailEl.style.marginTop = "12px";
-
-    let richBody = stripRichHtmlPrefix(detailText);
+  function updateStreamingAssistantUI(accum, contentEl, streamEnded) {
+    const richBody = stripRichHtmlPrefix(accum);
     if (richBody != null) {
-      richBody = trimDetailTrailingMarkerNoise(richBody);
-    }
-
-    if (richBody != null) {
-      // ストリーム終了後は閉じタグの取りこぼしがあってもカード描画（コード表示で止まらない）
       if (streamEnded) {
-        detailEl.classList.remove("assistant-detail-building");
-        detailEl.innerHTML = sanitizeRichHtml(richBody);
+        contentEl.classList.remove("assistant-stream-building");
+        contentEl.innerHTML = sanitizeRichHtml(richBody);
       } else {
-        detailEl.classList.add("assistant-detail-building");
-        detailEl.innerHTML =
-          '<pre class="assistant-detail-raw">' + escapeHtmlPlain(detailText) + "</pre>";
+        contentEl.classList.add("assistant-stream-building");
+        contentEl.innerHTML =
+          '<pre class="assistant-stream-raw">' + escapeHtmlPlain(accum) + "</pre>";
       }
     } else {
-      detailEl.classList.remove("assistant-detail-building");
-      detailEl.innerHTML = formatMessage(stripLayerMarkers(detailText));
+      contentEl.classList.remove("assistant-stream-building");
+      contentEl.innerHTML = formatMessage(accum);
     }
   }
 
@@ -442,18 +326,11 @@
     const bubble = document.createElement("div");
     bubble.className = "assistant";
 
-    const inner = document.createElement("div");
-    inner.style.lineHeight = "1.6";
+    const contentEl = document.createElement("div");
+    contentEl.className = "assistant-stream-body";
+    contentEl.style.lineHeight = "1.6";
 
-    const previewEl = document.createElement("div");
-    previewEl.className = "assistant-preview";
-
-    const detailEl = document.createElement("div");
-    detailEl.className = "assistant-detail";
-
-    inner.appendChild(previewEl);
-    inner.appendChild(detailEl);
-    bubble.appendChild(inner);
+    bubble.appendChild(contentEl);
     wrap.appendChild(label);
     wrap.appendChild(bubble);
     msgsEl.appendChild(wrap);
@@ -463,7 +340,7 @@
     });
 
     msgsEl.scrollTop = msgsEl.scrollHeight;
-    return { wrap, previewEl, detailEl };
+    return { wrap, contentEl };
   }
 
   function sanitizeRichHtml(html) {
@@ -553,56 +430,34 @@
     const bubble = document.createElement("div");
     bubble.className = role === "user" ? "user" : "assistant";
 
-    // ユーザーのメッセージはそのまま表示、アシスタントは二層 or タイピング or リッチHTML
+    // ユーザーのメッセージはそのまま表示、アシスタントはタイピング or リッチHTML
     if (role === "assistant") {
       const inner = document.createElement("div");
       inner.style.lineHeight = "1.6";
       bubble.appendChild(inner);
 
       const original = content || "";
-      const parsed = parseTwoLayerAnswer(original);
+      const richBody = stripRichHtmlPrefix(original);
 
-      if (parsed.hasStructure && (parsed.preview || parsed.detail)) {
-        const previewDiv = document.createElement("div");
-        previewDiv.className = "assistant-preview";
-        if (parsed.preview) {
-          previewDiv.innerHTML = formatMessage(parsed.preview);
-        }
-        const detailDiv = document.createElement("div");
-        detailDiv.className = "assistant-detail";
-        if (parsed.preview && parsed.detail) {
-          detailDiv.style.marginTop = "12px";
-        }
-        const richBody = stripRichHtmlPrefix(parsed.detail);
-        if (richBody != null) {
-          detailDiv.innerHTML = sanitizeRichHtml(richBody);
-        } else if (parsed.detail) {
-          detailDiv.innerHTML = formatMessage(parsed.detail);
-        }
-        inner.appendChild(previewDiv);
-        inner.appendChild(detailDiv);
+      if (richBody != null) {
+        inner.innerHTML = sanitizeRichHtml(richBody);
+        requestAnimationFrame(() => {
+          msgsEl.scrollTop = msgsEl.scrollHeight;
+        });
       } else {
-        const richBody = stripRichHtmlPrefix(original);
-        if (richBody != null) {
-          inner.innerHTML = sanitizeRichHtml(richBody);
-          requestAnimationFrame(() => {
-            msgsEl.scrollTop = msgsEl.scrollHeight;
-          });
-        } else {
-          let i = 0;
-          const typingSpeed = 15;
+        let i = 0;
+        const typingSpeed = 15;
 
-          function step() {
-            if (i <= original.length) {
-              const partial = original.slice(0, i);
-              inner.innerHTML = formatMessage(partial);
-              i += 1;
-              setTimeout(step, typingSpeed);
-            }
+        function step() {
+          if (i <= original.length) {
+            const partial = original.slice(0, i);
+            inner.innerHTML = formatMessage(partial);
+            i += 1;
+            setTimeout(step, typingSpeed);
           }
-
-          step();
         }
+
+        step();
       }
     } else {
       const pre = document.createElement("pre");
@@ -730,28 +585,28 @@ async function sendMessage() {
           }
           if (obj.type === "delta" && obj.text) {
             accum += obj.text;
-            updateStreamingAssistantUI(accum, shell.previewEl, shell.detailEl, false);
+            updateStreamingAssistantUI(accum, shell.contentEl, false);
             msgsEl.scrollTop = msgsEl.scrollHeight;
           }
           if (obj.type === "done") {
             sawDone = true;
           }
           if (obj.type === "error") {
-            shell.detailEl.textContent =
+            shell.contentEl.textContent =
               obj.message || "応答の送信が途中で止まりました。";
           }
         }
       }
 
-      updateStreamingAssistantUI(accum, shell.previewEl, shell.detailEl, true);
+      updateStreamingAssistantUI(accum, shell.contentEl, true);
       msgsEl.scrollTop = msgsEl.scrollHeight;
 
       const finalText = accum.trim();
       if (finalText) {
         history.push({ role: "assistant", content: finalText });
       } else if (!sawDone) {
-        shell.previewEl.innerHTML = "";
-        shell.detailEl.textContent = "通信が途切れた可能性があります。もう一度お試しください。";
+        shell.contentEl.textContent =
+          "通信が途切れた可能性があります。もう一度お試しください。";
       }
       return;
     }
