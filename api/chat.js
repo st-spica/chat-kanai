@@ -214,6 +214,9 @@ C. 様子見も合理的
 - ユーザーの質問が公式サイトの抜粋の内容と意味的に近い場合は、その内容をもとに自然な文章に言い換えて説明する。完全一致でなくてもよい。
 - 文末に絵文字を使用する場合は、句読点は表示しない。
 
+【旧形式・二層マーカーの禁止】
+<<<PREVIEW>>>、<<</PREVIEW>>>、<<<DETAIL>>>、<<</DETAIL>>> などの二層用マーカーは**一切使わない**（仕様廃止済み）。ユーザー画面に制御文字が出る。通常の本文、または【リッチHTML】に従い先頭を [[[RICH_HTML]]] とした HTML のみを出力する。
+
 【リッチHTML（表・カード型の見せ方）】
 次に当てはまる質問では、プレーン文や Markdown だけの箇条書き・**太字**に頼った回答は**禁止**。**必ず**次の形式にする（例外なし）。
 ・診療時間・診察時間・受付時間・休診・曜日ごとのスケジュール・午前診／午後診／夜診・「いつまで診ているか」等
@@ -245,6 +248,7 @@ const RICH_HTML_THIS_TURN = [
   "1. 先頭は空白・改行なしで次の1行だけ：[[[RICH_HTML]]]",
   "2. 続けて HTML のみ。前後にプレーンテキストや Markdown を付けない。",
   "3. ルートは1つの <div class=\"chat-card\">。診療枠は <table class=\"chat-table\">。",
+  "4. <<<PREVIEW>>> や <<<DETAIL>>> 等の二層マーカーは出さない（廃止済み）。",
 ].join("\n");
 
 function setCors(res, origin) {
@@ -387,6 +391,86 @@ function shouldForceRichHtmlForMessage(userMessage, safeHistory) {
   return schedule || fee;
 }
 
+/**
+ * モデルが旧二層形式（PREVIEW/DETAIL）で返した本文を、単一の表示用テキストに直す
+ */
+function normalizeLegacyTwoLayerAnswer(text) {
+  const PRE_OPEN = "<<<PREVIEW>>>";
+  const DET_OPEN = "<<<DETAIL>>>";
+  const PRE_CLOSES = ["<<</PREVIEW>>>", "<<</PREVIEW>>"];
+  const DET_CLOSES = ["<<</DETAIL>>>", "<<</DETAIL>>", "<</DETAIL>>>"];
+
+  function firstClose(s, closes) {
+    let bestIdx = -1;
+    let needle = "";
+    for (const c of closes) {
+      const i = s.indexOf(c);
+      if (i !== -1 && (bestIdx === -1 || i < bestIdx)) {
+        bestIdx = i;
+        needle = c;
+      }
+    }
+    return bestIdx === -1 ? null : { index: bestIdx, needle };
+  }
+
+  function stripKnownMarkers(str) {
+    let x = String(str);
+    const order = [
+      "<<</PREVIEW>>>",
+      "<<</DETAIL>>>",
+      "<<<PREVIEW>>>",
+      "<<<DETAIL>>>",
+      "<</DETAIL>>>",
+      "<<</PREVIEW>>",
+      "<<</DETAIL>>",
+    ];
+    for (const m of order) {
+      x = x.split(m).join("");
+    }
+    return x.trim();
+  }
+
+  const t = String(text || "");
+  if (!t.includes(PRE_OPEN)) {
+    return t.trim();
+  }
+
+  const po = t.indexOf(PRE_OPEN);
+  const afterPO = t.slice(po + PRE_OPEN.length);
+  const pc = firstClose(afterPO, PRE_CLOSES);
+
+  if (!pc) {
+    return stripKnownMarkers(afterPO) || t.trim();
+  }
+
+  const preview = stripKnownMarkers(afterPO.slice(0, pc.index));
+  const afterPC = afterPO.slice(pc.index + pc.needle.length);
+  const d0 = afterPC.indexOf(DET_OPEN);
+  if (d0 === -1) {
+    return preview || stripKnownMarkers(afterPC) || t.trim();
+  }
+
+  const afterDO = afterPC.slice(d0 + DET_OPEN.length);
+  const dc = firstClose(afterDO, DET_CLOSES);
+  const detailRaw = dc ? afterDO.slice(0, dc.index) : afterDO;
+  let detail = stripKnownMarkers(detailRaw);
+  const dSt = detail.trimStart();
+
+  if (dSt.startsWith("[[[RICH_HTML]]]")) {
+    return dSt;
+  }
+  if (preview && detail) {
+    return `${preview}\n\n${detail}`;
+  }
+  if (detail) {
+    return detail;
+  }
+  if (preview) {
+    return preview;
+  }
+  return stripKnownMarkers(t);
+}
+
 function writeNdjsonLine(res, obj) {
   res.write(`${JSON.stringify(obj)}\n`);
 }
@@ -411,7 +495,7 @@ async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages) {
     }
   }
 
-  const trimmed = fullAnswer.trim();
+  const trimmed = normalizeLegacyTwoLayerAnswer(fullAnswer.trim());
   const now = new Date();
   console.log(
     "chat-log",
@@ -573,7 +657,13 @@ export default async function handler(req, res) {
         : []),
       ...safeHistory
         .filter((h) => h && (h.role === "user" || h.role === "assistant"))
-        .map((h) => ({ role: h.role, content: String(h.content || "") })),
+        .map((h) => ({
+          role: h.role,
+          content:
+            h.role === "assistant"
+              ? normalizeLegacyTwoLayerAnswer(String(h.content || ""))
+              : String(h.content || ""),
+        })),
       { role: "user", content: userMessage },
     ];
 
@@ -613,9 +703,10 @@ export default async function handler(req, res) {
       ...(OPENAI_MAX_OUTPUT_TOKENS != null ? { max_tokens: OPENAI_MAX_OUTPUT_TOKENS } : {}),
     });
 
-    const answer =
+    const raw =
       (completion.choices[0]?.message?.content || "").trim() ||
       "すみません、うまく回答を生成できませんでした。";
+    const answer = normalizeLegacyTwoLayerAnswer(raw);
 
     // Vercel のログにチャット内容（生テキスト）を残す
     // - IP やブラウザ情報などの識別子は含めない

@@ -298,8 +298,87 @@
       .replace(/"/g, "&quot;");
   }
 
+  /** api/chat.js の normalizeLegacyTwoLayerAnswer と同じ（旧 PREVIEW/DETAIL を単一段に） */
+  function normalizeLegacyTwoLayerAnswer(text) {
+    const PRE_OPEN = "<<<PREVIEW>>>";
+    const DET_OPEN = "<<<DETAIL>>>";
+    const PRE_CLOSES = ["<<</PREVIEW>>>", "<<</PREVIEW>>"];
+    const DET_CLOSES = ["<<</DETAIL>>>", "<<</DETAIL>>", "<</DETAIL>>>"];
+
+    function firstClose(s, closes) {
+      let bestIdx = -1;
+      let needle = "";
+      for (const c of closes) {
+        const i = s.indexOf(c);
+        if (i !== -1 && (bestIdx === -1 || i < bestIdx)) {
+          bestIdx = i;
+          needle = c;
+        }
+      }
+      return bestIdx === -1 ? null : { index: bestIdx, needle };
+    }
+
+    function stripKnownMarkers(str) {
+      let x = String(str);
+      const order = [
+        "<<</PREVIEW>>>",
+        "<<</DETAIL>>>",
+        "<<<PREVIEW>>>",
+        "<<<DETAIL>>>",
+        "<</DETAIL>>>",
+        "<<</PREVIEW>>",
+        "<<</DETAIL>>",
+      ];
+      for (const m of order) {
+        x = x.split(m).join("");
+      }
+      return x.trim();
+    }
+
+    const t = String(text || "");
+    if (!t.includes(PRE_OPEN)) {
+      return t.trim();
+    }
+
+    const po = t.indexOf(PRE_OPEN);
+    const afterPO = t.slice(po + PRE_OPEN.length);
+    const pc = firstClose(afterPO, PRE_CLOSES);
+
+    if (!pc) {
+      return stripKnownMarkers(afterPO) || t.trim();
+    }
+
+    const preview = stripKnownMarkers(afterPO.slice(0, pc.index));
+    const afterPC = afterPO.slice(pc.index + pc.needle.length);
+    const d0 = afterPC.indexOf(DET_OPEN);
+    if (d0 === -1) {
+      return preview || stripKnownMarkers(afterPC) || t.trim();
+    }
+
+    const afterDO = afterPC.slice(d0 + DET_OPEN.length);
+    const dc = firstClose(afterDO, DET_CLOSES);
+    const detailRaw = dc ? afterDO.slice(0, dc.index) : afterDO;
+    let detail = stripKnownMarkers(detailRaw);
+    const dSt = detail.trimStart();
+
+    if (dSt.startsWith("[[[RICH_HTML]]]")) {
+      return dSt;
+    }
+    if (preview && detail) {
+      return `${preview}\n\n${detail}`;
+    }
+    if (detail) {
+      return detail;
+    }
+    if (preview) {
+      return preview;
+    }
+    return stripKnownMarkers(t);
+  }
+
   function updateStreamingAssistantUI(accum, contentEl, streamEnded) {
-    const richBody = stripRichHtmlPrefix(accum);
+    const normalized = normalizeLegacyTwoLayerAnswer(accum);
+    const richBody = stripRichHtmlPrefix(normalized);
     if (richBody != null) {
       if (streamEnded) {
         contentEl.classList.remove("assistant-stream-building");
@@ -307,11 +386,11 @@
       } else {
         contentEl.classList.add("assistant-stream-building");
         contentEl.innerHTML =
-          '<pre class="assistant-stream-raw">' + escapeHtmlPlain(accum) + "</pre>";
+          '<pre class="assistant-stream-raw">' + escapeHtmlPlain(normalized) + "</pre>";
       }
     } else {
       contentEl.classList.remove("assistant-stream-building");
-      contentEl.innerHTML = formatMessage(accum);
+      contentEl.innerHTML = formatMessage(normalized);
     }
   }
 
@@ -436,7 +515,7 @@
       inner.style.lineHeight = "1.6";
       bubble.appendChild(inner);
 
-      const original = content || "";
+      const original = normalizeLegacyTwoLayerAnswer(content || "");
       const richBody = stripRichHtmlPrefix(original);
 
       if (richBody != null) {
@@ -601,7 +680,7 @@ async function sendMessage() {
       updateStreamingAssistantUI(accum, shell.contentEl, true);
       msgsEl.scrollTop = msgsEl.scrollHeight;
 
-      const finalText = accum.trim();
+      const finalText = normalizeLegacyTwoLayerAnswer(accum.trim());
       if (finalText) {
         history.push({ role: "assistant", content: finalText });
       } else if (!sawDone) {
@@ -627,8 +706,9 @@ async function sendMessage() {
       return;
     }
 
-    addMessage("assistant", data.answer);
-    history.push({ role: "assistant", content: data.answer });
+    const ansNorm = normalizeLegacyTwoLayerAnswer(data.answer || "");
+    addMessage("assistant", ansNorm);
+    history.push({ role: "assistant", content: ansNorm });
   } catch {
     hideTyping();
     addMessage("assistant", "通信エラーが発生しました。");
