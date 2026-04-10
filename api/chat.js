@@ -30,9 +30,15 @@ const SITE_SNIPPET_MAX_CHARS = Math.max(
   parseInt(process.env.SITE_SNIPPET_MAX_CHARS || "12000", 10)
 );
 
-// true のとき、サイト HTML の取得・抜粋は「当院・手続きっぽい質問」のときだけ行う（応答を軽くする）
-const SITE_KNOWLEDGE_GATED = ["true", "1", "yes"].includes(
-  (process.env.SITE_KNOWLEDGE_GATED || "").toLowerCase().trim()
+// true のとき、サイト抜粋は「当院・手続きっぽい質問」のときだけ読む（未設定時は true＝挨拶だけで全ページ取得しない）。
+// 従来どおり毎ターン必ず読む場合は SITE_KNOWLEDGE_GATED=false
+const SITE_KNOWLEDGE_GATED = !["false", "0", "no"].includes(
+  (process.env.SITE_KNOWLEDGE_GATED || "true").toLowerCase().trim()
+);
+
+// 初回の挨拶だけは OpenAI を呼ばず即答（遅延をほぼゼロに）。オフは CHAT_INSTANT_GREETING=false
+const CHAT_INSTANT_GREETING = !["false", "0", "no"].includes(
+  (process.env.CHAT_INSTANT_GREETING || "true").toLowerCase().trim()
 );
 
 // 許可するフロントエンドのOrigin（環境変数 ALLOWED_ORIGINS にカンマ区切りで追加可能）
@@ -298,6 +304,20 @@ async function safeRateLimit(ip) {
   }
 }
 
+/**
+ * 会話の最初のユーザー発話が、院内案内を要さない短い挨拶だけか
+ */
+function isCasualGreetingOnlyMessage(userMessage, safeHistory) {
+  const userPrior = (safeHistory || []).filter((h) => h && h.role === "user").length;
+  if (userPrior > 0) return false;
+  const raw = String(userMessage || "").trim();
+  if (raw.length > 48) return false;
+  const compact = raw.replace(/[\s\u3000]+/g, "");
+  return /^(こんにちは|こんばんは|おはようございます|おはよう|はじめまして|よろしくお願いします|よろしく|hello|hi)([!！.。…]*)?$/i.test(
+    compact
+  );
+}
+
 function detectEmergency(text) {
   const t = (text || "").toLowerCase();
   const keywords = [
@@ -405,6 +425,7 @@ export default async function handler(req, res) {
         emergencyRoutingWorks: detectEmergency("大量出血しています"),
         knowledgeSource: "site",
         siteKnowledgeGated: SITE_KNOWLEDGE_GATED,
+        instantGreeting: CHAT_INSTANT_GREETING,
         siteKnowledge: peekSiteKnowledgeStatus(),
       });
     }
@@ -461,8 +482,30 @@ export default async function handler(req, res) {
 
     const safeHistory = Array.isArray(history) ? history.slice(-4) : [];
 
+    const casualGreetingOnly = isCasualGreetingOnlyMessage(userMessage, safeHistory);
+
+    if (CHAT_INSTANT_GREETING && casualGreetingOnly) {
+      const answer =
+        "こんにちは。今日はどのようなことでお手伝いしましょうか。症状やご心配なことがあれば、分かる範囲で教えてください。";
+      const now = new Date();
+      console.log(
+        "chat-log",
+        JSON.stringify({
+          ts: now.toISOString(),
+          ts_jst: now.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
+          user: userMessage,
+          answer,
+          instantGreeting: true,
+        })
+      );
+      return res.status(200).json({ answer, emergency: false, instantGreeting: true });
+    }
+
     let clinicSnippet = "";
-    if (!SITE_KNOWLEDGE_GATED || shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory)) {
+    if (
+      !casualGreetingOnly &&
+      (!SITE_KNOWLEDGE_GATED || shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory))
+    ) {
       const { snippet, state } = await getSiteKnowledgeSnippet(userMessage);
       clinicSnippet = snippet || state?.knowledgeText || "";
       if (clinicSnippet.length > SITE_SNIPPET_MAX_CHARS) {
