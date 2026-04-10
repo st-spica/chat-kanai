@@ -384,9 +384,9 @@
         contentEl.classList.remove("assistant-stream-building");
         contentEl.innerHTML = sanitizeRichHtml(richBody);
       } else {
+        // リッチHTML生成中は生コードを見せず、整形中の表示にする
         contentEl.classList.add("assistant-stream-building");
-        contentEl.innerHTML =
-          '<pre class="assistant-stream-raw">' + escapeHtmlPlain(normalized) + "</pre>";
+        contentEl.innerHTML = '<div class="muted">表示を整えています…</div>';
       }
     } else {
       contentEl.classList.remove("assistant-stream-building");
