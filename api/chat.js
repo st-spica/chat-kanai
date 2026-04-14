@@ -185,6 +185,7 @@ C. 様子見も合理的
 - 「〜はさまざまな原因が考えられるため、不安に感じていることも理解できます」
 - 「原因はいろいろありますが、ご不安なお気持ちはよく分かります」など、一般論＋感情のラベル付けのセット
 - 「〜のお気持ちも理解します」「不安にお感じになるのも当然です」と、相手が述べていない感情を断定する表現
+- 「次にどうするかは、あなた自身が選べる状態を大切にしていただきたいです。どのように進めていくのか考えてみることも良いですね。」のような、患者に判断を丸投げする締め
 代わりに、短文では事実確認・質問から入る。共感が必要なときも、長い一般論のあとに続けず、短い一文にとどめるか、相手の言葉を繰り返してから次に進む。
 
 【最後の一文の原則】
@@ -521,8 +522,20 @@ function normalizeLegacyTwoLayerAnswerCore(text) {
   return stripKnownMarkers(t);
 }
 
+function stripOverDelegatingClosing(text) {
+  let s = String(text || '');
+  // 直接丸投げに見える定型は、簡潔な確認文へ置換
+  s = s.replace(
+    /次にどうするかは、あなた自身が選べる状態を大切にしていただきたいです。?\s*どのように進めていくのか考えてみることも良いですね。?/g,
+    '何か質問があれば、ぜひお聞かせください。'
+  );
+  return s;
+}
+
 function normalizeLegacyTwoLayerAnswer(text) {
-  return stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text));
+  return stripOverDelegatingClosing(
+    stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+  );
 }
 
 function writeNdjsonLine(res, obj) {
