@@ -211,7 +211,51 @@
     });
 
     msgsEl.scrollTop = msgsEl.scrollHeight;
-    return { wrap, contentEl };
+    return { wrap, bubble, contentEl };
+  }
+
+  function isAllowedRefUrl(href) {
+    return /^https?:\/\/(www\.)?kanai\.or\.jp\//i.test(String(href || "").trim());
+  }
+
+  function refChipIcon(url) {
+    const u = String(url || "").toLowerCase();
+    if (/\/news|\/info|\/column|oshirase/i.test(u)) return "📣";
+    if (/\/visit|\/gai|外来|outpatient|guide/i.test(u)) return "🏥";
+    return "🔗";
+  }
+
+  function truncateRefLabel(s, maxLen) {
+    const t = String(s || "").trim();
+    if (t.length <= maxLen) return t;
+    return t.slice(0, maxLen - 1) + "…";
+  }
+
+  /** 院内サイト参照ページをピル型リンクで吹き出し下部に表示 */
+  function appendReferenceChips(bubble, pages) {
+    if (!bubble || !pages || !pages.length) return;
+    const prev = bubble.querySelector(".assistant-ref-chips");
+    if (prev) prev.remove();
+    const row = document.createElement("div");
+    row.className = "assistant-ref-chips";
+    let any = false;
+    for (const p of pages) {
+      const u = String((p && p.url) || "").trim();
+      if (!isAllowedRefUrl(u)) continue;
+      const a = document.createElement("a");
+      a.className = "chat-pill chat-ref-chip";
+      a.href = u;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      const icon = refChipIcon(u);
+      const label = truncateRefLabel((p && p.title) || u, 44);
+      a.textContent = `${icon} ${label}`;
+      row.appendChild(a);
+      any = true;
+    }
+    if (!any) return;
+    bubble.appendChild(row);
+    msgsEl.scrollTop = msgsEl.scrollHeight;
   }
 
   function sanitizeRichHtml(html) {
@@ -306,7 +350,8 @@
     return html;
   }
 
-  function addMessage(role, content) {
+  function addMessage(role, content, opts) {
+    opts = opts || {};
     const wrap = document.createElement("div");
     wrap.style.marginBottom = "12px";
 
@@ -325,9 +370,11 @@
 
       const original = normalizeLegacyTwoLayerAnswer(content || "");
       const richBody = stripRichHtmlPrefix(original);
+      const refs = opts.referencedPages;
 
       if (richBody != null) {
         inner.innerHTML = sanitizeRichHtml(richBody);
+        appendReferenceChips(bubble, refs);
         requestAnimationFrame(() => {
           msgsEl.scrollTop = msgsEl.scrollHeight;
         });
@@ -341,6 +388,8 @@
             inner.innerHTML = formatMessage(partial);
             i += 1;
             setTimeout(step, typingSpeed);
+          } else if (refs && refs.length) {
+            appendReferenceChips(bubble, refs);
           }
         }
 
@@ -453,6 +502,8 @@ async function sendMessage() {
       let accum = "";
       let sawDone = false;
       let shell = null;
+      let refPages = [];
+      let streamHadError = false;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -473,10 +524,14 @@ async function sendMessage() {
           if (obj.type === "delta" && obj.text) {
             accum += obj.text;
           }
+          if (obj.type === "references" && Array.isArray(obj.pages)) {
+            refPages = obj.pages;
+          }
           if (obj.type === "done") {
             sawDone = true;
           }
           if (obj.type === "error") {
+            streamHadError = true;
             hideTyping();
             if (!shell) shell = addStreamingAssistantShell();
             shell.contentEl.textContent = obj.message || "応答の送信が途中で止まりました。";
@@ -486,13 +541,18 @@ async function sendMessage() {
 
       hideTyping();
       if (!shell) shell = addStreamingAssistantShell();
-      updateStreamingAssistantUI(accum, shell.contentEl, true);
+      if (!streamHadError) {
+        updateStreamingAssistantUI(accum, shell.contentEl, true);
+        appendReferenceChips(shell.bubble, refPages);
+      }
       msgsEl.scrollTop = msgsEl.scrollHeight;
 
       const finalText = normalizeLegacyTwoLayerAnswer(accum.trim());
       if (finalText) {
         history.push({ role: "assistant", content: finalText });
       } else if (!sawDone) {
+        const prevChips = shell.bubble.querySelector(".assistant-ref-chips");
+        if (prevChips) prevChips.remove();
         shell.contentEl.textContent =
           "通信が途切れた可能性があります。もう一度お試しください。";
       }
@@ -516,7 +576,7 @@ async function sendMessage() {
     }
 
     const ansNorm = normalizeLegacyTwoLayerAnswer(data.answer || "");
-    addMessage("assistant", ansNorm);
+    addMessage("assistant", ansNorm, { referencedPages: data.referencedPages || [] });
     history.push({ role: "assistant", content: ansNorm });
   } catch {
     hideTyping();

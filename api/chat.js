@@ -1,6 +1,10 @@
 import OpenAI, { APIConnectionError, APIError } from "openai";
 import { ratelimit } from "./_ratelimit.js";
-import { getSiteKnowledgeSnippet, peekSiteKnowledgeStatus } from "./_siteKnowledge.js";
+import {
+  getSiteKnowledgeSnippet,
+  peekSiteKnowledgeStatus,
+  selectReferencedChunks,
+} from "./_siteKnowledge.js";
 
 let client = null;
 function getOpenAIClient() {
@@ -499,7 +503,7 @@ function writeNdjsonLine(res, obj) {
 /**
  * OpenAI のストリームを NDJSON でクライアントへ流す（1行1JSON）
  */
-async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages) {
+async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, referencedPages) {
   const stream = await openai.chat.completions.create({
     model: OPENAI_MODEL,
     messages,
@@ -529,6 +533,9 @@ async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages) {
     })
   );
 
+  if (referencedPages && referencedPages.length > 0) {
+    writeNdjsonLine(res, { type: "references", pages: referencedPages });
+  }
   writeNdjsonLine(res, { type: "done" });
   return trimmed;
 }
@@ -649,6 +656,7 @@ export default async function handler(req, res) {
     }
 
     let clinicSnippet = "";
+    let referencedPages = [];
     if (
       !casualGreetingOnly &&
       (!SITE_KNOWLEDGE_GATED || shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory))
@@ -659,6 +667,16 @@ export default async function handler(req, res) {
         clinicSnippet =
           clinicSnippet.slice(0, SITE_SNIPPET_MAX_CHARS) +
           "\n\n（以降、文字数制限のため省略しました）";
+      }
+      const chunks = selectReferencedChunks(userMessage, state);
+      const seenUrl = new Set();
+      for (const c of chunks) {
+        if (!c?.url || seenUrl.has(c.url)) continue;
+        seenUrl.add(c.url);
+        referencedPages.push({
+          url: c.url,
+          title: String(c.title || "").replace(/\s+/g, " ").trim() || c.url,
+        });
       }
     }
 
@@ -695,7 +713,7 @@ export default async function handler(req, res) {
           "Cache-Control": "no-cache, no-transform",
           "X-Accel-Buffering": "no",
         });
-        await pipeOpenAIStreamNdjson(res, openai, userMessage, messages);
+        await pipeOpenAIStreamNdjson(res, openai, userMessage, messages, referencedPages);
         res.end();
       } catch (streamErr) {
         console.error("openai stream error:", streamErr?.message || streamErr);
@@ -746,7 +764,7 @@ export default async function handler(req, res) {
       })
     );
 
-    return res.status(200).json({ answer, emergency: false });
+    return res.status(200).json({ answer, emergency: false, referencedPages });
   } catch (e) {
     const detail = e?.message || String(e);
     const status = e?.status ?? e?.response?.status;

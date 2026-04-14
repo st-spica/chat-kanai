@@ -350,18 +350,16 @@ export async function ensureSiteKnowledgeLoaded() {
 }
 
 /**
- * ユーザーメッセージに関連しそうなチャンクだけを system 用にまとめる
+ * ユーザーメッセージに関連しそうなチャンク（抜粋に使うものと同じ集合）
+ * @returns {Array<{ url: string, title: string, text: string }>}
  */
-export function buildSiteKnowledgeSnippet(userMessage, state) {
+export function selectReferencedChunks(userMessage, state) {
   const text = (userMessage || "").trim();
   const chunks = state?.chunks || [];
-  const referenceUrls = state?.referenceUrls || [];
-
   if (!chunks.length) {
-    return state?.knowledgeText || "";
+    return [];
   }
 
-  const lowered = text.toLowerCase();
   const userTokens = text
     .split(/[\s、。・,.!?？!]+/)
     .map((t) => t.trim())
@@ -384,6 +382,19 @@ export function buildSiteKnowledgeSnippet(userMessage, state) {
     .map((s) => s.c);
 
   const use = top.length > 0 ? top : chunks.slice(0, SNIPPET_TOP_CHUNKS);
+  return use;
+}
+
+/**
+ * ユーザーメッセージに関連しそうなチャンクだけを system 用にまとめる
+ */
+export function buildSiteKnowledgeSnippet(userMessage, state) {
+  const referenceUrls = state?.referenceUrls || [];
+  const use = selectReferencedChunks(userMessage, state);
+
+  if (!use.length) {
+    return state?.knowledgeText || "";
+  }
 
   const parts = use.map((c) => `【${c.title}】\nURL: ${c.url}\n${c.text}`);
 
