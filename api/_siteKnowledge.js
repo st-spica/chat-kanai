@@ -350,6 +350,89 @@ export async function ensureSiteKnowledgeLoaded() {
 }
 
 /**
+ * チップ・抜粋見出し用。多くのページで <title> が「ページ名｜法人名」または法人名のみのため、ページ名を優先する。
+ * @param {{ url: string, title: string, text?: string }} c
+ */
+export function labelForKnowledgeChunk(c) {
+  const title = (c.title || "").trim();
+  const pipeParts = title.split(/[｜|]/).map((x) => x.trim()).filter(Boolean);
+  if (pipeParts.length >= 2) {
+    const head = pipeParts[0];
+    if (head.length >= 2 && head.length <= 100) return head;
+  }
+  try {
+    const path = new URL(c.url).pathname;
+    const seg = path.split("/").filter(Boolean).pop();
+    if (seg) {
+      const dec = decodeURIComponent(seg).replace(/-/g, " ");
+      if (dec.length >= 2 && dec.length <= 80) return dec;
+    }
+  } catch {
+    /* ignore */
+  }
+  return title || c.url;
+}
+
+/** 日本語が続く文を意味のある語に分割してスコアリングする */
+function tokenizeUserMessageForScoring(text) {
+  const raw = String(text || "")
+    .trim()
+    .replace(/について/g, " ")
+    .replace(/に関して/g, " ")
+    .replace(/教えてください/g, " ")
+    .replace(/お願いします/g, " ");
+  if (!raw) return [];
+  const JP_SPLIT =
+    /[\s\u3000、。・,.!?？!のをにはがとでもからまでへやなどってございますかだけたいです対してもの中をからの]+/;
+  const parts = raw
+    .split(JP_SPLIT)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2);
+  const seen = new Set();
+  const out = [];
+  for (const p of parts) {
+    const key = p.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+/** URL パス・代表的トピック語と質問文の突き合わせで加点（日本語がトークン化されない問題の補正） */
+function topicUrlBoost(userMessage, c) {
+  const msg = String(userMessage || "");
+  const msgL = msg.toLowerCase();
+  const urlAndHead = `${c.url}\n${c.title}\n${(c.text || "").slice(0, 1500)}`.toLowerCase();
+  let bonus = 0;
+  try {
+    const path = decodeURIComponent(new URL(c.url).pathname.toLowerCase());
+    for (const seg of path.split("/").filter((x) => x.length >= 2)) {
+      const sNorm = seg.replace(/-/g, "").replace(/_/g, "");
+      if (sNorm.length >= 3 && msgL.includes(sNorm)) bonus += 48;
+      else if (sNorm.length === 2 && msgL.includes(sNorm)) bonus += 12;
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const pairs = [
+    [/レストラン|レスト|食堂|食事|ランチ|ディナー|beb|béb|ベベ/i, /restaurant|bebe|bebé|dining|lunch|dinner|meal|cafe|レストラン/],
+    [/駐車|パーキング|駐車場|車でお越し/, /parking|park|駐車場|\/access\/.*parking/],
+    [/外来|受診|初診|予約|診察|アクセス|行き方|地図/, /\/visit\/|outpatient|appointment|gai|\/access\//],
+    [/産婦人科|分娩|出産|妊娠|帝王切開/, /obstetrics|gynecology|delivery|pregnancy|産科|婦人/],
+    [/お知らせ|ニュース/, /\/news\/|\/info\/|column|notice/],
+    [/料金|費用|支払|予納/, /fee|price|cost|payment/],
+    [/診療時間|受付時間|休診|曜日/, /schedule|hours|time/],
+  ];
+  for (const [msgRe, hayRe] of pairs) {
+    if (msgRe.test(msg) && hayRe.test(urlAndHead)) bonus += 140;
+  }
+  return bonus;
+}
+
+/**
  * ユーザーメッセージに関連しそうなチャンク（抜粋に使うものと同じ集合）
  * @returns {Array<{ url: string, title: string, text: string }>}
  */
@@ -360,18 +443,17 @@ export function selectReferencedChunks(userMessage, state) {
     return [];
   }
 
-  const userTokens = text
-    .split(/[\s、。・,.!?？!]+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length >= 2);
+  const userTokens = tokenizeUserMessageForScoring(text);
+  const userLower = text.toLowerCase();
 
   const scored = chunks.map((c) => {
     const hay = `${c.title}\n${c.url}\n${c.text}`.toLowerCase();
-    let score = 0;
+    let score = topicUrlBoost(userMessage, c);
     for (const tok of userTokens) {
       const t = tok.toLowerCase();
-      if (hay.includes(t)) score += t.length;
+      if (t.length >= 2 && hay.includes(t)) score += t.length;
     }
+    if (userLower.length >= 4 && userLower.length <= 100 && hay.includes(userLower)) score += 35;
     return { c, score };
   });
 
@@ -396,7 +478,7 @@ export function buildSiteKnowledgeSnippet(userMessage, state) {
     return state?.knowledgeText || "";
   }
 
-  const parts = use.map((c) => `【${c.title}】\nURL: ${c.url}\n${c.text}`);
+  const parts = use.map((c) => `【${labelForKnowledgeChunk(c)}】\nURL: ${c.url}\n${c.text}`);
 
   let snippet = `【当院公式サイトからの抜粋（関連が高そうなページのみ）】\n\n${parts.join("\n\n---\n\n")}`;
 

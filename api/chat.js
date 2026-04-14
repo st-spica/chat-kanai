@@ -2,6 +2,7 @@ import OpenAI, { APIConnectionError, APIError } from "openai";
 import { ratelimit } from "./_ratelimit.js";
 import {
   getSiteKnowledgeSnippet,
+  labelForKnowledgeChunk,
   peekSiteKnowledgeStatus,
   selectReferencedChunks,
 } from "./_siteKnowledge.js";
@@ -210,9 +211,7 @@ C. 様子見も合理的
   - 時間などの重要な情報は **太字** で強調する
   - 箇条書きの先頭に適切な絵文字（✅、📋、💡、ℹ️ など）を付けるとより見やすくなる
   - ただし、絵文字の使いすぎは避け、適度に使用する。また、**💕💖 の絵文字は使用しない**（その他の絵文字のみ適度に使用する）。
-- 参考webページがある場合（当院サイトに限る）は対象のwebページへの誘導も添える。その際は、回答本文とは別に**文末に改行を入れてから**、次の形式でまとめて表示すること：    
-  「・https://www.kanai.or.jp/access/parking/」のように **実在する完全URLのみ** を箇条書きで並べる（テキストリンク形式ではなく、生のURL文字列をそのまま表示する）。
-- 別メッセージで与えられる公式サイトの抜粋に含まれるURLは、関連する質問があった場合に**必ず回答の一番下に箇条書きで表示する**（ただし【リッチHTML必須】に該当する回答でカード内に同じURLへの a.chat-pill 等を含めた場合は、この箇条書きは省略してよい）。
+- 当院の参照ページ URL は、チャット画面の**チップ**として別途表示される。**回答本文に、当院サイトの URL の箇条書きや「・https://www.kanai.or.jp/...」の列挙を書かない**（本文中に生の URL を並べない）。案内は「当院サイトの該当ページ」「画面下のリンク」などの表現にとどめる。
 - ユーザーが**自分の言葉で**不安・怖さを述べた場合に限り、短い一言で受け止める。推測で「不安ですよね」「理解します」と付け足さない。不必要な保証はしない。
 - ユーザーの質問が公式サイトの抜粋の内容と意味的に近い場合は、その内容をもとに自然な文章に言い換えて説明する。完全一致でなくてもよい。
 - 文末に絵文字を使用する場合は、句読点は表示しない。
@@ -258,7 +257,7 @@ script, style, iframe, onclick、data-*、id は使わない。
 ルートの枠は class="chat-card"、見出しは **div.chat-card-head** の内側に span.chat-card-icon と **h3.chat-card-title** を置く（h3 に chat-card-head を直接付けない）。
 表は class="chat-table"、※注記は class="chat-note"、当院ページへの導線は class="chat-pill-row" と a.chat-pill、まとめ見出しは class="chat-section"、まとめリストは class="chat-list"。
 
-カード内に当院サイトへのリンクを含めていれば【参考ページ】の URL 箇条書きは**省略してよい**。
+カード内の a.chat-pill 等で当院ページへ誘導してよい。**本文末に URL の箇条書きは書かない**（チップに任せる）。
 
 【院内サイト抜粋（システム専用。ユーザー向けの回答テキストには、この名称を出さない）】
 このあと別の system メッセージとして与えられる「当院公式サイトのページ本文の抜粋（URL付き）」を主な根拠として回答を作成すること。
@@ -416,10 +415,34 @@ function shouldForceRichHtmlForMessage(userMessage, safeHistory) {
   return schedule || fee;
 }
 
+/** モデルが文末に付けた当院 URL の箇条書きを落とす（チップ表示と重複しないように） */
+function stripTrailingKanaiUrlBulletLines(text) {
+  const s = String(text || "").trim();
+  if (!s || s.startsWith("[[[RICH_HTML]]]")) return s;
+  const lines = s.split("\n");
+  while (lines.length > 0) {
+    const last = lines[lines.length - 1];
+    const trimmed = last.trim();
+    if (trimmed === "") {
+      lines.pop();
+      continue;
+    }
+    if (
+      /^\s*[・•‧*＊\-−]\s*https?:\/\/(www\.)?kanai\.or\.jp\/\S+\s*$/i.test(last) ||
+      /^https?:\/\/(www\.)?kanai\.or\.jp\/\S+\s*$/i.test(trimmed)
+    ) {
+      lines.pop();
+      continue;
+    }
+    break;
+  }
+  return lines.join("\n").trimEnd();
+}
+
 /**
  * モデルが旧二層形式（PREVIEW/DETAIL）で返した本文を、単一の表示用テキストに直す
  */
-function normalizeLegacyTwoLayerAnswer(text) {
+function normalizeLegacyTwoLayerAnswerCore(text) {
   const PRE_OPEN = "<<<PREVIEW>>>";
   const DET_OPEN = "<<<DETAIL>>>";
   const PRE_CLOSES = ["<<</PREVIEW>>>", "<<</PREVIEW>>"];
@@ -494,6 +517,10 @@ function normalizeLegacyTwoLayerAnswer(text) {
     return preview;
   }
   return stripKnownMarkers(t);
+}
+
+function normalizeLegacyTwoLayerAnswer(text) {
+  return stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text));
 }
 
 function writeNdjsonLine(res, obj) {
@@ -675,7 +702,7 @@ export default async function handler(req, res) {
         seenUrl.add(c.url);
         referencedPages.push({
           url: c.url,
-          title: String(c.title || "").replace(/\s+/g, " ").trim() || c.url,
+          title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || c.url,
         });
       }
     }

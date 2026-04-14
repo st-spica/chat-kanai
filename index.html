@@ -84,8 +84,32 @@
       .replace(/"/g, "&quot;");
   }
 
+  /** api/chat.js の stripTrailingKanaiUrlBulletLines と同じ */
+  function stripTrailingKanaiUrlBulletLines(text) {
+    const s = String(text || "").trim();
+    if (!s || s.startsWith("[[[RICH_HTML]]]")) return s;
+    const lines = s.split("\n");
+    while (lines.length > 0) {
+      const last = lines[lines.length - 1];
+      const trimmed = last.trim();
+      if (trimmed === "") {
+        lines.pop();
+        continue;
+      }
+      if (
+        /^\s*[・•‧*＊\-−]\s*https?:\/\/(www\.)?kanai\.or\.jp\/\S+\s*$/i.test(last) ||
+        /^https?:\/\/(www\.)?kanai\.or\.jp\/\S+\s*$/i.test(trimmed)
+      ) {
+        lines.pop();
+        continue;
+      }
+      break;
+    }
+    return lines.join("\n").trimEnd();
+  }
+
   /** api/chat.js の normalizeLegacyTwoLayerAnswer と同じ（旧 PREVIEW/DETAIL を単一段に） */
-  function normalizeLegacyTwoLayerAnswer(text) {
+  function normalizeLegacyTwoLayerAnswerCore(text) {
     const PRE_OPEN = "<<<PREVIEW>>>";
     const DET_OPEN = "<<<DETAIL>>>";
     const PRE_CLOSES = ["<<</PREVIEW>>>", "<<</PREVIEW>>"];
@@ -160,6 +184,10 @@
       return preview;
     }
     return stripKnownMarkers(t);
+  }
+
+  function normalizeLegacyTwoLayerAnswer(text) {
+    return stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text));
   }
 
   function updateStreamingAssistantUI(accum, contentEl, streamEnded) {
