@@ -4,6 +4,7 @@ import {
   getSiteKnowledgeSnippet,
   labelForKnowledgeChunk,
   peekSiteKnowledgeStatus,
+  selectReferencedChunks,
   selectReferencedPagesForChips,
 } from "./_siteKnowledge.js";
 
@@ -211,7 +212,8 @@ C. 様子見も合理的
   - 時間などの重要な情報は **太字** で強調する
   - 箇条書きの先頭に適切な絵文字（✅、📋、💡、ℹ️ など）を付けるとより見やすくなる
   - ただし、絵文字の使いすぎは避け、適度に使用する。また、**💕💖 の絵文字は使用しない**（その他の絵文字のみ適度に使用する）。
-- 当院の参照ページ URL は、チャット画面の**チップ**として別途表示される。**回答本文に、当院サイトの URL の箇条書きや「・https://www.kanai.or.jp/...」の列挙を書かない**（本文中に生の URL を並べない）。案内は「当院サイトの該当ページ」「画面下のリンク」などの表現にとどめる。
+- 当院の参照ページ URL は、チャット画面の**チップ**（画面下の参照リンク）として別途表示される。**回答本文に、当院サイトの URL の箇条書きや「・https://www.kanai.or.jp/...」の列挙を書かない**（本文中に生の URL を並べない）。
+- 公式サイトの内容に触れるときは、**「サイトに掲載されています」だけで終えない**。必ず、利用者が次に開けるよう **「画面下の参照リンク（関連ページ）をご確認ください」** など、**参照リンクの存在を明示**する一文を入れる（チップが実際に表示される前提の案内）。抽象的なサイト誘導だけで締めない。
 - ユーザーが**自分の言葉で**不安・怖さを述べた場合に限り、短い一言で受け止める。推測で「不安ですよね」「理解します」と付け足さない。不必要な保証はしない。
 - ユーザーの質問が公式サイトの抜粋の内容と意味的に近い場合は、その内容をもとに自然な文章に言い換えて説明する。完全一致でなくてもよい。
 - 文末に絵文字を使用する場合は、句読点は表示しない。
@@ -220,7 +222,7 @@ C. 様子見も合理的
 - 最終出力の前に、必ず「病院窓口スタッフがそのまま口頭で言って自然か」を自己チェックし、不自然なら書き直してから出力する。
 - 1文を長くしすぎない。読点「、」が3つ以上続く文は分割する。
 - 「〜については」「〜に関しては」を1文内で重ねない。必要なら1回までにする。
-- 抽象語だけで終わらない。「詳細」「利用方法」「注意点」などの語を使うときは、案内先（当院サイト・問い合わせ）を明示する。
+- 抽象語だけで終わらない。「詳細」「利用方法」「注意点」などの語を使うときは、案内先を明示する（当院サイトの場合は**画面下の参照リンク**、問い合わせの場合はフォームや電話など具体名）。
 - 丁寧だが回りくどい定型を避ける。短く具体的に言い切る。
 - 文頭に絵文字を置くときは、絵文字の前に「・」「-」「*」などの記号を付けない（例「✅ 受付時間は〜」）。
 
@@ -382,7 +384,7 @@ function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
     /料金|費用|支払い|クレジット|現金|予納金|予約金/,
     /駐車場|パーキング|アクセス|行き方|場所|住所|地図|最寄|蒲生|鴫野|今福/,
     /教室|産前教室|産後|面会|立ち会い分娩|立ち会い|入院|個室|レストラン/i,
-    /母乳ケア|妊婦健診|乳児健診|健診枠/,
+    /母乳ケア|妊婦健診|乳児健診|健診枠|検診|スケジュール|時間割|枠|空き状況/,
     /里帰り|分娩|出産|産科|婦人科|産後ケア/,
     /Q&A|よくある質問|クイック/,
     /電話|番号|06[-‐]?6931/i,
@@ -695,7 +697,14 @@ export default async function handler(req, res) {
           clinicSnippet.slice(0, SITE_SNIPPET_MAX_CHARS) +
           "\n\n（以降、文字数制限のため省略しました）";
       }
-      const chunks = selectReferencedPagesForChips(userMessage, state);
+      let chunks = selectReferencedPagesForChips(userMessage, state);
+      if (
+        !chunks.length &&
+        clinicSnippet &&
+        shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory)
+      ) {
+        chunks = selectReferencedChunks(userMessage, state);
+      }
       const seenUrl = new Set();
       for (const c of chunks) {
         if (!c?.url || seenUrl.has(c.url)) continue;

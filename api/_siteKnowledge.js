@@ -55,6 +55,7 @@ const FACILITY_2CHAR = new Set([
   "個室",
   "里帰",
   "健診",
+  "検診",
   "産前",
   "産後",
   "母乳",
@@ -473,7 +474,14 @@ function topicUrlBoost(userMessage, c) {
     [/産婦人科|分娩|出産|妊娠|帝王切開/, /obstetrics|gynecology|delivery|pregnancy|産科|婦人/],
     [/お知らせ|ニュース/, /\/news\/|\/info\/|column|notice/],
     [/料金|費用|支払|予納/, /fee|price|cost|payment/],
-    [/診療時間|受付時間|休診|曜日/, /schedule|hours|time/],
+    [
+      /診療時間|受付時間|休診|曜日|スケジュール|診療枠|時間割/,
+      /schedule|hours|time|休診|診療|calendar|枠/,
+    ],
+    [
+      /検診|健診|妊婦検|乳児検|検査予約|予防接種|母子手帳/,
+      /健診|kenshin|screening|乳児|妊婦|検診|checkup|exam|母子/,
+    ],
   ];
   for (const [msgRe, hayRe] of pairs) {
     if (msgRe.test(msg) && hayRe.test(urlAndHead)) bonus += 140;
