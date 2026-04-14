@@ -16,6 +16,55 @@ const SNIPPET_TOP_CHUNKS = Math.min(
   10,
   Math.max(1, parseInt(process.env.SITE_SNIPPET_TOP_CHUNKS || "4", 10))
 );
+/** 参照チップを出す最低スコア（症状語の部分一致だけでは出さない） */
+const REFERENCE_CHIP_MIN_SCORE = Math.max(
+  1,
+  Math.min(500, parseInt(process.env.REFERENCE_CHIP_MIN_SCORE || "10", 10) || 10)
+);
+
+/** 2 文字でも院内案内として意味が強い語だけチップ用スコアに使う（「痛い」等は含めない） */
+const FACILITY_2CHAR = new Set([
+  "料金",
+  "費用",
+  "金額",
+  "時間",
+  "予約",
+  "診療",
+  "受付",
+  "初診",
+  "再診",
+  "外来",
+  "妊娠",
+  "分娩",
+  "出産",
+  "産科",
+  "婦人",
+  "帝王",
+  "駐車",
+  "住所",
+  "番号",
+  "電話",
+  "地図",
+  "休診",
+  "夜診",
+  "日曜",
+  "祝日",
+  "教室",
+  "面会",
+  "入院",
+  "個室",
+  "里帰",
+  "健診",
+  "産前",
+  "産後",
+  "母乳",
+  "妊婦",
+  "来院",
+  "支払",
+  "予納",
+  "土曜",
+  "面談",
+]);
 const DEFAULT_TTL_MS = parseInt(process.env.SITE_KNOWLEDGE_TTL_MS || String(24 * 60 * 60 * 1000), 10);
 const FETCH_TIMEOUT_MS = parseInt(process.env.SITE_FETCH_TIMEOUT_MS || "8000", 10);
 const MAX_SITEMAP_URLS = parseInt(process.env.SITE_SITEMAP_MAX_URLS || "300", 10);
@@ -430,6 +479,55 @@ function topicUrlBoost(userMessage, c) {
     if (msgRe.test(msg) && hayRe.test(urlAndHead)) bonus += 140;
   }
   return bonus;
+}
+
+/**
+ * 参照チップ用スコア（短文の症状語だけでは上がらないようにトークン条件を厳しめ）
+ */
+function chunkScoreForChips(userMessage, c) {
+  const text = (userMessage || "").trim();
+  const hay = `${c.title}\n${c.url}\n${c.text}`.toLowerCase();
+  let score = topicUrlBoost(userMessage, c);
+  const userTokens = tokenizeUserMessageForScoring(text);
+  const userLower = text.toLowerCase();
+  for (const tok of userTokens) {
+    const t = tok.toLowerCase();
+    if (t.length >= 3 && hay.includes(t)) score += t.length;
+    else if (t.length === 2 && FACILITY_2CHAR.has(t) && hay.includes(t)) score += 12;
+  }
+  if (userLower.length >= 4 && userLower.length <= 100 && hay.includes(userLower)) score += 35;
+  return score;
+}
+
+/**
+ * 画面下部の参照チップに載せるチャンク（関連が十分高いときだけ）
+ * @returns {Array<{ url: string, title: string, text: string }>}
+ */
+export function selectReferencedPagesForChips(userMessage, state) {
+  const chunks = state?.chunks || [];
+  if (!chunks.length) return [];
+
+  const scored = chunks.map((c) => ({
+    c,
+    score: chunkScoreForChips(userMessage, c),
+  }));
+  const maxS = scored.reduce((m, s) => Math.max(m, s.score), 0);
+  if (maxS < REFERENCE_CHIP_MIN_SCORE) return [];
+
+  const top = scored
+    .filter((s) => s.score >= REFERENCE_CHIP_MIN_SCORE)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, SNIPPET_TOP_CHUNKS)
+    .map((s) => s.c);
+
+  const seenUrl = new Set();
+  const out = [];
+  for (const c of top) {
+    if (!c?.url || seenUrl.has(c.url)) continue;
+    seenUrl.add(c.url);
+    out.push(c);
+  }
+  return out;
 }
 
 /**

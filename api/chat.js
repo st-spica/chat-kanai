@@ -4,7 +4,7 @@ import {
   getSiteKnowledgeSnippet,
   labelForKnowledgeChunk,
   peekSiteKnowledgeStatus,
-  selectReferencedChunks,
+  selectReferencedPagesForChips,
 } from "./_siteKnowledge.js";
 
 let client = null;
@@ -695,7 +695,7 @@ export default async function handler(req, res) {
           clinicSnippet.slice(0, SITE_SNIPPET_MAX_CHARS) +
           "\n\n（以降、文字数制限のため省略しました）";
       }
-      const chunks = selectReferencedChunks(userMessage, state);
+      const chunks = selectReferencedPagesForChips(userMessage, state);
       const seenUrl = new Set();
       for (const c of chunks) {
         if (!c?.url || seenUrl.has(c.url)) continue;
