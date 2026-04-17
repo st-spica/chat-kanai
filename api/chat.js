@@ -2,7 +2,9 @@ import OpenAI, { APIConnectionError, APIError } from "openai";
 import { ratelimit } from "./_ratelimit.js";
 import {
   getSiteKnowledgeSnippet,
+  isMeetingFocusedQuery,
   labelForKnowledgeChunk,
+  MEETING_INFO_PAGE_URL,
   peekSiteKnowledgeStatus,
   selectReferencedChunks,
   selectReferencedPagesForChips,
@@ -265,6 +267,7 @@ script, style, iframe, onclick、data-*、id は使わない。
 
 【院内サイト抜粋（システム専用。ユーザー向けの回答テキストには、この名称を出さない）】
 このあと別の system メッセージとして与えられる「当院公式サイトのページ本文の抜粋（URL付き）」を主な根拠として回答を作成すること。
+- ユーザー発話に「面会」が含まれるときは、そのターンの抜粋は**面会のお知らせページ（${MEETING_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
 `.trim();
 
 /** このターンだけリッチHTMLを強く指示（モデルがプレーン文に逃げるのを防ぐ） */
@@ -707,7 +710,9 @@ export default async function handler(req, res) {
     let referencedPages = [];
     if (
       !casualGreetingOnly &&
-      (!SITE_KNOWLEDGE_GATED || shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory))
+      (isMeetingFocusedQuery(userMessage) ||
+        !SITE_KNOWLEDGE_GATED ||
+        shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory))
     ) {
       const { snippet, state } = await getSiteKnowledgeSnippet(userMessage);
       clinicSnippet = snippet || state?.knowledgeText || "";
@@ -720,7 +725,8 @@ export default async function handler(req, res) {
       if (
         !chunks.length &&
         clinicSnippet &&
-        shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory)
+        (state?.meetingOnly ||
+          shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory))
       ) {
         chunks = selectReferencedChunks(userMessage, state);
       }
@@ -731,6 +737,12 @@ export default async function handler(req, res) {
         referencedPages.push({
           url: c.url,
           title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || c.url,
+        });
+      }
+      if (state?.meetingOnly && !referencedPages.length) {
+        referencedPages.push({
+          url: MEETING_INFO_PAGE_URL,
+          title: "面会について",
         });
       }
     }

@@ -245,6 +245,32 @@ function buildFullKnowledgeText(chunks) {
   );
 }
 
+/** 「面会」含む発話では、このページだけを取得して回答する（他ページの抜粋は載せない） */
+export const MEETING_INFO_PAGE_URL = "https://www.kanai.or.jp/news/meeting.php";
+
+export function isMeetingFocusedQuery(userMessage) {
+  return /面会/.test(String(userMessage || "").trim());
+}
+
+async function loadMeetingPageOnlyState() {
+  const chunk = await fetchPageChunk(MEETING_INFO_PAGE_URL, DEFAULT_MAX_CHARS);
+  const chunks = chunk ? [chunk] : [];
+  return {
+    chunks,
+    referenceUrls: [],
+    knowledgeText: chunks.length
+      ? buildFullKnowledgeText(chunks)
+      : `【面会について】\n${MEETING_INFO_PAGE_URL} の本文を取得できませんでした。ブラウザで直接ご確認ください。`,
+    error: chunks.length ? null : "meeting_page_failed",
+    fetchMode: "meeting_only",
+    meetingOnly: true,
+  };
+}
+
+function isMeetingOnlyState(state) {
+  return Boolean(state && state.meetingOnly === true);
+}
+
 async function resolveEntrySitemapUrl() {
   const custom = (process.env.SITE_SITEMAP_URL || "").trim();
   if (custom) return custom;
@@ -512,6 +538,9 @@ function chunkScoreForChips(userMessage, c) {
  * @returns {Array<{ url: string, title: string, text: string }>}
  */
 export function selectReferencedPagesForChips(userMessage, state) {
+  if (isMeetingOnlyState(state)) {
+    return (state.chunks || []).filter(Boolean).slice(0, SNIPPET_TOP_CHUNKS);
+  }
   const chunks = state?.chunks || [];
   if (!chunks.length) return [];
 
@@ -543,6 +572,9 @@ export function selectReferencedPagesForChips(userMessage, state) {
  * @returns {Array<{ url: string, title: string, text: string }>}
  */
 export function selectReferencedChunks(userMessage, state) {
+  if (isMeetingOnlyState(state)) {
+    return (state.chunks || []).filter(Boolean).slice(0, SNIPPET_TOP_CHUNKS);
+  }
   const text = (userMessage || "").trim();
   const chunks = state?.chunks || [];
   if (!chunks.length) {
@@ -577,6 +609,11 @@ export function selectReferencedChunks(userMessage, state) {
  * ユーザーメッセージに関連しそうなチャンクだけを system 用にまとめる
  */
 export function buildSiteKnowledgeSnippet(userMessage, state) {
+  if (isMeetingOnlyState(state) && (state.chunks || []).length) {
+    const use = state.chunks;
+    const parts = use.map((c) => `【${labelForKnowledgeChunk(c)}】\nURL: ${c.url}\n${c.text}`);
+    return `【当院公式サイトからの抜粋（面会についてのページのみ。他ページの情報は含みません）】\n\n${parts.join("\n\n---\n\n")}`;
+  }
   const referenceUrls = state?.referenceUrls || [];
   const use = selectReferencedChunks(userMessage, state);
 
@@ -599,6 +636,16 @@ export function buildSiteKnowledgeSnippet(userMessage, state) {
 }
 
 export async function getSiteKnowledgeSnippet(userMessage) {
+  if (isMeetingFocusedQuery(userMessage)) {
+    const state = await loadMeetingPageOnlyState();
+    const c = state.chunks[0];
+    const snippet = c
+      ? `【当院公式サイトからの抜粋（面会についてのページのみ。他ページの情報は含みません）】\n\n【${labelForKnowledgeChunk(
+          c
+        )}】\nURL: ${c.url}\n${c.text}`
+      : `【面会について】\n${MEETING_INFO_PAGE_URL} の本文を取得できませんでした。お手数ですがブラウザで直接ご確認ください。\n（このターンでは上記URLのみを参照対象としています）`;
+    return { snippet, state };
+  }
   const state = await ensureSiteKnowledgeLoaded();
   return { snippet: buildSiteKnowledgeSnippet(userMessage, state), state };
 }
