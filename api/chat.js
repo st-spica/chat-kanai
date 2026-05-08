@@ -1,7 +1,9 @@
 import OpenAI, { APIConnectionError, APIError } from "openai";
 import { ratelimit } from "./_ratelimit.js";
 import {
+  ATTEND_INFO_PAGE_URL,
   getSiteKnowledgeSnippet,
+  isAttendFocusedQuery,
   isMeetingFocusedQuery,
   labelForKnowledgeChunk,
   MEETING_INFO_PAGE_URL,
@@ -267,6 +269,8 @@ script, style, iframe, onclick、data-*、id は使わない。
 
 【院内サイト抜粋（システム専用。ユーザー向けの回答テキストには、この名称を出さない）】
 このあと別の system メッセージとして与えられる「当院公式サイトのページ本文の抜粋（URL付き）」を主な根拠として回答を作成すること。
+- ユーザー発話に「面会」が含まれるときは、そのターンの抜粋は**面会のお知らせページ（${MEETING_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
+- ユーザー発話に「立ち会い」が含まれるときは、そのターンの抜粋は**立ち会い分娩ページ（${ATTEND_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
 - ユーザー発話に「面会」が含まれるときは、そのターンの抜粋は**面会のお知らせページ（${MEETING_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
 `.trim();
 
@@ -710,7 +714,8 @@ export default async function handler(req, res) {
     let referencedPages = [];
     if (
       !casualGreetingOnly &&
-      (isMeetingFocusedQuery(userMessage) ||
+      (isAttendFocusedQuery(userMessage) ||
+        isMeetingFocusedQuery(userMessage) ||
         !SITE_KNOWLEDGE_GATED ||
         shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory))
     ) {
@@ -725,7 +730,7 @@ export default async function handler(req, res) {
       if (
         !chunks.length &&
         clinicSnippet &&
-        (state?.meetingOnly ||
+        ((state?.singlePageOnly ?? state?.meetingOnly) ||
           shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory))
       ) {
         chunks = selectReferencedChunks(userMessage, state);
@@ -739,7 +744,12 @@ export default async function handler(req, res) {
           title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || c.url,
         });
       }
-      if (state?.meetingOnly && !referencedPages.length) {
+      if (state?.attendOnly && !referencedPages.length) {
+        referencedPages.push({
+          url: ATTEND_INFO_PAGE_URL,
+          title: "立ち会い分娩について",
+        });
+      } else if (state?.meetingOnly && !referencedPages.length) {
         referencedPages.push({
           url: MEETING_INFO_PAGE_URL,
           title: "面会について",

@@ -209,6 +209,10 @@ function filterAndRankUrls(rawUrls, maxPages) {
 
 function htmlToText(html) {
   return html
+    // HTMLコメントを先に除去して、非表示の注釈・旧文言を学習対象から外す
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    // 古いIE向け条件付きコメントも除去
+    .replace(/<!\[if[\s\S]*?<!\[endif\]>/gi, " ")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ")
@@ -245,11 +249,16 @@ function buildFullKnowledgeText(chunks) {
   );
 }
 
-/** 「面会」含む発話では、このページだけを取得して回答する（他ページの抜粋は載せない） */
+/** 「面会」「立ち会い」など特定ワード含む発話では、対応ページだけを取得して回答する */
 export const MEETING_INFO_PAGE_URL = "https://www.kanai.or.jp/news/meeting.php";
+export const ATTEND_INFO_PAGE_URL = "https://www.kanai.or.jp/news/attend.php";
 
 export function isMeetingFocusedQuery(userMessage) {
   return /面会/.test(String(userMessage || "").trim());
+}
+
+export function isAttendFocusedQuery(userMessage) {
+  return /立ち会い/.test(String(userMessage || "").trim());
 }
 
 async function loadMeetingPageOnlyState() {
@@ -264,11 +273,32 @@ async function loadMeetingPageOnlyState() {
     error: chunks.length ? null : "meeting_page_failed",
     fetchMode: "meeting_only",
     meetingOnly: true,
+    singlePageOnly: true,
+    singlePageTitle: "面会について",
+    singlePageUrl: MEETING_INFO_PAGE_URL,
   };
 }
 
-function isMeetingOnlyState(state) {
-  return Boolean(state && state.meetingOnly === true);
+async function loadAttendPageOnlyState() {
+  const chunk = await fetchPageChunk(ATTEND_INFO_PAGE_URL, DEFAULT_MAX_CHARS);
+  const chunks = chunk ? [chunk] : [];
+  return {
+    chunks,
+    referenceUrls: [],
+    knowledgeText: chunks.length
+      ? buildFullKnowledgeText(chunks)
+      : `【立ち会い分娩について】\n${ATTEND_INFO_PAGE_URL} の本文を取得できませんでした。ブラウザで直接ご確認ください。`,
+    error: chunks.length ? null : "attend_page_failed",
+    fetchMode: "attend_only",
+    attendOnly: true,
+    singlePageOnly: true,
+    singlePageTitle: "立ち会い分娩について",
+    singlePageUrl: ATTEND_INFO_PAGE_URL,
+  };
+}
+
+function isSinglePageOnlyState(state) {
+  return Boolean(state && state.singlePageOnly === true);
 }
 
 async function resolveEntrySitemapUrl() {
@@ -538,7 +568,7 @@ function chunkScoreForChips(userMessage, c) {
  * @returns {Array<{ url: string, title: string, text: string }>}
  */
 export function selectReferencedPagesForChips(userMessage, state) {
-  if (isMeetingOnlyState(state)) {
+  if (isSinglePageOnlyState(state)) {
     return (state.chunks || []).filter(Boolean).slice(0, SNIPPET_TOP_CHUNKS);
   }
   const chunks = state?.chunks || [];
@@ -572,7 +602,7 @@ export function selectReferencedPagesForChips(userMessage, state) {
  * @returns {Array<{ url: string, title: string, text: string }>}
  */
 export function selectReferencedChunks(userMessage, state) {
-  if (isMeetingOnlyState(state)) {
+  if (isSinglePageOnlyState(state)) {
     return (state.chunks || []).filter(Boolean).slice(0, SNIPPET_TOP_CHUNKS);
   }
   const text = (userMessage || "").trim();
@@ -609,10 +639,13 @@ export function selectReferencedChunks(userMessage, state) {
  * ユーザーメッセージに関連しそうなチャンクだけを system 用にまとめる
  */
 export function buildSiteKnowledgeSnippet(userMessage, state) {
-  if (isMeetingOnlyState(state) && (state.chunks || []).length) {
+  if (isSinglePageOnlyState(state) && (state.chunks || []).length) {
     const use = state.chunks;
     const parts = use.map((c) => `【${labelForKnowledgeChunk(c)}】\nURL: ${c.url}\n${c.text}`);
-    return `【当院公式サイトからの抜粋（面会についてのページのみ。他ページの情報は含みません）】\n\n${parts.join("\n\n---\n\n")}`;
+    const label = String(state.singlePageTitle || "指定ページ");
+    return `【当院公式サイトからの抜粋（${label}のページのみ。他ページの情報は含みません）】\n\n${parts.join(
+      "\n\n---\n\n"
+    )}`;
   }
   const referenceUrls = state?.referenceUrls || [];
   const use = selectReferencedChunks(userMessage, state);
@@ -636,6 +669,16 @@ export function buildSiteKnowledgeSnippet(userMessage, state) {
 }
 
 export async function getSiteKnowledgeSnippet(userMessage) {
+  if (isAttendFocusedQuery(userMessage)) {
+    const state = await loadAttendPageOnlyState();
+    const c = state.chunks[0];
+    const snippet = c
+      ? `【当院公式サイトからの抜粋（立ち会い分娩についてのページのみ。他ページの情報は含みません）】\n\n【${labelForKnowledgeChunk(
+          c
+        )}】\nURL: ${c.url}\n${c.text}`
+      : `【立ち会い分娩について】\n${ATTEND_INFO_PAGE_URL} の本文を取得できませんでした。お手数ですがブラウザで直接ご確認ください。\n（このターンでは上記URLのみを参照対象としています）`;
+    return { snippet, state };
+  }
   if (isMeetingFocusedQuery(userMessage)) {
     const state = await loadMeetingPageOnlyState();
     const c = state.chunks[0];
