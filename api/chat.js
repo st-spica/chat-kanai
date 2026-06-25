@@ -269,9 +269,11 @@ C. 様子見も合理的
 ・料金・費用・予納金・支払い方法など、一覧表で示すのが適切な内容
 
 手順：
-1. 出力の**先頭**は、空白や改行を入れず、次の1行**のみ**：[[[RICH_HTML]]]
+1. 出力の**先頭**は、空白や改行を入れず、次の1行**のみ**：[[[RICH_HTML]]]（**括弧は開き3つ・閉じ3つ。スラッシュや4つ括弧は絶対に使わない**）
 2. その**直後の次の文字から** HTML のみ。マーカーの前後にプレーンテキストを**一切**書かない（挨拶等はすべて HTML の p や h3 の内側に書く）。
 3. ルートは **1つ** の <div class="chat-card"> にまとめる。共感の一文や締めもこの div 内に含める。
+4. **禁止**：[[[/RICH_HTML]]]、[[[\\/RICH_HTML]]]、マーカーだけの出力、閉じタグ風のマーカー。ユーザー画面にマーカー文字列そのものが見えてはならない。
+5. HTML カードで書けない場合は、マーカーを**使わず**通常の日本語文で答える（マーカーだけ出して終えることは禁止）。
 
 使ってよいタグは次に限る：div, h3, h4, p, table, thead, tbody, tr, th, td, ul, ol, li, strong, em, br, span, a, hr, section, caption
 属性は class のみ、および a には href（https://www.kanai.or.jp または https://kanai.or.jp で始まるURLのみ）, target="_blank", rel="noopener noreferrer" のみ。
@@ -298,6 +300,7 @@ const RICH_HTML_THIS_TURN = [
   "2. 続けて HTML のみ。前後にプレーンテキストや Markdown を付けない。",
   "3. ルートは1つの <div class=\"chat-card\">。診療枠は <table class=\"chat-table\">。",
   "4. <<<PREVIEW>>> や <<<DETAIL>>> 等の二層マーカーは出さない（廃止済み）。",
+  "5. マーカーは [[[RICH_HTML]]] のみ。[[[/RICH_HTML]]] など誤形式・マーカー単体の出力は禁止。HTML が書けないならマーカーなしの通常文で答える。",
 ].join("\n");
 
 function setCors(res, origin) {
@@ -440,6 +443,50 @@ function shouldForceRichHtmlForMessage(userMessage, safeHistory) {
   return schedule || fee;
 }
 
+const RICH_HTML_PREFIX = "[[[RICH_HTML]]]";
+const RICH_HTML_MARKER_ANY_RE = /\[\[\[(?:\/)?RICH_HTML\]\]\]+/gi;
+const RICH_HTML_MARKER_HEAD_RE = /^(\[\[\[(?:\/)?RICH_HTML\]\]\]+)/i;
+const RICH_HTML_LOOKS_LIKE_HTML_RE =
+  /^\s*<(?:!\[CDATA\[|div|table|p|h[1-6]|section|ul|ol|thead|tbody|caption|span)\b/i;
+
+/**
+ * 誤ったリッチHTMLマーカー（[[[/RICH_HTML]]] 等）を除去・正規化。ユーザーに制御文字を見せない。
+ */
+function normalizeRichHtmlMarker(text) {
+  let s = String(text ?? "");
+  if (!s.trim()) return s;
+
+  if (/^\s*\[\[\[(?:\/)?RICH_HTML\]\]\]+\s*$/i.test(s.trim())) {
+    return "";
+  }
+
+  const head = s.trimStart();
+  const open = head.match(RICH_HTML_MARKER_HEAD_RE);
+  if (open) {
+    const after = head.slice(open[0].length).replace(/^\s*\n?/, "");
+    if (RICH_HTML_LOOKS_LIKE_HTML_RE.test(after)) {
+      s = RICH_HTML_PREFIX + after;
+    } else {
+      s = after;
+    }
+  }
+
+  s = s.replace(/\[\[\[\/RICH_HTML\]\]\]+/gi, "");
+
+  if (s.startsWith(RICH_HTML_PREFIX)) {
+    const body = s.slice(RICH_HTML_PREFIX.length).replace(RICH_HTML_MARKER_ANY_RE, "");
+    s = RICH_HTML_PREFIX + body;
+  } else {
+    s = s.replace(RICH_HTML_MARKER_ANY_RE, "");
+  }
+
+  if (s.trim() === RICH_HTML_PREFIX) {
+    return "";
+  }
+
+  return s.trim();
+}
+
 /** モデルが文末に付けた当院 URL の箇条書きを落とす（チップ表示と重複しないように） */
 function stripTrailingKanaiUrlBulletLines(text) {
   const s = String(text || "").trim();
@@ -496,6 +543,9 @@ function normalizeLegacyTwoLayerAnswerCore(text) {
       "<</DETAIL>>>",
       "<<</PREVIEW>>",
       "<<</DETAIL>>",
+      "[[[RICH_HTML]]]",
+      "[[[/RICH_HTML]]]",
+      "[[[\\/RICH_HTML]]]",
     ];
     for (const m of order) {
       x = x.split(m).join("");
@@ -566,9 +616,16 @@ function stripOverDelegatingClosing(text) {
 }
 
 function normalizeLegacyTwoLayerAnswer(text) {
-  return stripOverDelegatingClosing(
-    stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+  const raw = String(text || "").trim();
+  const out = normalizeRichHtmlMarker(
+    stripOverDelegatingClosing(
+      stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+    )
   );
+  if (raw && !out) {
+    return "すみません、表示用の回答を整形できませんでした。もう一度お試しください。";
+  }
+  return out;
 }
 
 function writeNdjsonLine(res, obj) {
