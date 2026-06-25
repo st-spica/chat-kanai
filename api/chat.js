@@ -46,9 +46,9 @@ const SITE_SNIPPET_MAX_CHARS = Math.max(
   parseInt(process.env.SITE_SNIPPET_MAX_CHARS || "6000", 10)
 );
 
-// 未設定時は false（JSON のみ・Web 補完なし）。有効化は CLINIC_WEB_SUPPLEMENT=true
-const CLINIC_WEB_SUPPLEMENT = ["true", "1", "yes"].includes(
-  (process.env.CLINIC_WEB_SUPPLEMENT || "false").toLowerCase().trim()
+// false のとき JSON のみ（Web 補完なし）。未設定時は true＝ハイブリッド
+const CLINIC_WEB_SUPPLEMENT = !["false", "0", "no"].includes(
+  (process.env.CLINIC_WEB_SUPPLEMENT || "true").toLowerCase().trim()
 );
 
 // true のとき、サイト抜粋は「当院・手続きっぽい質問」のときだけ読む（未設定時は true＝挨拶だけで全ページ取得しない）。
