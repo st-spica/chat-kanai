@@ -123,6 +123,19 @@
       .replace(/"/g, "&quot;");
   }
 
+  function stripMarkdownLinksAndInlineKanaiUrls(text) {
+    let s = String(text || "");
+    if (!s || s.startsWith("[[[RICH_HTML]]]")) return s;
+
+    s = s.replace(/\[([^\]\n]+)\]\(\s*https?:\/\/[^)\s]+\s*\)/g, "$1");
+    s = s.replace(/https?:\/\/(?:www\.)?kanai\.or\.jp[^\s)\]<>"]*/gi, "");
+    s = s.replace(/[ \t]{2,}/g, " ");
+    s = s.replace(/\s+([、。])/g, "$1");
+    s = s.replace(/([、。])\s*([、。])/g, "$1");
+
+    return s.trim();
+  }
+
   /** api/chat.js の stripTrailingKanaiUrlBulletLines と同じ */
   function stripTrailingKanaiUrlBulletLines(text) {
     const s = String(text || "").trim();
@@ -231,7 +244,9 @@
   function normalizeLegacyTwoLayerAnswer(text) {
     const raw = String(text || "").trim();
     const out = normalizeRichHtmlMarker(
-      stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+      stripMarkdownLinksAndInlineKanaiUrls(
+        stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+      )
     );
     if (raw && !out) {
       return "すみません、表示用の回答を整形できませんでした。もう一度お試しください。";
@@ -410,9 +425,12 @@
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       // *斜体* を <em>斜体</em> に変換（必要に応じて）
       .replace(/\*(.+?)\*/g, "<em>$1</em>")
-      // URL文字列をクリック可能なリンクに変換（疑似URLはリンク化しない）
+      // URL文字列をクリック可能なリンクに変換（当院URLは本文に出さない方針のためリンク化しない）
       .replace(/(https?:\/\/[^\s<]+)/g, (u) => {
         const trimmed = String(u || "").trim();
+        if (/^https?:\/\/(?:www\.)?kanai\.or\.jp/i.test(trimmed)) {
+          return "";
+        }
         if (
           trimmed.includes("〜") ||
           trimmed.endsWith("/〜") ||

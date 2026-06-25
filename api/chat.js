@@ -46,9 +46,9 @@ const SITE_SNIPPET_MAX_CHARS = Math.max(
   parseInt(process.env.SITE_SNIPPET_MAX_CHARS || "6000", 10)
 );
 
-// false のとき JSON のみ（Web 補完なし）。未設定時は true＝ハイブリッド
-const CLINIC_WEB_SUPPLEMENT = !["false", "0", "no"].includes(
-  (process.env.CLINIC_WEB_SUPPLEMENT || "true").toLowerCase().trim()
+// 未設定時は false（JSON のみ・Web 補完なし）。有効化は CLINIC_WEB_SUPPLEMENT=true
+const CLINIC_WEB_SUPPLEMENT = ["true", "1", "yes"].includes(
+  (process.env.CLINIC_WEB_SUPPLEMENT || "false").toLowerCase().trim()
 );
 
 // true のとき、サイト抜粋は「当院・手続きっぽい質問」のときだけ読む（未設定時は true＝挨拶だけで全ページ取得しない）。
@@ -231,7 +231,10 @@ C. 様子見も合理的
   - 時間などの重要な情報は **太字** で強調する
   - 箇条書きの先頭に適切な絵文字（✅、📋、💡、ℹ️ など）を付けるとより見やすくなる
   - ただし、絵文字の使いすぎは避け、適度に使用する。また、**💕💖 の絵文字は使用しない**（その他の絵文字のみ適度に使用する）。
-//- 当院の参照ページ URL は、チャット画面の**チップ**（画面下の参照リンク）として別途表示される。**回答本文に、当院サイトの URL の箇条書きや「・https://www.kanai.or.jp/...」の列挙を書かない**（本文中に生の URL を並べない）。
+- 当院ページへの案内は、画面下の**参照リンク（チップ）**に任せる。**回答本文に URL を書かない**（`https://www.kanai.or.jp/...` の列挙・埋め込みは禁止）。
+- **Markdownリンク `[ページ名](URL)` は禁止**。ページ名だけ書く（例：`産後ケアページ`。角括弧・URL・括弧は付けない）。
+- 悪い例：`当院の[産後ケアページ](https://www.kanai.or.jp/aftercare/)をご確認ください。`
+- 良い例：`詳しいコースや料金については、産後ケアページの内容を画面下の参照リンクからご確認ください。`
 - 公式サイトの内容に触れるときは、**「サイトに掲載されています」だけで終えない**。必ず、利用者が次に開けるよう **「画面下の参照リンク（関連ページ）をご確認ください」** など、**参照リンクの存在を明示**する一文を入れる（チップが実際に表示される前提の案内）。抽象的なサイト誘導だけで締めない。
 - ユーザーが**自分の言葉で**不安・怖さを述べた場合に限り、短い一言で受け止める。推測で「不安ですよね」「理解します」と付け足さない。不必要な保証はしない。
 - ユーザーの質問が公式サイトの抜粋の内容と意味的に近い場合は、その内容をもとに自然な文章に言い換えて説明する。完全一致でなくてもよい。
@@ -252,6 +255,7 @@ C. 様子見も合理的
 - 同語反復（例「確認をご確認ください」「詳細の詳細」）
 - 主語が抜けて意図が曖昧な文（誰が何をするかが不明）
 - 「〜と良いですね」「〜といいですね」で、相手の安心・心配・不安などを他人事のように締める文
+- `[ページ名](https://...)` 形式の Markdown リンク、文中の当院 URL 文字列
 
 【推奨する言い換え】
 - 悪い例  
@@ -487,6 +491,25 @@ function normalizeRichHtmlMarker(text) {
   return s.trim();
 }
 
+/** Markdownリンク・文中の当院URLを除去（チップ表示に任せる） */
+function stripMarkdownLinksAndInlineKanaiUrls(text) {
+  let s = String(text || "");
+  if (!s || s.startsWith("[[[RICH_HTML]]]")) return s;
+
+  // [産後ケアページ](https://...) → 産後ケアページ
+  s = s.replace(/\[([^\]\n]+)\]\(\s*https?:\/\/[^)\s]+\s*\)/g, "$1");
+
+  // 文中に残った当院 URL を除去
+  s = s.replace(/https?:\/\/(?:www\.)?kanai\.or\.jp[^\s)\]<>"]*/gi, "");
+
+  // URL除去後の不自然な空白・句読点を整理
+  s = s.replace(/[ \t]{2,}/g, " ");
+  s = s.replace(/\s+([、。])/g, "$1");
+  s = s.replace(/([、。])\s*([、。])/g, "$1");
+
+  return s.trim();
+}
+
 /** モデルが文末に付けた当院 URL の箇条書きを落とす（チップ表示と重複しないように） */
 function stripTrailingKanaiUrlBulletLines(text) {
   const s = String(text || "").trim();
@@ -618,8 +641,10 @@ function stripOverDelegatingClosing(text) {
 function normalizeLegacyTwoLayerAnswer(text) {
   const raw = String(text || "").trim();
   const out = normalizeRichHtmlMarker(
-    stripOverDelegatingClosing(
-      stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+    stripMarkdownLinksAndInlineKanaiUrls(
+      stripOverDelegatingClosing(
+        stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+      )
     )
   );
   if (raw && !out) {
