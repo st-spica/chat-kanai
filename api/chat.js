@@ -1,8 +1,15 @@
 import OpenAI, { APIConnectionError, APIError } from "openai";
 import { ratelimit } from "./_ratelimit.js";
 import {
+  buildClinicKnowledgeSnippet,
+  peekClinicKnowledgeStatus,
+  rankClinicKnowledge,
+  selectReferencedPagesFromCsv,
+  shouldSupplementWithWeb,
+} from "./_clinicKnowledge.js";
+import {
   ATTEND_INFO_PAGE_URL,
-  getSiteKnowledgeSnippet,
+  getSiteKnowledgeSnippetSupplement,
   isAttendFocusedQuery,
   isMeetingFocusedQuery,
   labelForKnowledgeChunk,
@@ -26,18 +33,22 @@ function getOpenAIClient() {
 // Chat Completions 用（未設定時は利用しやすい gpt-4o-mini）
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-// 未設定なら送らない（長いリッチHTML が必要なら空のまま）
+// 出力トークン上限（未設定時は 1200。リッチHTML 用に env で上書き可）
 const OPENAI_MAX_OUTPUT_TOKENS = (() => {
-  const raw = (process.env.OPENAI_MAX_OUTPUT_TOKENS || "").trim();
-  if (!raw) return undefined;
+  const raw = (process.env.OPENAI_MAX_OUTPUT_TOKENS || "1200").trim();
   const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : undefined;
+  return Number.isFinite(n) && n > 0 ? n : 1200;
 })();
 
 // 院内抜粋を API に載せる最大文字数（入力トークン削減＝待ち時間・コスト削減）
 const SITE_SNIPPET_MAX_CHARS = Math.max(
-  2000,
-  parseInt(process.env.SITE_SNIPPET_MAX_CHARS || "12000", 10)
+  1500,
+  parseInt(process.env.SITE_SNIPPET_MAX_CHARS || "6000", 10)
+);
+
+// false のとき JSON のみ（Web 補完なし）。未設定時は true＝ハイブリッド
+const CLINIC_WEB_SUPPLEMENT = !["false", "0", "no"].includes(
+  (process.env.CLINIC_WEB_SUPPLEMENT || "true").toLowerCase().trim()
 );
 
 // true のとき、サイト抜粋は「当院・手続きっぽい質問」のときだけ読む（未設定時は true＝挨拶だけで全ページ取得しない）。
@@ -87,7 +98,7 @@ const SYSTEM = `
 - 相談に答えるような、寄り添った文章で話す。
 - 危険サインが疑われる場合は、一般説明を最小限にして「至急受診／救急」誘導を最優先する。
 - 個人情報（氏名、住所、電話番号、保険番号など）を求めない。入力されたら控えるよう促す。
-- 院内情報は、別メッセージで与えられる公式サイトの抜粋に基づいて回答し、根拠がないことは断言しない。
+- 院内情報は、別メッセージで与えられる院内FAQ（JSON）および必要時の公式サイト抜粋に基づいて回答し、根拠がないことは断言しない。
 - 公式サイトの抜粋や当院サイトに明確な情報がないテーマについては、情報がないと断定せず、「当院サイトに記載がないため、詳細はお問い合わせフォームで相談してほしい」ことを丁寧に伝える（必要に応じて一般的な背景説明を短く添える程度にとどめる）。
 - 回答内では「院内サイト抜粋」「KNOWLEDGE」などの内部用語は一切出さない。
 - 回答内で「チャットボット」「AI」などと自称しない。必要な場合も「相談窓口としてご案内します」と表現する。
@@ -218,7 +229,7 @@ C. 様子見も合理的
   - 時間などの重要な情報は **太字** で強調する
   - 箇条書きの先頭に適切な絵文字（✅、📋、💡、ℹ️ など）を付けるとより見やすくなる
   - ただし、絵文字の使いすぎは避け、適度に使用する。また、**💕💖 の絵文字は使用しない**（その他の絵文字のみ適度に使用する）。
-- 当院の参照ページ URL は、チャット画面の**チップ**（画面下の参照リンク）として別途表示される。**回答本文に、当院サイトの URL の箇条書きや「・https://www.kanai.or.jp/...」の列挙を書かない**（本文中に生の URL を並べない）。
+//- 当院の参照ページ URL は、チャット画面の**チップ**（画面下の参照リンク）として別途表示される。**回答本文に、当院サイトの URL の箇条書きや「・https://www.kanai.or.jp/...」の列挙を書かない**（本文中に生の URL を並べない）。
 - 公式サイトの内容に触れるときは、**「サイトに掲載されています」だけで終えない**。必ず、利用者が次に開けるよう **「画面下の参照リンク（関連ページ）をご確認ください」** など、**参照リンクの存在を明示**する一文を入れる（チップが実際に表示される前提の案内）。抽象的なサイト誘導だけで締めない。
 - ユーザーが**自分の言葉で**不安・怖さを述べた場合に限り、短い一言で受け止める。推測で「不安ですよね」「理解します」と付け足さない。不必要な保証はしない。
 - ユーザーの質問が公式サイトの抜粋の内容と意味的に近い場合は、その内容をもとに自然な文章に言い換えて説明する。完全一致でなくてもよい。
@@ -267,8 +278,8 @@ script, style, iframe, onclick、data-*、id は使わない。
 
 カード内の a.chat-pill 等で当院ページへ誘導してよい。**本文末に URL の箇条書きは書かない**（チップに任せる）。
 
-【院内サイト抜粋（システム専用。ユーザー向けの回答テキストには、この名称を出さない）】
-このあと別の system メッセージとして与えられる「当院公式サイトのページ本文の抜粋（URL付き）」を主な根拠として回答を作成すること。
+【院内情報（システム専用。ユーザー向けの回答テキストには、この名称を出さない）】
+このあと別の system メッセージとして与えられる「院内FAQ（JSON）」および必要時の「当院公式サイトのページ本文の抜粋（URL付き）」を主な根拠として回答を作成すること。両方ある場合は FAQ を優先し、サイト抜粋は補足として使う。
 - ユーザー発話に「面会」が含まれるときは、そのターンの抜粋は**面会のお知らせページ（${MEETING_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
 - ユーザー発話に「立ち会い」が含まれるときは、そのターンの抜粋は**立ち会い分娩ページ（${ATTEND_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
 - ユーザー発話に「面会」が含まれるときは、そのターンの抜粋は**面会のお知らせページ（${MEETING_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
@@ -563,7 +574,7 @@ async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, refere
     model: OPENAI_MODEL,
     messages,
     stream: true,
-    ...(OPENAI_MAX_OUTPUT_TOKENS != null ? { max_tokens: OPENAI_MAX_OUTPUT_TOKENS } : {}),
+    max_tokens: OPENAI_MAX_OUTPUT_TOKENS,
   });
 
   let fullAnswer = "";
@@ -631,9 +642,11 @@ export default async function handler(req, res) {
         maxOutputTokens: OPENAI_MAX_OUTPUT_TOKENS ?? null,
         siteSnippetMaxChars: SITE_SNIPPET_MAX_CHARS,
         emergencyRoutingWorks: detectEmergency("大量出血しています"),
-        knowledgeSource: "site",
+        knowledgeSource: "hybrid_json_web",
+        clinicWebSupplement: CLINIC_WEB_SUPPLEMENT,
         siteKnowledgeGated: SITE_KNOWLEDGE_GATED,
         instantGreeting: CHAT_INSTANT_GREETING,
+        clinicKnowledge: peekClinicKnowledgeStatus(),
         siteKnowledge: peekSiteKnowledgeStatus(),
       });
     }
@@ -712,54 +725,74 @@ export default async function handler(req, res) {
 
     let clinicSnippet = "";
     let referencedPages = [];
-    if (
+    const needsClinicKnowledge =
       !casualGreetingOnly &&
-      (isAttendFocusedQuery(userMessage) ||
-        isMeetingFocusedQuery(userMessage) ||
-        !SITE_KNOWLEDGE_GATED ||
-        shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory))
-    ) {
-      const { snippet, state } = await getSiteKnowledgeSnippet(userMessage);
-      clinicSnippet = snippet || state?.knowledgeText || "";
+      (!SITE_KNOWLEDGE_GATED || shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory));
+
+    if (needsClinicKnowledge) {
+      const { topScore: csvTopScore } = rankClinicKnowledge(userMessage);
+      clinicSnippet = buildClinicKnowledgeSnippet(userMessage);
+
+      const seenUrl = new Set();
+      for (const page of selectReferencedPagesFromCsv(userMessage)) {
+        if (!page?.url || seenUrl.has(page.url)) continue;
+        seenUrl.add(page.url);
+        referencedPages.push(page);
+      }
+
+      if (CLINIC_WEB_SUPPLEMENT && shouldSupplementWithWeb(userMessage, csvTopScore)) {
+        const { snippet: webSnippet, state } = await getSiteKnowledgeSnippetSupplement(userMessage);
+        if (webSnippet) {
+          clinicSnippet = clinicSnippet
+            ? `${clinicSnippet}\n\n---\n\n${webSnippet}`
+            : webSnippet;
+        }
+
+        let chunks = selectReferencedPagesForChips(userMessage, state);
+        if (
+          !chunks.length &&
+          webSnippet &&
+          ((state?.singlePageOnly ?? state?.meetingOnly) ||
+            shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory))
+        ) {
+          chunks = selectReferencedChunks(userMessage, state);
+        }
+        for (const c of chunks) {
+          if (!c?.url || seenUrl.has(c.url)) continue;
+          seenUrl.add(c.url);
+          referencedPages.push({
+            url: c.url,
+            title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || c.url,
+          });
+        }
+        if (state?.attendOnly && !referencedPages.some((p) => p.url === ATTEND_INFO_PAGE_URL)) {
+          referencedPages.push({
+            url: ATTEND_INFO_PAGE_URL,
+            title: "立ち会い分娩について",
+          });
+        } else if (state?.meetingOnly && !referencedPages.some((p) => p.url === MEETING_INFO_PAGE_URL)) {
+          referencedPages.push({
+            url: MEETING_INFO_PAGE_URL,
+            title: "面会について",
+          });
+        }
+      } else if (isAttendFocusedQuery(userMessage) && !referencedPages.length) {
+        referencedPages.push({ url: ATTEND_INFO_PAGE_URL, title: "立ち会い分娩について" });
+      } else if (isMeetingFocusedQuery(userMessage) && !referencedPages.length) {
+        referencedPages.push({ url: MEETING_INFO_PAGE_URL, title: "面会について" });
+      }
+
       if (clinicSnippet.length > SITE_SNIPPET_MAX_CHARS) {
         clinicSnippet =
           clinicSnippet.slice(0, SITE_SNIPPET_MAX_CHARS) +
           "\n\n（以降、文字数制限のため省略しました）";
       }
-      let chunks = selectReferencedPagesForChips(userMessage, state);
-      if (
-        !chunks.length &&
-        clinicSnippet &&
-        ((state?.singlePageOnly ?? state?.meetingOnly) ||
-          shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory))
-      ) {
-        chunks = selectReferencedChunks(userMessage, state);
-      }
-      const seenUrl = new Set();
-      for (const c of chunks) {
-        if (!c?.url || seenUrl.has(c.url)) continue;
-        seenUrl.add(c.url);
-        referencedPages.push({
-          url: c.url,
-          title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || c.url,
-        });
-      }
-      if (state?.attendOnly && !referencedPages.length) {
-        referencedPages.push({
-          url: ATTEND_INFO_PAGE_URL,
-          title: "立ち会い分娩について",
-        });
-      } else if (state?.meetingOnly && !referencedPages.length) {
-        referencedPages.push({
-          url: MEETING_INFO_PAGE_URL,
-          title: "面会について",
-        });
-      }
+
     }
 
     const messages = [
       { role: "system", content: SYSTEM },
-      // 院内情報（公式サイトの HTML 抜粋。SITE_URL_LIST または sitemap 由来）
+      // 院内情報（JSON 優先。不足時のみ Web 抜粋を付加）
       ...(clinicSnippet
         ? [
             {
@@ -816,7 +849,7 @@ export default async function handler(req, res) {
     const completion = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages,
-      ...(OPENAI_MAX_OUTPUT_TOKENS != null ? { max_tokens: OPENAI_MAX_OUTPUT_TOKENS } : {}),
+      max_tokens: OPENAI_MAX_OUTPUT_TOKENS,
     });
 
     const raw =

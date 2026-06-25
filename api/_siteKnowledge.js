@@ -7,14 +7,14 @@
 
 import { Redis } from "@upstash/redis";
 
-const REDIS_KEY = "chat:site-knowledge:v1";
+const REDIS_KEY = "chat:site-knowledge:v2";
 
-const DEFAULT_MAX_PAGES = parseInt(process.env.SITE_FETCH_MAX_PAGES || "12", 10);
-const DEFAULT_MAX_CHARS = parseInt(process.env.SITE_MAX_CHARS_PER_PAGE || "5000", 10);
+const DEFAULT_MAX_PAGES = parseInt(process.env.SITE_FETCH_MAX_PAGES || "6", 10);
+const DEFAULT_MAX_CHARS = parseInt(process.env.SITE_MAX_CHARS_PER_PAGE || "3000", 10);
 /** 1リクエストあたりプロンプトに載せる関連チャンク数（小さいほど入力が軽く速い） */
 const SNIPPET_TOP_CHUNKS = Math.min(
   10,
-  Math.max(1, parseInt(process.env.SITE_SNIPPET_TOP_CHUNKS || "4", 10))
+  Math.max(1, parseInt(process.env.SITE_SNIPPET_TOP_CHUNKS || "2", 10))
 );
 /** 参照チップを出す最低スコア（症状語の部分一致だけでは出さない） */
 const REFERENCE_CHIP_MIN_SCORE = Math.max(
@@ -81,6 +81,10 @@ let memoryCache = {
 };
 
 let inflight = null;
+
+/** 面会・立ち会いなど単一ページのメモリキャッシュ（URL → { at, chunk }） */
+const singlePageCache = new Map();
+let singlePageInflight = new Map();
 
 function getRedis() {
   const url = process.env.UPSTASH_REDIS_REST_URL;
@@ -261,41 +265,61 @@ export function isAttendFocusedQuery(userMessage) {
   return /立ち会い/.test(String(userMessage || "").trim());
 }
 
-async function loadMeetingPageOnlyState() {
-  const chunk = await fetchPageChunk(MEETING_INFO_PAGE_URL, DEFAULT_MAX_CHARS);
-  const chunks = chunk ? [chunk] : [];
-  return {
-    chunks,
-    referenceUrls: [],
-    knowledgeText: chunks.length
-      ? buildFullKnowledgeText(chunks)
-      : `【面会について】\n${MEETING_INFO_PAGE_URL} の本文を取得できませんでした。ブラウザで直接ご確認ください。`,
-    error: chunks.length ? null : "meeting_page_failed",
-    fetchMode: "meeting_only",
-    meetingOnly: true,
-    singlePageOnly: true,
-    singlePageTitle: "面会について",
-    singlePageUrl: MEETING_INFO_PAGE_URL,
+async function ensureCachedSinglePage(url) {
+  const now = Date.now();
+  const cached = singlePageCache.get(url);
+  if (cached && now - cached.at < DEFAULT_TTL_MS) {
+    return cached.chunk;
+  }
+
+  let pending = singlePageInflight.get(url);
+  if (!pending) {
+    pending = fetchPageChunk(url, DEFAULT_MAX_CHARS).finally(() => {
+      singlePageInflight.delete(url);
+    });
+    singlePageInflight.set(url, pending);
+  }
+
+  const chunk = await pending;
+  if (chunk) {
+    singlePageCache.set(url, { at: Date.now(), chunk });
+  }
+  return chunk;
+}
+
+function buildSinglePageState(url, title, fetchMode, flagKey) {
+  return async () => {
+    const chunk = await ensureCachedSinglePage(url);
+    const chunks = chunk ? [chunk] : [];
+    return {
+      chunks,
+      referenceUrls: [],
+      knowledgeText: chunks.length
+        ? buildFullKnowledgeText(chunks)
+        : `【${title}】\n${url} の本文を取得できませんでした。ブラウザで直接ご確認ください。`,
+      error: chunks.length ? null : `${fetchMode}_failed`,
+      fetchMode,
+      [flagKey]: true,
+      singlePageOnly: true,
+      singlePageTitle: title,
+      singlePageUrl: url,
+    };
   };
 }
 
-async function loadAttendPageOnlyState() {
-  const chunk = await fetchPageChunk(ATTEND_INFO_PAGE_URL, DEFAULT_MAX_CHARS);
-  const chunks = chunk ? [chunk] : [];
-  return {
-    chunks,
-    referenceUrls: [],
-    knowledgeText: chunks.length
-      ? buildFullKnowledgeText(chunks)
-      : `【立ち会い分娩について】\n${ATTEND_INFO_PAGE_URL} の本文を取得できませんでした。ブラウザで直接ご確認ください。`,
-    error: chunks.length ? null : "attend_page_failed",
-    fetchMode: "attend_only",
-    attendOnly: true,
-    singlePageOnly: true,
-    singlePageTitle: "立ち会い分娩について",
-    singlePageUrl: ATTEND_INFO_PAGE_URL,
-  };
-}
+const loadMeetingPageOnlyState = buildSinglePageState(
+  MEETING_INFO_PAGE_URL,
+  "面会について",
+  "meeting_only",
+  "meetingOnly"
+);
+
+const loadAttendPageOnlyState = buildSinglePageState(
+  ATTEND_INFO_PAGE_URL,
+  "立ち会い分娩について",
+  "attend_only",
+  "attendOnly"
+);
 
 function isSinglePageOnlyState(state) {
   return Boolean(state && state.singlePageOnly === true);
@@ -638,7 +662,7 @@ export function selectReferencedChunks(userMessage, state) {
 /**
  * ユーザーメッセージに関連しそうなチャンクだけを system 用にまとめる
  */
-export function buildSiteKnowledgeSnippet(userMessage, state) {
+export function buildSiteKnowledgeSnippet(userMessage, state, { includeReferenceUrlList = true } = {}) {
   if (isSinglePageOnlyState(state) && (state.chunks || []).length) {
     const use = state.chunks;
     const parts = use.map((c) => `【${labelForKnowledgeChunk(c)}】\nURL: ${c.url}\n${c.text}`);
@@ -658,9 +682,9 @@ export function buildSiteKnowledgeSnippet(userMessage, state) {
 
   let snippet = `【当院公式サイトからの抜粋（関連が高そうなページのみ）】\n\n${parts.join("\n\n---\n\n")}`;
 
-  if (referenceUrls.length > 0) {
+  if (includeReferenceUrlList && referenceUrls.length > 0) {
     snippet += `\n\n【参考URL（院内サイト・sitemap 由来）】\n${referenceUrls
-      .slice(0, 25)
+      .slice(0, 12)
       .map((u) => `・${u}`)
       .join("\n")}`;
   }
@@ -668,29 +692,44 @@ export function buildSiteKnowledgeSnippet(userMessage, state) {
   return snippet;
 }
 
-export async function getSiteKnowledgeSnippet(userMessage) {
+function buildSinglePageSnippet(state, fallbackTitle, fallbackUrl) {
+  const c = state.chunks?.[0];
+  if (c) {
+    return `【当院公式サイトからの抜粋（${state.singlePageTitle || fallbackTitle}のページのみ。他ページの情報は含みません）】\n\n【${labelForKnowledgeChunk(
+      c
+    )}】\nURL: ${c.url}\n${c.text}`;
+  }
+  return `【${fallbackTitle}】\n${fallbackUrl} の本文を取得できませんでした。お手数ですがブラウザで直接ご確認ください。`;
+}
+
+/**
+ * ハイブリッド運用時の Web 補完（CSV で不足するときのみ呼ぶ想定）
+ */
+export async function getSiteKnowledgeSnippetSupplement(userMessage) {
   if (isAttendFocusedQuery(userMessage)) {
     const state = await loadAttendPageOnlyState();
-    const c = state.chunks[0];
-    const snippet = c
-      ? `【当院公式サイトからの抜粋（立ち会い分娩についてのページのみ。他ページの情報は含みません）】\n\n【${labelForKnowledgeChunk(
-          c
-        )}】\nURL: ${c.url}\n${c.text}`
-      : `【立ち会い分娩について】\n${ATTEND_INFO_PAGE_URL} の本文を取得できませんでした。お手数ですがブラウザで直接ご確認ください。\n（このターンでは上記URLのみを参照対象としています）`;
-    return { snippet, state };
+    return {
+      snippet: buildSinglePageSnippet(state, "立ち会い分娩について", ATTEND_INFO_PAGE_URL),
+      state,
+    };
   }
   if (isMeetingFocusedQuery(userMessage)) {
     const state = await loadMeetingPageOnlyState();
-    const c = state.chunks[0];
-    const snippet = c
-      ? `【当院公式サイトからの抜粋（面会についてのページのみ。他ページの情報は含みません）】\n\n【${labelForKnowledgeChunk(
-          c
-        )}】\nURL: ${c.url}\n${c.text}`
-      : `【面会について】\n${MEETING_INFO_PAGE_URL} の本文を取得できませんでした。お手数ですがブラウザで直接ご確認ください。\n（このターンでは上記URLのみを参照対象としています）`;
-    return { snippet, state };
+    return {
+      snippet: buildSinglePageSnippet(state, "面会について", MEETING_INFO_PAGE_URL),
+      state,
+    };
   }
   const state = await ensureSiteKnowledgeLoaded();
-  return { snippet: buildSiteKnowledgeSnippet(userMessage, state), state };
+  return {
+    snippet: buildSiteKnowledgeSnippet(userMessage, state, { includeReferenceUrlList: false }),
+    state,
+  };
+}
+
+/** @deprecated 互換用。新規は getSiteKnowledgeSnippetSupplement を利用 */
+export async function getSiteKnowledgeSnippet(userMessage) {
+  return getSiteKnowledgeSnippetSupplement(userMessage);
 }
 
 /** GET ヘルス用。ネットワーク取得は行わず、メモリ上のキャッシュ状況だけ返す */
@@ -706,6 +745,8 @@ export function peekSiteKnowledgeStatus() {
     registeredUrlCount: registeredCount,
     ttlMs: DEFAULT_TTL_MS,
     maxPages: DEFAULT_MAX_PAGES,
+    maxCharsPerPage: DEFAULT_MAX_CHARS,
     snippetTopChunks: SNIPPET_TOP_CHUNKS,
+    singlePageCacheCount: singlePageCache.size,
   };
 }
