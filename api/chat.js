@@ -235,7 +235,7 @@ C. 様子見も合理的
 - **Markdownリンク [ページ名](URL) は禁止**。ページ名だけ書く（例：産後ケアページ。角括弧・URL・括弧は付けない）。
 - 悪い例：「当院の[産後ケアページ](https://www.kanai.or.jp/aftercare/)をご確認ください。」
 - 良い例：「詳しいコースや料金については、産後ケアページの内容を画面下の参照リンクからご確認ください。」
-- 公式サイトの内容に触れるときは、**「サイトに掲載されています」だけで終えない**。必ず、利用者が次に開けるよう **「画面下の参照リンク（関連ページ）をご確認ください」** など、**参照リンクの存在を明示**する一文を入れる（チップが実際に表示される前提の案内）。抽象的なサイト誘導だけで締めない。
+- **「画面下の参照リンク」**は、別メッセージ【このターンの参照リンク】でページが列挙されているときだけ案内する。列挙がないときは書かない（お問い合わせフォームやお電話など具体名で案内する）。
 - ユーザーが**自分の言葉で**不安・怖さを述べた場合に限り、短い一言で受け止める。推測で「不安ですよね」「理解します」と付け足さない。不必要な保証はしない。
 - ユーザーの質問が公式サイトの抜粋の内容と意味的に近い場合は、その内容をもとに自然な文章に言い換えて説明する。完全一致でなくてもよい。
 - 文末に絵文字を使用する場合は、句読点は表示しない。
@@ -244,7 +244,7 @@ C. 様子見も合理的
 - 最終出力の前に、必ず「病院窓口スタッフがそのまま口頭で言って自然か」を自己チェックし、不自然なら書き直してから出力する。
 - 1文を長くしすぎない。読点「、」が3つ以上続く文は分割する。
 - 「〜については」「〜に関しては」を1文内で重ねない。必要なら1回までにする。
-- 抽象語だけで終わらない。「詳細」「利用方法」「注意点」などの語を使うときは、案内先を明示する（当院サイトの場合は**画面下の参照リンク**、問い合わせの場合はフォームや電話など具体名）。
+- 抽象語だけで終わらない。「詳細」「利用方法」「注意点」などの語を使うときは、案内先を明示する（参照リンクが表示される場合は画面下の参照リンク、表示されない場合はお問い合わせフォームや電話など具体名）。
 - 丁寧だが回りくどい定型を避ける。短く具体的に言い切る。
 - 文頭に絵文字を置くときは、絵文字の前に「・」「-」「*」などの記号を付けない（例「✅ 受付時間は〜」）。
 
@@ -638,6 +638,63 @@ function stripOverDelegatingClosing(text) {
   return s;
 }
 
+function defaultRefPageTitle(url) {
+  const u = String(url || "").toLowerCase();
+  if (/\/qa\/?/i.test(u)) return "よくある質問（Q&A）";
+  if (/\/about\/?/i.test(u)) return "当院について";
+  if (/\/visit|\/gai/i.test(u)) return "外来のご案内";
+  return "当院サイト";
+}
+
+/** FAQ 抜粋内の「参考ページ: URL」からチップを補完（スコア閾値で漏れた場合の保険） */
+function enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages) {
+  const out = [...(referencedPages || [])];
+  const seen = new Set(out.map((p) => p.url));
+  const re = /参考ページ:\s*(https?:\/\/\S+)/g;
+  let m;
+  while ((m = re.exec(String(clinicSnippet || "")))) {
+    const url = m[1].replace(/[).、]+$/, "").trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ url, title: defaultRefPageTitle(url) });
+  }
+  return out;
+}
+
+/** モデルに参照チップの有無を明示（架空のリンク案内を防ぐ） */
+function buildReferenceLinksSystemPrompt(referencedPages) {
+  if (!referencedPages?.length) {
+    return [
+      "【このターンの参照リンク】",
+      "画面下部には参照リンク（チップ）は表示されません。",
+      "「画面下の参照リンク」「参照リンクからご確認ください」という案内は書かないでください。",
+      "サイト案内が必要なら、お問い合わせフォームやお電話など、具体名で案内してください。",
+    ].join("\n");
+  }
+  const lines = referencedPages.map((p) => `- ${(p.title || p.url || "").trim()}`);
+  return [
+    "【このターンの参照リンク】",
+    "回答の直下に次のページがチップとして表示されます。",
+    "サイト案内するときは「画面下の参照リンクからご確認ください」と書いてよいです。",
+    ...lines,
+  ].join("\n");
+}
+
+function stripFalseReferenceLinkMention(text, referencedPages) {
+  if (referencedPages && referencedPages.length > 0) return String(text || "");
+  let s = String(text || "");
+  s = s.replace(/[^。\n]*画面下の参照リンク[^。\n]*。/g, "");
+  s = s.replace(/[^。\n]*参照リンク[^。\n]*ご確認ください。/g, "");
+  return s.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function finalizeAssistantAnswer(text, referencedPages) {
+  return stripFalseReferenceLinkMention(
+    normalizeLegacyTwoLayerAnswer(text),
+    referencedPages
+  );
+}
+
 function normalizeLegacyTwoLayerAnswer(text) {
   const raw = String(text || "").trim();
   const out = normalizeRichHtmlMarker(
@@ -677,7 +734,7 @@ async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, refere
     }
   }
 
-  const trimmed = normalizeLegacyTwoLayerAnswer(fullAnswer.trim());
+  const trimmed = finalizeAssistantAnswer(fullAnswer.trim(), referencedPages);
   const now = new Date();
   console.log(
     "chat-log",
@@ -879,6 +936,7 @@ export default async function handler(req, res) {
           "\n\n（以降、文字数制限のため省略しました）";
       }
 
+      referencedPages = enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages);
     }
 
     const messages = [
@@ -892,6 +950,10 @@ export default async function handler(req, res) {
             },
           ]
         : []),
+      {
+        role: "system",
+        content: buildReferenceLinksSystemPrompt(referencedPages),
+      },
       ...(shouldForceRichHtmlForMessage(userMessage, safeHistory)
         ? [{ role: "system", content: RICH_HTML_THIS_TURN }]
         : []),
@@ -946,7 +1008,7 @@ export default async function handler(req, res) {
     const raw =
       (completion.choices[0]?.message?.content || "").trim() ||
       "すみません、うまく回答を生成できませんでした。";
-    const answer = normalizeLegacyTwoLayerAnswer(raw);
+    const answer = finalizeAssistantAnswer(raw, referencedPages);
 
     // Vercel のログにチャット内容（生テキスト）を残す
     // - IP やブラウザ情報などの識別子は含めない

@@ -11,6 +11,11 @@ const JSON_TOP_ITEMS = Math.min(
   10,
   Math.max(1, parseInt(process.env.CSV_SNIPPET_TOP_ITEMS || process.env.JSON_SNIPPET_TOP_ITEMS || "5", 10))
 );
+/** 参照チップに載せる FAQ 項目の最低スコア（抜粋に含まれる項目と揃える） */
+const REFERENCE_CHIP_MIN_FAQ_SCORE = Math.max(
+  1,
+  parseInt(process.env.REFERENCE_CHIP_MIN_FAQ_SCORE || "3", 10)
+);
 /** このスコア未満なら Web 補完を検討 */
 const JSON_WEB_SUPPLEMENT_MIN_SCORE = Math.max(
   1,
@@ -132,15 +137,25 @@ function scoreFaqItem(userMessage, item) {
     score += 30;
   }
 
+  const hayFull = `${item.category}\n${item.question}\n${item.answer}`;
+  if (
+    /担当医|主治医|医師.*(性別|男性|女性)|男性医師|女性医師|男の医師|女の医師|指名|診療体制/.test(
+      text
+    ) &&
+    /医師|担当医|診療体制|指名/.test(hayFull)
+  ) {
+    score += 12;
+  }
+
   return score;
 }
 
 /**
- * @returns {{ items: Array, topScore: number }}
+ * @returns {{ scored: Array<{ item, score }>, topScore: number }}
  */
-export function rankClinicKnowledge(userMessage) {
+function rankClinicKnowledgeScored(userMessage) {
   if (!CLINIC_FAQ_ITEMS.length) {
-    return { items: [], topScore: 0 };
+    return { scored: [], topScore: 0 };
   }
 
   const scored = CLINIC_FAQ_ITEMS.map((item) => ({
@@ -150,14 +165,25 @@ export function rankClinicKnowledge(userMessage) {
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  const top = scored.slice(0, JSON_TOP_ITEMS).map((s) => s.item);
-  const topScore = scored[0]?.score ?? 0;
-
-  if (top.length > 0) {
-    return { items: top, topScore };
+  if (scored.length > 0) {
+    return { scored: scored.slice(0, JSON_TOP_ITEMS), topScore: scored[0].score };
   }
 
-  return { items: CLINIC_FAQ_ITEMS.slice(0, Math.min(3, JSON_TOP_ITEMS)), topScore: 0 };
+  return {
+    scored: CLINIC_FAQ_ITEMS.slice(0, Math.min(3, JSON_TOP_ITEMS)).map((item) => ({
+      item,
+      score: 0,
+    })),
+    topScore: 0,
+  };
+}
+
+/**
+ * @returns {{ items: Array, topScore: number }}
+ */
+export function rankClinicKnowledge(userMessage) {
+  const { scored, topScore } = rankClinicKnowledgeScored(userMessage);
+  return { items: scored.map((s) => s.item), topScore };
 }
 
 function formatFaqItems(items) {
@@ -191,12 +217,13 @@ export function buildClinicKnowledgeSnippet(userMessage) {
  * @returns {Array<{ url: string, title: string }>}
  */
 export function selectReferencedPagesFromCsv(userMessage) {
-  const { items, topScore } = rankClinicKnowledge(userMessage);
-  if (topScore < 6) return [];
+  const { scored, topScore } = rankClinicKnowledgeScored(userMessage);
+  if (topScore <= 0) return [];
 
   const seen = new Set();
   const out = [];
-  for (const item of items) {
+  for (const { item, score } of scored) {
+    if (score < REFERENCE_CHIP_MIN_FAQ_SCORE) continue;
     if (!item.url || !/^https?:\/\//i.test(item.url) || seen.has(item.url)) continue;
     seen.add(item.url);
     const title =
