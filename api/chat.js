@@ -142,6 +142,14 @@ const SYSTEM = `
 ・上から目線の言い回しも書かない（「期待に応えられなかった」「残念です」「私たちのサービス」等は禁止）。
 ・基本は3文構成：（1）謝罪「ご不快な思いをさせてしまい、大変申し訳ありません。」（2）ご指摘の受け止め（3）改善姿勢（例：「今後の対応についても、より安心していただけるよう努めてまいります。」）。
 ・感情の代弁、講義調（「〜は大切ですので」）、長い気持ちの受け止めは書かない。
+・**当院へのクレームのときだけ**上記の謝罪・改善姿勢を使う。「前の病院」「別の病院」「以前の病院」など**他院での経験**を話しているときは、当院への謝罪や「今後の対応改善」は書かない（話の辻褄が合わない）。
+
+【他院・以前の病院での経験について】
+ユーザーが当院以外（前の病院・別の病院等）での出来事や不安を話している場合：
+・当院への謝罪（「ご不快な思いをさせてしまい、申し訳ありません」等）は書かない。
+・「ご指摘を真摯に受け止め」「今後の対応改善に努めます」等、当院が悪かったかのような表現も書かない。
+・他院の医師・スタッフの善悪評価や批判には乗らない。
+・短くお礼を述べ、こちらでの受診を検討する際の不安や疑問があれば聞き出す。必要なら電話相談などの選択肢を提示する。
 
 【短文入力への対応ルール（最重要）】
 入力が短文（例：「お腹痛い」「出血」）の場合：
@@ -302,6 +310,18 @@ const PROMPT_COMPLAINT = [
   "・良い例：ご不快な思いをさせてしまい、大変申し訳ありません。ご指摘の点は真摯に受け止めます。今後の対応についても、より安心していただけるよう努めてまいります。",
 ].join("\n");
 
+/** 他院・以前の病院での経験（当院クレームではない） */
+const PROMPT_OTHER_HOSPITAL_EXPERIENCE = [
+  "【このターン：他院・以前の病院での経験の相談（最優先）】",
+  "ユーザーは当院へのクレームではなく、以前・別の病院での経験や、その影響による不安を話しています。",
+  "・当院への謝罪は書かない（「ご不快な思いをさせてしまい、申し訳ありません」等は禁止）。",
+  "・「ご指摘の点は真摯に受け止め」「今後の対応改善に努めます」等、当院が悪かったかのような改善約束も書かない。",
+  "・他院の医師・スタッフの善悪評価や批判には乗らない。",
+  "・「そういった経験をされたのですね」「〜は大切です」などの感情代弁・講義調も書かない。",
+  "・短くお礼を述べ、こちらで受診を検討する際に気になる点があれば聞き出す。必要なら診療時間内のお電話相談など選択肢を提示する。",
+  "・良い例：前の病院でのご経験についてお聞かせいただき、ありがとうございます。こちらで受診をお考えの場合、気になることがあれば遠慮なくお聞かせください。診療時間内にお電話でご相談いただくこともできます。",
+].join("\n");
+
 function setCors(res, origin) {
   // 許可リストに含まれるOriginのみ許可
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
@@ -455,11 +475,29 @@ function recentUserText(userMessage, safeHistory) {
   return chunks.join("\n").slice(-4000);
 }
 
+function isOtherHospitalExperienceMessage(userMessage, safeHistory) {
+  const text = recentUserText(userMessage, safeHistory);
+  const current = String(userMessage || "").trim();
+  const otherHospitalCue =
+    /前の病院|以前の病院|以前行った病院|別の病院|他の病院|他院では|他院で|前に行った病院|以前行った|前回の病院|元の病院|転院前|かかりつけが変わ|病院を変え|病院が変わ/;
+  const negativeCue =
+    /怖|ひど|威圧|怒|冷た|不安|嫌|つら|苦|信頼でき|不信|トラウマ|最悪|無理|不快|嫌だった|嫌で/;
+
+  if (otherHospitalCue.test(text) && negativeCue.test(text)) return true;
+  if (/前の病院|以前の病院|別の病院では|他の病院では|他院では/.test(current)) return true;
+  return false;
+}
+
 function shouldAddComplaintPrompt(userMessage, safeHistory) {
+  if (isOtherHospitalExperienceMessage(userMessage, safeHistory)) return false;
   const text = recentUserText(userMessage, safeHistory);
   return /クレーム|苦情|不快|ひどい|最悪|ありえない|許せない|不信|ふざけ|態度が悪|態度.*悪|無愛想|冷たい|窓口.*悪|受付.*悪|スタッフ.*悪|対応が悪|威圧|怖かった|怖く|怒鳴|叱咤|先生.*怖|医師.*怖|他院.*(良|いい)|他の病院.*(良|いい)|訴えたい|文句|ひどかった|最悪だった|怒られ|怒った/.test(
     text
   );
+}
+
+function shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory) {
+  return isOtherHospitalExperienceMessage(userMessage, safeHistory);
 }
 
 /** 症状・感情の相談（院内案内の事実確認ではない） */
@@ -753,6 +791,24 @@ function stripIrrelevantModelClosing(text) {
   return s.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function stripMisplacedKanaiApology(text, userMessage, safeHistory) {
+  if (!isOtherHospitalExperienceMessage(userMessage, safeHistory)) return String(text || "");
+  let s = String(text || "");
+  const patterns = [
+    /ご不快な思いをさせてしまい[^。\n]*。/g,
+    /ご指摘の点は真摯に受け止め[^。\n]*。/g,
+    /今後の対応についても[^。\n]*努めてまいります。/g,
+    /今後の対応改善[^。\n]*。/g,
+    /そういった経験をされたのですね[^。\n]*。/g,
+    /[^。\n]*安心して受診できる環境[^。\n]*。/g,
+    /[^。\n]*とても大切です[^。\n]*。/g,
+  ];
+  for (const re of patterns) {
+    s = s.replace(re, "");
+  }
+  return s.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function stripComplaintEmpathyPhrases(text, userMessage, safeHistory) {
   if (!shouldAddComplaintPrompt(userMessage, safeHistory)) return String(text || "");
   let s = String(text || "");
@@ -775,14 +831,18 @@ function stripComplaintEmpathyPhrases(text, userMessage, safeHistory) {
 }
 
 function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory = []) {
-  return stripComplaintEmpathyPhrases(
-    stripIrrelevantModelClosing(
-      stripFalseReferenceLinkMention(
-        stripNextActionLeadIn(
-          normalizeLegacyTwoLayerAnswer(text)
-        ),
-        referencedPages
-      )
+  return stripMisplacedKanaiApology(
+    stripComplaintEmpathyPhrases(
+      stripIrrelevantModelClosing(
+        stripFalseReferenceLinkMention(
+          stripNextActionLeadIn(
+            normalizeLegacyTwoLayerAnswer(text)
+          ),
+          referencedPages
+        )
+      ),
+      userMessage,
+      safeHistory
     ),
     userMessage,
     safeHistory
@@ -1057,9 +1117,11 @@ export default async function handler(req, res) {
       ...(shouldForceRichHtmlForMessage(userMessage, safeHistory)
         ? [{ role: "system", content: RICH_HTML_THIS_TURN }]
         : []),
-      ...(shouldAddComplaintPrompt(userMessage, safeHistory)
-        ? [{ role: "system", content: PROMPT_COMPLAINT }]
-        : []),
+      ...(shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory)
+        ? [{ role: "system", content: PROMPT_OTHER_HOSPITAL_EXPERIENCE }]
+        : shouldAddComplaintPrompt(userMessage, safeHistory)
+          ? [{ role: "system", content: PROMPT_COMPLAINT }]
+          : []),
       ...safeHistory
         .filter((h) => h && (h.role === "user" || h.role === "assistant"))
         .map((h) => ({
