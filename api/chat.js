@@ -417,6 +417,7 @@ function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
     /母乳ケア|妊婦健診|乳児健診|健診枠|検診|スケジュール|時間割|枠|空き状況/,
     /里帰り|分娩|出産|産科|婦人科|産後ケア/,
     /Q&A|よくある質問|クイック/,
+    /オンライン診療|オンライン|遠隔診療|テレビ電話/i,
     /電話|番号|06[-‐]?6931/i,
   ];
 
@@ -873,11 +874,12 @@ export default async function handler(req, res) {
 
     let clinicSnippet = "";
     let referencedPages = [];
-    const needsClinicKnowledge =
-      !casualGreetingOnly &&
+    const needsClinicKnowledgeJson = !casualGreetingOnly;
+    const shouldFetchWebKnowledge =
+      needsClinicKnowledgeJson &&
       (!SITE_KNOWLEDGE_GATED || shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory));
 
-    if (needsClinicKnowledge) {
+    if (needsClinicKnowledgeJson) {
       const { topScore: csvTopScore } = rankClinicKnowledge(userMessage);
       clinicSnippet = buildClinicKnowledgeSnippet(userMessage);
 
@@ -888,7 +890,7 @@ export default async function handler(req, res) {
         referencedPages.push(page);
       }
 
-      if (CLINIC_WEB_SUPPLEMENT && shouldSupplementWithWeb(userMessage, csvTopScore)) {
+      if (CLINIC_WEB_SUPPLEMENT && shouldFetchWebKnowledge && shouldSupplementWithWeb(userMessage, csvTopScore)) {
         const { snippet: webSnippet, state } = await getSiteKnowledgeSnippetSupplement(userMessage);
         if (webSnippet) {
           clinicSnippet = clinicSnippet
@@ -900,8 +902,7 @@ export default async function handler(req, res) {
         if (
           !chunks.length &&
           webSnippet &&
-          ((state?.singlePageOnly ?? state?.meetingOnly) ||
-            shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory))
+          ((state?.singlePageOnly ?? state?.meetingOnly) || shouldFetchWebKnowledge)
         ) {
           chunks = selectReferencedChunks(userMessage, state);
         }
