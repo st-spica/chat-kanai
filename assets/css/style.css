@@ -1,19 +1,23 @@
+@import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700;900&display=swap');
+
 body {
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    max-width: 820px;
-    margin: 0 auto;
-    padding: 16px;
-    background: #fafafa;
+    font-family: Zen Maru Gothic", sans-serif;
   }
-  h1 {
-    font-size: 22px;
-    margin-bottom: 12px;
+  .title{
+    background: #ffa2b0;
+    padding: 20px 0;
+    text-align: center;
+  }
+  .title h1 {
+    font-size: 40px;
+  }
+  #chatUI{
+    max-width: 880px;
+    margin: 0 auto;
   }
   .box {
-    border: 1px solid #ddd;
-    border-radius: 12px;
-    padding: 14px;
-    background: #fff;
+    font-size: 16px;
+    line-height: 1.75;
   }
   .msgs {
     min-height: 360px;
