@@ -18,19 +18,7 @@
 
 <h1>金井産婦人科 AI相談</h1>
 
-<div class="box" id="consentBox">
-  <pre class="muted" id="disclaimer"></pre>
-
-  <label class="check_flex">
-    <input type="checkbox" id="agreeChk" />
-    上記内容に同意して利用します
-  </label>
-  <button id="startBtn" disabled style="margin-top:12px;">
-    ご相談を開始
-  </button>
-</div>
-
-<div id="chatUI" style="display:none;">
+<div id="chatUI">
 
   <div class="box" style="margin-bottom:12px;">
     <pre class="muted" id="disclaimerFixed"></pre>
@@ -371,28 +359,12 @@
 また、安心してご利用いただくために、お名前やご住所、電話番号などの個人情報の入力はお控えください。
 出血が多い・強い腹痛がある・意識がぼんやりする・高い熱があるなど、気になる症状がある場合は、無理をせず医療機関へご連絡・受診をご検討ください。状況によっては、救急（119）の利用もご検討ください。`;
 
-  const consentBox = document.getElementById("consentBox");
-  const chatUI = document.getElementById("chatUI");
-  const disclaimer = document.getElementById("disclaimer");
   const disclaimerFixed = document.getElementById("disclaimerFixed");
-  const agreeChk = document.getElementById("agreeChk");
-  const startBtn = document.getElementById("startBtn");
   const msgsEl = document.getElementById("msgs");
   const inputEl = document.getElementById("input");
   const sendBtn = document.getElementById("sendBtn");
 
-  disclaimer.textContent = disclaimerText;
   disclaimerFixed.textContent = disclaimerText;
-
-  agreeChk.addEventListener("change", () => {
-    startBtn.disabled = !agreeChk.checked;
-  });
-
-  startBtn.addEventListener("click", () => {
-    if (!agreeChk.checked) return;
-    consentBox.style.display = "none";
-    chatUI.style.display = "block";
-  });
 
   const history = [];
   let typingWrap = null;
