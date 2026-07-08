@@ -139,6 +139,7 @@ const SYSTEM = `
 
 【クレーム・攻撃的内容への対応（重要）】
 ・共感文は書かない（「理解できます」「もっともだと思います」「無理もないことだと思います」「そのように感じられた」等は禁止）。
+・上から目線の言い回しも書かない（「期待に応えられなかった」「残念です」「私たちのサービス」等は禁止）。
 ・冒頭は「ご不快な思いをさせてしまい、大変申し訳ありません。」で始める。
 ・続けて必要なら、ご指摘の受け止めと改善姿勢のみ短く（例：「ご指摘の点は真摯に受け止め、今後の対応改善に努めます。」）。
 ・感情の代弁、講義調（「〜は大切ですので」）、長い気持ちの受け止めは書かない。
@@ -295,8 +296,10 @@ const PROMPT_COMPLAINT = [
   "【このターン：クレーム・不満への対応（最優先）】",
   "・冒頭は「ご不快な思いをさせてしまい、大変申し訳ありません。」で始める。",
   "・共感は一切書かない。「理解できます」「もっともだと思います」「無理もないことだと思います」「そのように感じられた」「大切ですので」等は禁止。",
+  "・上から目線の言い回しも禁止。「私たちのサービス」「期待に応えられなかった」「残念です」等は書かない。",
   "・感情の代弁・気持ちの言語化・講義調の説明は書かない。",
   "・必要なら続けて1文だけ、ご指摘の受け止めと改善姿勢を短く（例：「ご指摘の点は真摯に受け止め、今後の対応改善に努めます。」）。",
+  "・良い例：ご不快な思いをさせてしまい、大変申し訳ありません。ご指摘の点は真摯に受け止め、今後の対応改善に努めます。",
 ].join("\n");
 
 function setCors(res, origin) {
@@ -457,6 +460,38 @@ function shouldAddComplaintPrompt(userMessage, safeHistory) {
   return /クレーム|苦情|不快|ひどい|最悪|ありえない|許せない|不信|ふざけ|態度が悪|態度.*悪|無愛想|冷たい|窓口.*悪|受付.*悪|スタッフ.*悪|対応が悪|他院.*(良|いい)|他の病院.*(良|いい)|訴えたい|文句|ひどかった|最悪だった|怒られ|怒った/.test(
     text
   );
+}
+
+/** 症状・感情の相談（院内案内の事実確認ではない） */
+function looksLikeConsultWithoutReferencePages(userMessage, safeHistory) {
+  const text = recentUserText(userMessage, safeHistory);
+  if (
+    /怖い|不安|無理|トラウマ|心配|つらい|苦しい|痛い|腹痛|出血|吐き気|発熱|陣痛|破水|胎動|気持ち|つらかった/.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  const current = String(userMessage || "").trim();
+  return current.length > 0 && current.length <= 28 && /痛|血|熱|吐|痒|怖|辛/.test(current);
+}
+
+/** 画面下の参照リンク（チップ）を出さないターンか */
+function shouldSuppressReferencePages(userMessage, safeHistory, faqTopScore = 0) {
+  if (shouldAddComplaintPrompt(userMessage, safeHistory)) return true;
+
+  if (looksLikeConsultWithoutReferencePages(userMessage, safeHistory)) {
+    if (shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) && faqTopScore >= 10) {
+      return false;
+    }
+    return true;
+  }
+
+  if (!shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) && faqTopScore < 8) {
+    return true;
+  }
+
+  return false;
 }
 
 const RICH_HTML_PREFIX = "[[[RICH_HTML]]]";
@@ -723,6 +758,9 @@ function stripComplaintEmpathyPhrases(text, userMessage, safeHistory) {
     /無理もないことだと思います[^。\n]*。/g,
     /[^。\n]*大切ですので[^。\n]*。/g,
     /ご不快な思いをされたのですね[^。\n]*。/g,
+    /私たちのサービスが[^。\n]*。/g,
+    /[^。\n]*期待に応えられなかった[^。\n]*。/g,
+    /[^。\n]*残念です[^。\n]*。/g,
   ];
   for (const re of patterns) {
     s = s.replace(re, "");
@@ -921,13 +959,15 @@ export default async function handler(req, res) {
 
     let clinicSnippet = "";
     let referencedPages = [];
+    let csvTopScore = 0;
     const needsClinicKnowledgeJson = !casualGreetingOnly;
     const shouldFetchWebKnowledge =
       needsClinicKnowledgeJson &&
       (!SITE_KNOWLEDGE_GATED || shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory));
 
     if (needsClinicKnowledgeJson) {
-      const { topScore: csvTopScore } = rankClinicKnowledge(userMessage);
+      const ranked = rankClinicKnowledge(userMessage);
+      csvTopScore = ranked.topScore;
       clinicSnippet = buildClinicKnowledgeSnippet(userMessage);
 
       const seenUrl = new Set();
@@ -985,6 +1025,10 @@ export default async function handler(req, res) {
       }
 
       referencedPages = enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages);
+    }
+
+    if (shouldSuppressReferencePages(userMessage, safeHistory, csvTopScore)) {
+      referencedPages = [];
     }
 
     const messages = [
