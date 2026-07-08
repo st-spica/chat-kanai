@@ -79,13 +79,27 @@ const {
   loadError: CLINIC_JSON_LOAD_ERROR,
 } = loadClinicKnowledge();
 
+const SCORING_STOP_TOKENS = new Set([
+  "必要",
+  "教え",
+  "ほしい",
+  "ある",
+  "ない",
+  "です",
+  "ます",
+  "ください",
+  "教えて",
+]);
+
 function tokenizeForScoring(text) {
   const raw = String(text || "")
     .trim()
     .replace(/診察中/g, "診療中")
+    .replace(/必要なもの/g, "持ち物")
+    .replace(/入院する|入院のとき|入院時/g, "入院")
     .replace(/してもいいですか|していいですか|してよいですか|できますか/g, " ")
+    .replace(/教えて(ください)?/g, " ")
     .replace(/について/g, " ")
-    .replace(/教えてください/g, " ")
     .replace(/お願いします/g, " ");
   if (!raw) return [];
 
@@ -128,6 +142,7 @@ function scoreFaqItem(userMessage, item) {
 
   for (const tok of tokenizeForScoring(text)) {
     const t = tok.toLowerCase();
+    if (SCORING_STOP_TOKENS.has(t)) continue;
     if (t.length >= 3 && hay.includes(t)) score += t.length;
     else if (t.length === 2 && hay.includes(t)) score += 6;
   }
@@ -153,6 +168,13 @@ function scoreFaqItem(userMessage, item) {
   if (
     /撮影|録音|写真|動画|SNS|撮って|录画/i.test(`${text}\n${normalizedText}`) &&
     /撮影|録音|写真|動画|SNS/.test(hayFull)
+  ) {
+    score += 15;
+  }
+
+  if (
+    /入院|持ち物|必要なもの|分娩セット|入院準備/.test(`${text}\n${normalizedText}`) &&
+    /持ち物|ご用意いただく|入院セット|お産セット/.test(hayFull)
   ) {
     score += 15;
   }
