@@ -95,6 +95,7 @@ function tokenizeForScoring(text) {
   const raw = String(text || "")
     .trim()
     .replace(/診察中/g, "診療中")
+    .replace(/先生/g, "医師")
     .replace(/必要なもの/g, "持ち物")
     .replace(/入院する|入院のとき|入院時/g, "入院")
     .replace(/してもいいですか|していいですか|してよいですか|できますか/g, " ")
@@ -126,7 +127,7 @@ function tokenizeForScoring(text) {
  */
 function scoreFaqItem(userMessage, item) {
   const text = String(userMessage || "").trim();
-  const normalizedText = text.replace(/診察中/g, "診療中");
+  const normalizedText = text.replace(/診察中/g, "診療中").replace(/先生/g, "医師");
   const lowered = normalizedText.toLowerCase();
   const hay = `${item.category}\n${item.question}\n${item.answer}`.toLowerCase();
   let score = 0;
@@ -156,6 +157,16 @@ function scoreFaqItem(userMessage, item) {
   }
 
   const hayFull = `${item.category}\n${item.question}\n${item.answer}`;
+  const doctorGenderQuery =
+    /(?:医師|担当医|主治医).*(?:男性|女性|性別)|(?:男性|女性).*(?:医師|担当医)|男性医師|女性医師|男の医師|女の医師|男性のみ|女性のみ|先生は男性|先生は女性/.test(
+      `${text}\n${normalizedText}`
+    );
+  if (
+    doctorGenderQuery &&
+    /医師|担当医|診療体制|指名|女性医師|男性医師|男性のみ/.test(hayFull)
+  ) {
+    score += 20;
+  }
   if (
     /担当医|主治医|医師.*(性別|男性|女性)|男性医師|女性医師|男の医師|女の医師|指名|診療体制/.test(
       text
