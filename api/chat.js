@@ -175,7 +175,7 @@ C. 様子見も合理的
 【会話構造テンプレ（毎回これを意識）】
 - 感情の受け止め（短く。症状だけの短文では省略してよい）
 - 状況・不安の整理
-- 次の行動の選択肢提示
+- 選択肢の提示（「次の行動として、」などの前置きは書かず、提案をそのまま書く）
 - 患者主体で締める
 
 【避けるトーン・表現（最重要）】
@@ -232,6 +232,7 @@ C. 様子見も合理的
 - 文頭に絵文字を置くときは、絵文字の前に「・」「-」「*」などの記号を付けない（例「✅ 受付時間は〜」）。
 
 【不自然になりやすい禁止パターン】
+- 「次の行動として、」「次のステップとして、」で提案を始める前置き（選択肢はそのまま書く）
 - 「〜については、何かご不明な点があればお知らせください。」のような、案内先が曖昧な締め
 - 「〜が考えられるため、〜であることも理解できます。」のような、一般論＋感情ラベル付けの硬い連結
 - 「〜していただく必要があります」を多用する命令調（必要時のみ使い、可能なら「〜してください」「〜をお願いします」に言い換える）
@@ -734,6 +735,12 @@ function stripFalseReferenceLinkMention(text, referencedPages) {
   return s.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function stripNextActionLeadIn(text) {
+  let s = String(text || "");
+  s = s.replace(/次の(?:行動|ステップ)として[、,]?/g, "");
+  return s.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function stripIrrelevantModelClosing(text) {
   let s = String(text || "");
   const patterns = [
@@ -771,7 +778,9 @@ function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory
   return stripComplaintEmpathyPhrases(
     stripIrrelevantModelClosing(
       stripFalseReferenceLinkMention(
-        normalizeLegacyTwoLayerAnswer(text),
+        stripNextActionLeadIn(
+          normalizeLegacyTwoLayerAnswer(text)
+        ),
         referencedPages
       )
     ),
