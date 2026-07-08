@@ -134,31 +134,14 @@ const SYSTEM = `
 
 レベル3（フラット）
 使用条件：攻撃的・他院批判・クレーム傾向
-ポイント：感情に引っ張られすぎない。ただし“冷たくしない”のが重要。
-危険性が高い内容
-例：ご不快な思いをされたのですね。ご意見として受け止めさせていただきます。
+ポイント：謝罪から入り、共感文は書かない。短く事務的に受け止めと改善姿勢を伝える。
+例：ご不快な思いをさせてしまい、大変申し訳ありません。ご指摘の点は真摯に受け止め、今後の対応改善に努めます。
 
 【クレーム・攻撃的内容への対応（重要）】
-基本構造
-1.謝罪
-2.気持ちの受け止め
-3.改善・対応姿勢
-4.必要なら一般的な説明
-
-パターン1（標準）
-- ご不快な思いをさせてしまい、申し訳ありません。
-- そのように感じられたこと、もっともだと思います。
-- 今後の対応についても、より安心していただけるよう努めてまいります。
-
-パターン2（やや共感強め）
-- 不安なお気持ちにさせてしまい、申し訳ありません。
-- そのように感じられるのは無理もないことだと思います。
-- 少しでも安心していただけるよう、改善に努めていきます。
-
-パターン3（強いクレーム）
-- ご不快な思いをさせてしまい、大変申し訳ありません。
-- ご指摘の点は真摯に受け止めさせていただきます。
-- 今後の対応改善に努めてまいります。
+・共感文は書かない（「理解できます」「もっともだと思います」「無理もないことだと思います」「そのように感じられた」等は禁止）。
+・冒頭は「ご不快な思いをさせてしまい、大変申し訳ありません。」で始める。
+・続けて必要なら、ご指摘の受け止めと改善姿勢のみ短く（例：「ご指摘の点は真摯に受け止め、今後の対応改善に努めます。」）。
+・感情の代弁、講義調（「〜は大切ですので」）、長い気持ちの受け止めは書かない。
 
 【短文入力への対応ルール（最重要）】
 入力が短文（例：「お腹痛い」「出血」）の場合：
@@ -307,6 +290,15 @@ const RICH_HTML_THIS_TURN = [
   "5. マーカーは [[[RICH_HTML]]] のみ。[[[/RICH_HTML]]] など誤形式・マーカー単体の出力は禁止。HTML が書けないならマーカーなしの通常文で答える。",
 ].join("\n");
 
+/** クレーム・不満（条件付きで付与。他会話テンプレより優先） */
+const PROMPT_COMPLAINT = [
+  "【このターン：クレーム・不満への対応（最優先）】",
+  "・冒頭は「ご不快な思いをさせてしまい、大変申し訳ありません。」で始める。",
+  "・共感は一切書かない。「理解できます」「もっともだと思います」「無理もないことだと思います」「そのように感じられた」「大切ですので」等は禁止。",
+  "・感情の代弁・気持ちの言語化・講義調の説明は書かない。",
+  "・必要なら続けて1文だけ、ご指摘の受け止めと改善姿勢を短く（例：「ご指摘の点は真摯に受け止め、今後の対応改善に努めます。」）。",
+].join("\n");
+
 function setCors(res, origin) {
   // 許可リストに含まれるOriginのみ許可
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
@@ -446,6 +438,25 @@ function shouldForceRichHtmlForMessage(userMessage, safeHistory) {
     /料金|費用|予納金|予約金|いくら|支払い|クレジット|クレカ|現金/.test(text);
 
   return schedule || fee;
+}
+
+function recentUserText(userMessage, safeHistory) {
+  const chunks = [String(userMessage || "")];
+  if (Array.isArray(safeHistory)) {
+    for (const h of safeHistory) {
+      if (h && h.role === "user") {
+        chunks.push(String(h.content || ""));
+      }
+    }
+  }
+  return chunks.join("\n").slice(-4000);
+}
+
+function shouldAddComplaintPrompt(userMessage, safeHistory) {
+  const text = recentUserText(userMessage, safeHistory);
+  return /クレーム|苦情|不快|ひどい|最悪|ありえない|許せない|不信|ふざけ|態度が悪|態度.*悪|無愛想|冷たい|窓口.*悪|受付.*悪|スタッフ.*悪|対応が悪|他院.*(良|いい)|他の病院.*(良|いい)|訴えたい|文句|ひどかった|最悪だった|怒られ|怒った/.test(
+    text
+  );
 }
 
 const RICH_HTML_PREFIX = "[[[RICH_HTML]]]";
@@ -701,12 +712,34 @@ function stripIrrelevantModelClosing(text) {
   return s.replace(/\n{3,}/g, "\n\n").trim();
 }
 
-function finalizeAssistantAnswer(text, referencedPages) {
-  return stripIrrelevantModelClosing(
-    stripFalseReferenceLinkMention(
-      normalizeLegacyTwoLayerAnswer(text),
-      referencedPages
-    )
+function stripComplaintEmpathyPhrases(text, userMessage, safeHistory) {
+  if (!shouldAddComplaintPrompt(userMessage, safeHistory)) return String(text || "");
+  let s = String(text || "");
+  const patterns = [
+    /そのように感じられた[^。\n]*理解できます[^。\n]*。/g,
+    /[^。\n]*理解できます[^。\n]*。/g,
+    /そのように感じられたこと[^。\n]*もっともだと思います[^。\n]*。/g,
+    /[^。\n]*もっともだと思います[^。\n]*。/g,
+    /無理もないことだと思います[^。\n]*。/g,
+    /[^。\n]*大切ですので[^。\n]*。/g,
+    /ご不快な思いをされたのですね[^。\n]*。/g,
+  ];
+  for (const re of patterns) {
+    s = s.replace(re, "");
+  }
+  return s.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory) {
+  return stripComplaintEmpathyPhrases(
+    stripIrrelevantModelClosing(
+      stripFalseReferenceLinkMention(
+        normalizeLegacyTwoLayerAnswer(text),
+        referencedPages
+      )
+    ),
+    userMessage,
+    safeHistory
   );
 }
 
@@ -749,7 +782,7 @@ async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, refere
     }
   }
 
-  const trimmed = finalizeAssistantAnswer(fullAnswer.trim(), referencedPages);
+  const trimmed = finalizeAssistantAnswer(fullAnswer.trim(), referencedPages, userMessage, safeHistory);
   const now = new Date();
   console.log(
     "chat-log",
@@ -972,6 +1005,9 @@ export default async function handler(req, res) {
       ...(shouldForceRichHtmlForMessage(userMessage, safeHistory)
         ? [{ role: "system", content: RICH_HTML_THIS_TURN }]
         : []),
+      ...(shouldAddComplaintPrompt(userMessage, safeHistory)
+        ? [{ role: "system", content: PROMPT_COMPLAINT }]
+        : []),
       ...safeHistory
         .filter((h) => h && (h.role === "user" || h.role === "assistant"))
         .map((h) => ({
@@ -1023,7 +1059,7 @@ export default async function handler(req, res) {
     const raw =
       (completion.choices[0]?.message?.content || "").trim() ||
       "すみません、うまく回答を生成できませんでした。";
-    const answer = finalizeAssistantAnswer(raw, referencedPages);
+    const answer = finalizeAssistantAnswer(raw, referencedPages, userMessage, safeHistory);
 
     // Vercel のログにチャット内容（生テキスト）を残す
     // - IP やブラウザ情報などの識別子は含めない
