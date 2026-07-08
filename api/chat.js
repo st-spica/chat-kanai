@@ -689,10 +689,24 @@ function stripFalseReferenceLinkMention(text, referencedPages) {
   return s.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function stripIrrelevantModelClosing(text) {
+  let s = String(text || "");
+  const patterns = [
+    /住みやすい環境[^。\n]*。/g,
+    /快適な環境[^。\n]*ご了承[^。\n]*。/g,
+  ];
+  for (const re of patterns) {
+    s = s.replace(re, "");
+  }
+  return s.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function finalizeAssistantAnswer(text, referencedPages) {
-  return stripFalseReferenceLinkMention(
-    normalizeLegacyTwoLayerAnswer(text),
-    referencedPages
+  return stripIrrelevantModelClosing(
+    stripFalseReferenceLinkMention(
+      normalizeLegacyTwoLayerAnswer(text),
+      referencedPages
+    )
   );
 }
 

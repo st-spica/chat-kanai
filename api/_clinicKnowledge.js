@@ -82,6 +82,8 @@ const {
 function tokenizeForScoring(text) {
   const raw = String(text || "")
     .trim()
+    .replace(/診察中/g, "診療中")
+    .replace(/してもいいですか|していいですか|してよいですか|できますか/g, " ")
     .replace(/について/g, " ")
     .replace(/教えてください/g, " ")
     .replace(/お願いします/g, " ");
@@ -110,12 +112,13 @@ function tokenizeForScoring(text) {
  */
 function scoreFaqItem(userMessage, item) {
   const text = String(userMessage || "").trim();
-  const lowered = text.toLowerCase();
+  const normalizedText = text.replace(/診察中/g, "診療中");
+  const lowered = normalizedText.toLowerCase();
   const hay = `${item.category}\n${item.question}\n${item.answer}`.toLowerCase();
   let score = 0;
 
   const qTokens = String(item.question || "")
-    .split(/[\s、。・,]+/)
+    .split(/[\s、。・,?？!はや／/]+/)
     .filter((t) => t.length >= 2);
   for (const tok of qTokens) {
     if (lowered.includes(tok.toLowerCase())) {
@@ -145,6 +148,13 @@ function scoreFaqItem(userMessage, item) {
     /医師|担当医|診療体制|指名/.test(hayFull)
   ) {
     score += 12;
+  }
+
+  if (
+    /撮影|録音|写真|動画|SNS|撮って|录画/i.test(`${text}\n${normalizedText}`) &&
+    /撮影|録音|写真|動画|SNS/.test(hayFull)
+  ) {
+    score += 15;
   }
 
   return score;
