@@ -36,7 +36,7 @@
   <div class="row">
     <input
       id="input"
-      placeholder="症状やご相談内容を入力してください（個人情報は入力しないでください）"
+      placeholder="お悩みをお聞かせください。（個人情報は入力しないでください）"
     />
     <button id="sendBtn">送信</button>
   </div>
@@ -275,11 +275,7 @@
 
   function addStreamingAssistantShell() {
     const wrap = document.createElement("div");
-    wrap.style.marginBottom = "12px";
-
-    const label = document.createElement("div");
-    label.style.fontWeight = "bold";
-    label.textContent = "相談アシスタント";
+    wrap.style.marginBottom = "15px";
 
     const bubble = document.createElement("div");
     bubble.className = "assistant";
@@ -289,7 +285,6 @@
     contentEl.style.lineHeight = "1.6";
 
     bubble.appendChild(contentEl);
-    wrap.appendChild(label);
     wrap.appendChild(bubble);
     msgsEl.appendChild(wrap);
 
@@ -427,11 +422,7 @@
   function addMessage(role, content, opts) {
     opts = opts || {};
     const wrap = document.createElement("div");
-    wrap.style.marginBottom = "12px";
-
-    const label = document.createElement("div");
-    label.style.fontWeight = "bold";
-    label.textContent = role === "user" ? "あなた" : "相談アシスタント";
+    wrap.style.marginBottom = "15px";
 
     const bubble = document.createElement("div");
     bubble.className = role === "user" ? "user" : "assistant";
@@ -475,7 +466,6 @@
       bubble.appendChild(pre);
     }
 
-    wrap.appendChild(label);
     wrap.appendChild(bubble);
     msgsEl.appendChild(wrap);
 
@@ -492,11 +482,7 @@
     if (typingWrap) return;
 
     const wrap = document.createElement("div");
-    wrap.style.marginBottom = "12px";
-
-    const label = document.createElement("div");
-    label.style.fontWeight = "bold";
-    label.textContent = "相談アシスタント";
+    wrap.style.marginBottom = "15px";
 
     const bubble = document.createElement("div");
     bubble.className = "assistant";
@@ -511,7 +497,6 @@
     }
 
     bubble.appendChild(typing);
-    wrap.appendChild(label);
     wrap.appendChild(bubble);
     msgsEl.appendChild(wrap);
 

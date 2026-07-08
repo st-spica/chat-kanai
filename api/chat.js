@@ -245,6 +245,7 @@ C. 様子見も合理的
 - 「〜が考えられるため、〜であることも理解できます。」のような、一般論＋感情ラベル付けの硬い連結
 - 「〜していただく必要があります」を多用する命令調（必要時のみ使い、可能なら「〜してください」「〜をお願いします」に言い換える）
 - 同語反復（例「確認をご確認ください」「詳細の詳細」）
+- 「〜ますので、ご了承ください」「〜ますが、ご了承ください」のように「ご了承ください」を接続助詞でつなぐ言い方。「ご了承ください」は独立した1文にする（悪い例「変更になることもありますので、ご了承ください。」／良い例「変更になることもあります。ご了承ください。」）
 - 主語が抜けて意図が曖昧な文（誰が何をするかが不明）
 - 「〜と良いですね」「〜といいですね」で、相手の安心・心配・不安などを他人事のように締める文
 - [ページ名](https://...) 形式の Markdown リンク、文中の当院 URL 文字列
@@ -779,6 +780,14 @@ function stripNextActionLeadIn(text) {
   return s.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function fixGoryoshoConnective(text) {
+  let s = String(text || "");
+  s = s.replace(/([^。\n])(?:ますので|ますが|ますし|ますから)、?\s*ご了承(?:の程|のほど)?(?:を)?\s*(?:お願い(?:いた)?します|ください|いただけますと幸いです)/g, (m, prefix) => {
+    return `${prefix}ます。ご了承ください`;
+  });
+  return s;
+}
+
 function stripIrrelevantModelClosing(text) {
   let s = String(text || "");
   const patterns = [
@@ -835,8 +844,10 @@ function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory
     stripComplaintEmpathyPhrases(
       stripIrrelevantModelClosing(
         stripFalseReferenceLinkMention(
-          stripNextActionLeadIn(
-            normalizeLegacyTwoLayerAnswer(text)
+          fixGoryoshoConnective(
+            stripNextActionLeadIn(
+              normalizeLegacyTwoLayerAnswer(text)
+            )
           ),
           referencedPages
         )

@@ -1,28 +1,47 @@
 @import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700;900&display=swap');
 
+::marker{
+  color: #ff7b8e;
+}
 body {
-    font-family: Zen Maru Gothic", sans-serif;
+    font-family: "Zen Maru Gothic", sans-serif;
   }
   .title{
     background: #ffa2b0;
-    padding: 20px 0;
-    text-align: center;
+    padding: 40px 0;
   }
   .title h1 {
     font-size: 40px;
+    color: #fff;
+    max-width: 880px;
+    margin: 0 auto;
+    font-weight: 500;
   }
   #chatUI{
     max-width: 880px;
+    padding: 40px 0;
     margin: 0 auto;
   }
   .box {
+    position: relative;
     font-size: 16px;
     line-height: 1.75;
+    margin-bottom: 20px;
+  }
+  .attention{
+    padding-left: 15px;
+    margin: 30px 0;
+  }
+  .attention li&::marker{
+    display: none;
   }
   .msgs {
     min-height: 360px;
     max-height: 520px;
     overflow-y: auto;
+    border: 1px solid #ff7b8e;
+    border-radius: 10px;
+    padding: 20px 30px;
   }
   pre {
     white-space: pre-wrap;
@@ -31,19 +50,27 @@ body {
     font-family: inherit;
   }
   input {
+    font-family: "Zen Maru Gothic", sans-serif;
     width: 100%;
-    padding: 12px;
+    padding: 14px 18px;
     border-radius: 10px;
-    border: 1px solid #ccc;
-    font-size: 15px;
+    border: 1px solid #ff7b8e;
+    font-size: 16px;
+  }
+  input:focus-visible{
+    outline: #999 auto 1px
   }
   button {
-    padding: 12px 16px;
+    font-family: "Zen Maru Gothic", sans-serif;
+    width: 100px;
+    border: none;
+    background: #ff95a5;
     border-radius: 10px;
-    border: 1px solid #333;
-    background: #fff;
+    padding: 14px 15px;
     cursor: pointer;
-    font-size: 15px;
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
   }
   button:disabled {
     opacity: 0.5;
@@ -80,7 +107,7 @@ body {
     transition: opacity 0.25s ease, transform 0.25s ease;
   }
   .assistant {
-    background: #f4f8ff;
+    background: #fff2f3;
   }
   .user {
     background: #f5f5f5;
@@ -192,9 +219,9 @@ body {
     gap: 6px;
     padding: 8px 14px;
     border-radius: 10px;
-    border: 1px solid #2563eb;
-    background: #eff6ff;
-    color: #1d4ed8;
+    border: 1px solid #ff7b8e;
+    background: rgba(255,255,255,0.7);
+    color: #ff7b8e;
     text-decoration: none;
     font-size: 14px;
     font-weight: 600;
@@ -238,6 +265,6 @@ body {
     line-height: 1.5;
   }
   .assistant-stream-building .assistant-stream-raw {
-    border-left: 3px solid #93c5fd;
+    border-left: 1px solid #f5f5f5;
     padding-left: 10px;
   }
