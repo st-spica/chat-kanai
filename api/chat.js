@@ -768,7 +768,7 @@ function stripComplaintEmpathyPhrases(text, userMessage, safeHistory) {
   return s.replace(/\n{3,}/g, "\n\n").trim();
 }
 
-function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory) {
+function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory = []) {
   return stripComplaintEmpathyPhrases(
     stripIrrelevantModelClosing(
       stripFalseReferenceLinkMention(
@@ -803,7 +803,7 @@ function writeNdjsonLine(res, obj) {
 /**
  * OpenAI のストリームを NDJSON でクライアントへ流す（1行1JSON）
  */
-async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, referencedPages) {
+async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, referencedPages, safeHistory = []) {
   const stream = await openai.chat.completions.create({
     model: OPENAI_MODEL,
     messages,
@@ -1071,7 +1071,7 @@ export default async function handler(req, res) {
           "Cache-Control": "no-cache, no-transform",
           "X-Accel-Buffering": "no",
         });
-        await pipeOpenAIStreamNdjson(res, openai, userMessage, messages, referencedPages);
+        await pipeOpenAIStreamNdjson(res, openai, userMessage, messages, referencedPages, safeHistory);
         res.end();
       } catch (streamErr) {
         console.error("openai stream error:", streamErr?.message || streamErr);
