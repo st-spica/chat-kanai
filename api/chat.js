@@ -64,8 +64,8 @@ const CHAT_INSTANT_GREETING = !["false", "0", "no"].includes(
 
 // 許可するフロントエンドのOrigin（環境変数 ALLOWED_ORIGINS にカンマ区切りで追加可能）
 const DEFAULT_ALLOWED_ORIGINS = [
-  "https://spica8217.xsrv.jp",
-  "https://www.spica8217.xsrv.jp",
+  "https://kanailc.xbiz.jp",
+  "https://www.kanailc.xbiz.jp",
 ];
 
 function loadAllowedOrigins() {

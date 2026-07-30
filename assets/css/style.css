@@ -6,6 +6,9 @@
 body {
     font-family: "Zen Maru Gothic", sans-serif;
   }
+  strong{
+    font-weight: 500;
+  }
   .title{
     background: #ffa2b0;
     padding: 40px 0;
