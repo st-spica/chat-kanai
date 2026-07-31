@@ -60,6 +60,31 @@ export function normalizeClientId(raw) {
   return s;
 }
 
+/** ログ／レポート用に HTML・制御マーカーを除いたプレーンテキストへ */
+export function toPlainTextForLog(input) {
+  let s = String(input ?? "");
+  if (!s) return "";
+
+  s = s.replace(/\[\[\[(?:\/)?RICH_HTML\]\]\]+/gi, "");
+  s = s.replace(/<\s*br\s*\/?\s*>/gi, "\n");
+  s = s.replace(/<\s*\/\s*(p|div|tr|li|h[1-6]|section|table)\s*>/gi, "\n");
+  s = s.replace(/<\s*(p|div|tr|li|h[1-6]|section|table|thead|tbody)\b[^>]*>/gi, "\n");
+  s = s.replace(/<[^>]+>/g, "");
+  s = s
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#(\d+);/g, (_, n) => {
+      const code = Number(n);
+      return Number.isFinite(code) ? String.fromCharCode(code) : "";
+    });
+  s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return s;
+}
+
 /**
  * @param {{ message: string, answer: string, clientId?: string, meta?: object }} entry
  */
@@ -75,7 +100,7 @@ export async function appendChatLog(entry) {
     ymd_jst: ymd,
     client_id: normalizeClientId(entry.clientId),
     message: String(entry.message || "").slice(0, 500),
-    answer: String(entry.answer || "").slice(0, 8000),
+    answer: toPlainTextForLog(entry.answer).slice(0, 8000),
     meta: entry.meta && typeof entry.meta === "object" ? entry.meta : null,
   };
 
@@ -172,7 +197,7 @@ function mapLogRow(r) {
     timeJst: r.time_jst || "",
     clientId: r.client_id || "",
     message: r.message || "",
-    answer: r.answer || "",
+    answer: toPlainTextForLog(r.answer || ""),
     meta: r.meta || null,
   };
 }
