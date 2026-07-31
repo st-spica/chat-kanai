@@ -20,7 +20,7 @@
 }
 .consul-ai #chatUI {
   max-width: 880px;
-  padding: 60px 0 80px;
+  padding: 40px 0;
   margin: 0 auto;
 }
 .consul-ai .box {
@@ -31,7 +31,7 @@
 }
 .consul-ai .attention {
   margin: 30px 0;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 .consul-ai .msgs {
   min-height: 360px;
@@ -248,20 +248,4 @@
 .consul-ai .assistant-stream-building .assistant-stream-raw {
   border-left: 1px solid #f5f5f5;
   padding-left: 10px;
-}
-
-.home_btn a{
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  width: 210px;
-  border: 1px solid #793800;
-  color: #793800;
-  border-radius: 50px;
-  padding: 8px 0;
-  margin: 75px auto 0;
-}
-.home_btn a img{
-  width: 20px;
 }

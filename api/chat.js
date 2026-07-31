@@ -78,6 +78,29 @@ function loadAllowedOrigins() {
 
 const ALLOWED_ORIGINS = loadAllowedOrigins();
 
+/** ブラウザ直叩き防止用（PHPプロキシが付与）。未設定時は拒否（fail-closed） */
+function getChatApiSecret() {
+  return String(process.env.CHAT_API_SECRET || "").trim();
+}
+
+function getRequestSecret(req) {
+  const h = req.headers || {};
+  const raw =
+    h["x-chat-secret"] ||
+    h["X-Chat-Secret"] ||
+    "";
+  return String(raw || "").trim();
+}
+
+function isValidChatApiSecret(req) {
+  const expected = getChatApiSecret();
+  if (!expected) return false;
+  const got = getRequestSecret(req);
+  if (!got || got.length !== expected.length) return false;
+  // 単純比較（タイミング攻撃は低リスクな運用想定）
+  return got === expected;
+}
+
 const SYSTEM = `
 あなたは産婦人科サイトの相談窓口として案内するアシスタントです。目的は診断や医療判断をすることではありません。
 目的：患者の不安に寄り添う、受診前の一般的な案内、受診目安の一般情報の提供。
@@ -946,26 +969,34 @@ export default async function handler(req, res) {
       return res.status(200).end();
     }
 
-    // デプロイ確認・設定確認用（ブラウザで開かない想定）
+    // デプロイ確認用（詳細は出さない）
     if (req.method === "GET") {
       return res.status(200).json({
         ok: true,
         hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
-        model: OPENAI_MODEL,
-        maxOutputTokens: OPENAI_MAX_OUTPUT_TOKENS ?? null,
-        siteSnippetMaxChars: SITE_SNIPPET_MAX_CHARS,
-        emergencyRoutingWorks: detectEmergency("大量出血しています"),
-        knowledgeSource: "hybrid_json_web",
-        clinicWebSupplement: CLINIC_WEB_SUPPLEMENT,
-        siteKnowledgeGated: SITE_KNOWLEDGE_GATED,
-        instantGreeting: CHAT_INSTANT_GREETING,
-        clinicKnowledge: peekClinicKnowledgeStatus(),
-        siteKnowledge: peekSiteKnowledgeStatus(),
+        hasChatApiSecret: Boolean(getChatApiSecret()),
       });
     }
 
     if (req.method !== "POST") {
       return res.status(405).json({ error: "Method not allowed" });
+    }
+
+    // ---- API シークレット（必須）----
+    if (!getChatApiSecret()) {
+      console.error("CHAT_API_SECRET is not configured");
+      return res.status(500).json({
+        answer: "API認証の設定が完了していません。管理者に連絡してください。",
+        emergency: false,
+        error: "Secret not configured",
+      });
+    }
+    if (!isValidChatApiSecret(req)) {
+      return res.status(401).json({
+        answer: "認証に失敗したため送信できません。",
+        emergency: false,
+        error: "Unauthorized",
+      });
     }
 
     // ---- レート制限（IPごと）----
@@ -983,8 +1014,8 @@ export default async function handler(req, res) {
       });
     }
 
-    // 許可していないOriginからのアクセスは拒否（ブラウザの fetch では Origin ヘッダが付く）
-    if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
+    // Origin チェック：ブラウザ直アクセス向け。シークレット付きのサーバー間通信（PHPプロキシ）は Origin なしでも可
+    if (origin && !ALLOWED_ORIGINS.includes(origin)) {
       return res.status(403).json({
         answer:
           "接続元が許可されていないため送信できません。（ページの公開URLとサーバ設定の許可リストをご確認ください）",

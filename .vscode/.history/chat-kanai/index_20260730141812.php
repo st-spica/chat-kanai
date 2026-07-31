@@ -1,0 +1,696 @@
+<?php
+/**
+ * AIお悩み相談
+ * 同サーバー WordPress のヘッダー／フッターのみを利用する。
+ * 配置想定: WP ルート直下の consul_ai/index.php
+ */
+
+$wp_load_candidates = [
+  dirname(__DIR__) . '/wp-load.php',
+  isset($_SERVER['DOCUMENT_ROOT'])
+    ? rtrim((string) $_SERVER['DOCUMENT_ROOT'], "/\\") . '/wp-load.php'
+    : '',
+];
+
+$wp_loaded = false;
+foreach ($wp_load_candidates as $candidate) {
+  if ($candidate !== '' && is_readable($candidate)) {
+    require_once $candidate;
+    $wp_loaded = true;
+    break;
+  }
+}
+
+if (!$wp_loaded) {
+  http_response_code(500);
+  header('Content-Type: text/plain; charset=UTF-8');
+  echo "読み込めませんでした。";
+  exit;
+}
+
+$consul_ai_base = rtrim(str_replace('\\', '/', dirname((string) ($_SERVER['SCRIPT_NAME'] ?? ''))), '/');
+if ($consul_ai_base === '' || $consul_ai_base === '.') {
+  $consul_ai_base = '/consul_ai';
+}
+
+add_filter(
+  'pre_get_document_title',
+  static function () {
+    return 'AIお悩み相談';
+  },
+  20
+);
+
+add_action(
+  'wp_head',
+  static function () use ($consul_ai_base) {
+    echo '<meta name="robots" content="noindex,nofollow">' . "\n";
+    echo '<meta name="referrer" content="no-referrer">' . "\n";
+    echo '<link rel="stylesheet" href="' . esc_url($consul_ai_base . '/assets/css/style.css') . '">' . "\n";
+  },
+  20
+);
+
+status_header(200);
+nocache_headers();
+get_header();
+?>
+
+<main class="consul-ai" id="consul-ai">
+
+<div id="chatUI">
+
+  <div class="box" style="margin-bottom:12px;">
+    <pre class="muted" id="disclaimerFixed"></pre>
+    <ul class="attention">
+      <li class="list_square">産婦人科に関する内容についてご案内しておりますが、それ以外のご質問には正確にお答えできない場合がございます。</li>
+      <li class="list_square">安心してご利用いただくために、お名前やご住所、電話番号などの個人情報の入力はお控えください。</li>
+      <li class="list_square">出血が多い・強い腹痛がある・意識がぼんやりする・高い熱があるなど、気になる症状がある場合は、無理をせず医療機関へご連絡・受診をご検討ください。</li>
+    </ul>
+  </div>
+
+  <div class="box msgs" id="msgs"></div>
+
+  <div class="row">
+    <input
+      id="input"
+      placeholder="お悩みをお聞かせください。（個人情報は入力しないでください）"
+    />
+    <button id="sendBtn">送信</button>
+  </div>
+
+</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
+<script>
+  const API_URL = "https://st-spica-chat-kanai.vercel.app/api/chat";
+
+  const RICH_HTML_PREFIX = "[[[RICH_HTML]]]";
+  const RICH_HTML_MARKER_ANY_RE = /\[\[\[(?:\/)?RICH_HTML\]\]\]+/gi;
+  const RICH_HTML_MARKER_HEAD_RE = /^(\[\[\[(?:\/)?RICH_HTML\]\]\]+)/i;
+  const RICH_HTML_LOOKS_LIKE_HTML_RE =
+    /^\s*<(?:!\[CDATA\[|div|table|p|h[1-6]|section|ul|ol|thead|tbody|caption|span)\b/i;
+
+  function normalizeRichHtmlMarker(text) {
+    let s = String(text ?? "");
+    if (!s.trim()) return s;
+
+    if (/^\s*\[\[\[(?:\/)?RICH_HTML\]\]\]+\s*$/i.test(s.trim())) {
+      return "";
+    }
+
+    const head = s.trimStart();
+    const open = head.match(RICH_HTML_MARKER_HEAD_RE);
+    if (open) {
+      const after = head.slice(open[0].length).replace(/^\s*\n?/, "");
+      if (RICH_HTML_LOOKS_LIKE_HTML_RE.test(after)) {
+        s = RICH_HTML_PREFIX + after;
+      } else {
+        s = after;
+      }
+    }
+
+    s = s.replace(/\[\[\[\/RICH_HTML\]\]\]+/gi, "");
+
+    if (s.startsWith(RICH_HTML_PREFIX)) {
+      const body = s.slice(RICH_HTML_PREFIX.length).replace(RICH_HTML_MARKER_ANY_RE, "");
+      s = RICH_HTML_PREFIX + body;
+    } else {
+      s = s.replace(RICH_HTML_MARKER_ANY_RE, "");
+    }
+
+    if (s.trim() === RICH_HTML_PREFIX) {
+      return "";
+    }
+
+    return s.trim();
+  }
+
+  (function initRichHtmlSanitizer() {
+    if (typeof DOMPurify === "undefined") return;
+    const KANAI_HREF = /^https?:\/\/(www\.)?kanai\.or\.jp(\/|$)/i;
+    DOMPurify.addHook("uponSanitizeAttribute", (node, data) => {
+      if (data.attrName === "href" && node.tagName === "A") {
+        if (!KANAI_HREF.test(String(data.attrValue || "").trim())) {
+          data.keepAttr = false;
+        }
+      }
+    });
+  })();
+
+  function stripRichHtmlPrefix(text) {
+    if (text == null || typeof text !== "string") return null;
+    const trimmed = text.trimStart();
+    if (!trimmed.startsWith(RICH_HTML_PREFIX)) return null;
+    return trimmed
+      .slice(RICH_HTML_PREFIX.length)
+      .replace(/^\s*\n?/, "")
+      .replace(/\*\*/g, "");
+  }
+
+  function escapeHtmlPlain(t) {
+    return String(t || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function stripMarkdownLinksAndInlineKanaiUrls(text) {
+    let s = String(text || "");
+    if (!s || s.startsWith("[[[RICH_HTML]]]")) return s;
+
+    s = s.replace(/\[([^\]\n]+)\]\(\s*https?:\/\/[^)\s]+\s*\)/g, "$1");
+    s = s.replace(/https?:\/\/(?:www\.)?kanai\.or\.jp[^\s)\]<>"]*/gi, "");
+    s = s.replace(/[ \t]{2,}/g, " ");
+    s = s.replace(/\s+([、。])/g, "$1");
+    s = s.replace(/([、。])\s*([、。])/g, "$1");
+
+    return s.trim();
+  }
+
+  /** api/chat.js の stripTrailingKanaiUrlBulletLines と同じ */
+  function stripTrailingKanaiUrlBulletLines(text) {
+    const s = String(text || "").trim();
+    if (!s || s.startsWith("[[[RICH_HTML]]]")) return s;
+    const lines = s.split("\n");
+    while (lines.length > 0) {
+      const last = lines[lines.length - 1];
+      const trimmed = last.trim();
+      if (trimmed === "") {
+        lines.pop();
+        continue;
+      }
+      if (
+        /^\s*[・•‧*＊\-−]\s*https?:\/\/(www\.)?kanai\.or\.jp\/\S+\s*$/i.test(last) ||
+        /^https?:\/\/(www\.)?kanai\.or\.jp\/\S+\s*$/i.test(trimmed)
+      ) {
+        lines.pop();
+        continue;
+      }
+      break;
+    }
+    return lines.join("\n").trimEnd();
+  }
+
+  /** api/chat.js の normalizeLegacyTwoLayerAnswer と同じ（旧 PREVIEW/DETAIL を単一段に） */
+  function normalizeLegacyTwoLayerAnswerCore(text) {
+    const PRE_OPEN = "<<<PREVIEW>>>";
+    const DET_OPEN = "<<<DETAIL>>>";
+    const PRE_CLOSES = ["<<</PREVIEW>>>", "<<</PREVIEW>>"];
+    const DET_CLOSES = ["<<</DETAIL>>>", "<<</DETAIL>>", "<</DETAIL>>>"];
+
+    function firstClose(s, closes) {
+      let bestIdx = -1;
+      let needle = "";
+      for (const c of closes) {
+        const i = s.indexOf(c);
+        if (i !== -1 && (bestIdx === -1 || i < bestIdx)) {
+          bestIdx = i;
+          needle = c;
+        }
+      }
+      return bestIdx === -1 ? null : { index: bestIdx, needle };
+    }
+
+    function stripKnownMarkers(str) {
+      let x = String(str);
+      const order = [
+        "<<</PREVIEW>>>",
+        "<<</DETAIL>>>",
+        "<<<PREVIEW>>>",
+        "<<<DETAIL>>>",
+        "<</DETAIL>>>",
+        "<<</PREVIEW>>",
+        "<<</DETAIL>>",
+        "[[[RICH_HTML]]]",
+        "[[[/RICH_HTML]]]",
+        "[[[\\/RICH_HTML]]]",
+      ];
+      for (const m of order) {
+        x = x.split(m).join("");
+      }
+      return x.trim();
+    }
+
+    const t = String(text || "");
+    if (!t.includes(PRE_OPEN)) {
+      return t.trim();
+    }
+
+    const po = t.indexOf(PRE_OPEN);
+    const afterPO = t.slice(po + PRE_OPEN.length);
+    const pc = firstClose(afterPO, PRE_CLOSES);
+
+    if (!pc) {
+      return stripKnownMarkers(afterPO) || t.trim();
+    }
+
+    const preview = stripKnownMarkers(afterPO.slice(0, pc.index));
+    const afterPC = afterPO.slice(pc.index + pc.needle.length);
+    const d0 = afterPC.indexOf(DET_OPEN);
+    if (d0 === -1) {
+      return preview || stripKnownMarkers(afterPC) || t.trim();
+    }
+
+    const afterDO = afterPC.slice(d0 + DET_OPEN.length);
+    const dc = firstClose(afterDO, DET_CLOSES);
+    const detailRaw = dc ? afterDO.slice(0, dc.index) : afterDO;
+    let detail = stripKnownMarkers(detailRaw);
+    const dSt = detail.trimStart();
+
+    if (dSt.startsWith("[[[RICH_HTML]]]")) {
+      return dSt;
+    }
+    if (preview && detail) {
+      return `${preview}\n\n${detail}`;
+    }
+    if (detail) {
+      return detail;
+    }
+    if (preview) {
+      return preview;
+    }
+    return stripKnownMarkers(t);
+  }
+
+  function normalizeLegacyTwoLayerAnswer(text) {
+    const raw = String(text || "").trim();
+    const out = normalizeRichHtmlMarker(
+      stripMarkdownLinksAndInlineKanaiUrls(
+        stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+      )
+    );
+    if (raw && !out) {
+      return "すみません、表示用の回答を整形できませんでした。もう一度お試しください。";
+    }
+    return out;
+  }
+
+  function updateStreamingAssistantUI(accum, contentEl, streamEnded) {
+    const normalized = normalizeLegacyTwoLayerAnswer(accum);
+    const richBody = stripRichHtmlPrefix(normalized);
+    if (richBody != null) {
+      if (streamEnded) {
+        contentEl.classList.remove("assistant-stream-building");
+        contentEl.innerHTML = sanitizeRichHtml(richBody);
+      } else {
+        // リッチHTML生成中は生コードを見せず、3点リーダーのみ表示
+        contentEl.classList.add("assistant-stream-building");
+        contentEl.innerHTML = `
+          <div class="typing">
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+          </div>
+        `;
+      }
+    } else {
+      contentEl.classList.remove("assistant-stream-building");
+      contentEl.innerHTML = formatMessage(normalized);
+    }
+  }
+
+  function addStreamingAssistantShell() {
+    const wrap = document.createElement("div");
+    wrap.style.marginBottom = "15px";
+
+    const bubble = document.createElement("div");
+    bubble.className = "assistant";
+
+    const contentEl = document.createElement("div");
+    contentEl.className = "assistant-stream-body";
+    contentEl.style.lineHeight = "1.6";
+
+    bubble.appendChild(contentEl);
+    wrap.appendChild(bubble);
+    msgsEl.appendChild(wrap);
+
+    requestAnimationFrame(() => {
+      bubble.classList.add("bubble-show");
+    });
+
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+    return { wrap, bubble, contentEl };
+  }
+
+  function isAllowedRefUrl(href) {
+    return /^https?:\/\/(www\.)?kanai\.or\.jp\//i.test(String(href || "").trim());
+  }
+
+  function refChipIcon(url) {
+    const u = String(url || "").toLowerCase();
+    if (/\/news|\/info|\/column|oshirase/i.test(u)) return "📣";
+    if (/\/visit|\/gai|外来|outpatient|guide/i.test(u)) return "🏥";
+    return "🔗";
+  }
+
+  function truncateRefLabel(s, maxLen) {
+    const t = String(s || "").trim();
+    if (t.length <= maxLen) return t;
+    return t.slice(0, maxLen - 1) + "…";
+  }
+
+  /** 院内サイト参照ページをピル型リンクで吹き出し下部に表示 */
+  function appendReferenceChips(bubble, pages) {
+    if (!bubble || !pages || !pages.length) return;
+    const prev = bubble.querySelector(".assistant-ref-chips");
+    if (prev) prev.remove();
+    const row = document.createElement("div");
+    row.className = "assistant-ref-chips";
+    let any = false;
+    for (const p of pages) {
+      const u = String((p && p.url) || "").trim();
+      if (!isAllowedRefUrl(u)) continue;
+      const a = document.createElement("a");
+      a.className = "chat-pill chat-ref-chip";
+      a.href = u;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      const icon = refChipIcon(u);
+      const label = truncateRefLabel((p && p.title) || u, 44);
+      a.textContent = `${icon} ${label}`;
+      row.appendChild(a);
+      any = true;
+    }
+    if (!any) return;
+    bubble.appendChild(row);
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+  }
+
+  function sanitizeRichHtml(html) {
+    if (typeof DOMPurify === "undefined") {
+      const d = document.createElement("div");
+      d.textContent = html;
+      return d.innerHTML;
+    }
+    return DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: [
+        "div", "h3", "h4", "p", "table", "thead", "tbody", "tr", "th", "td",
+        "ul", "ol", "li", "strong", "em", "br", "span", "a", "hr", "section", "caption",
+      ],
+      ALLOWED_ATTR: ["class", "href", "target", "rel"],
+    });
+  }
+
+  const disclaimerText =
+`当院に関するご質問はもちろん、
+妊娠・出産・育児や女性の健康に関するお悩みなど、お気軽にご相談ください。
+小さな不安でも、まずは相談してみませんか。`;
+
+  const disclaimerFixed = document.getElementById("disclaimerFixed");
+  const msgsEl = document.getElementById("msgs");
+  const inputEl = document.getElementById("input");
+  const sendBtn = document.getElementById("sendBtn");
+
+  disclaimerFixed.textContent = disclaimerText;
+
+  const history = [];
+  let typingWrap = null;
+
+  // 簡単なMarkdown変換（太字、改行、リンク）＋ XSS 対策
+  function formatMessage(text) {
+    if (!text) return "";
+    
+    // まずは HTML をエスケープして、スクリプトやタグがそのまま実行されないようにする
+    const escaped = text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+    // 行頭の Markdown 箇条書き（- / *）を「・」に統一
+    const withJapaneseBullets = escaped
+      .replace(/^(\s*)-\s+/gm, "$1・")
+      .replace(/^(\s*)\*\s+/gm, "$1・");
+
+    // 文頭が絵文字の行は、先頭の「・」を外す（例: "・✅ ..." -> "✅ ..."）
+    const withEmojiHeadCleanup = withJapaneseBullets.replace(
+      /^(\s*)・\s*([✅📋💡ℹ️⚠️📞🚗🅿️🕒📝⭐✨👉])/gm,
+      "$1$2"
+    );
+
+    // 改行を<br>に変換しつつ、簡易Markdown→HTML変換
+    let html = withEmojiHeadCleanup
+      .replace(/\n/g, "<br>")
+      // **太字** を <strong>太字</strong> に変換
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      // *斜体* を <em>斜体</em> に変換（必要に応じて）
+      .replace(/\*(.+?)\*/g, "<em>$1</em>")
+      // URL文字列をクリック可能なリンクに変換（当院URLは本文に出さない方針のためリンク化しない）
+      .replace(/(https?:\/\/[^\s<]+)/g, (u) => {
+        const trimmed = String(u || "").trim();
+        if (/^https?:\/\/(?:www\.)?kanai\.or\.jp/i.test(trimmed)) {
+          return "";
+        }
+        if (
+          trimmed.includes("〜") ||
+          trimmed.endsWith("/〜") ||
+          /\/~($|[/?#])/i.test(trimmed)
+        ) {
+          return trimmed;
+        }
+        return `<a href="${trimmed}" target="_blank" rel="noopener noreferrer">${trimmed}</a>`;
+      })
+      // 変換しきれなかった **（タイピング途中・奇数個など）は表示しない
+      .replace(/\*\*/g, "");
+
+    return html;
+  }
+
+  function addMessage(role, content, opts) {
+    opts = opts || {};
+    const wrap = document.createElement("div");
+    wrap.style.marginBottom = "15px";
+
+    const bubble = document.createElement("div");
+    bubble.className = role === "user" ? "user" : "assistant";
+
+    // ユーザーのメッセージはそのまま表示、アシスタントはタイピング or リッチHTML
+    if (role === "assistant") {
+      const inner = document.createElement("div");
+      inner.style.lineHeight = "1.6";
+      bubble.appendChild(inner);
+
+      const original = normalizeLegacyTwoLayerAnswer(content || "");
+      const richBody = stripRichHtmlPrefix(original);
+      const refs = opts.referencedPages;
+
+      if (richBody != null) {
+        inner.innerHTML = sanitizeRichHtml(richBody);
+        appendReferenceChips(bubble, refs);
+        requestAnimationFrame(() => {
+          msgsEl.scrollTop = msgsEl.scrollHeight;
+        });
+      } else {
+        let i = 0;
+        const typingSpeed = 15;
+
+        function step() {
+          if (i <= original.length) {
+            const partial = original.slice(0, i);
+            inner.innerHTML = formatMessage(partial);
+            i += 1;
+            setTimeout(step, typingSpeed);
+          } else if (refs && refs.length) {
+            appendReferenceChips(bubble, refs);
+          }
+        }
+
+        step();
+      }
+    } else {
+      const pre = document.createElement("pre");
+      pre.textContent = content;
+      bubble.appendChild(pre);
+    }
+
+    wrap.appendChild(bubble);
+    msgsEl.appendChild(wrap);
+
+    // ふわっと表示されるアニメーション
+    requestAnimationFrame(() => {
+      bubble.classList.add("bubble-show");
+    });
+
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+  }
+
+  // ローディング中（3点リーダー）のタイピング表示
+  function showTyping() {
+    if (typingWrap) return;
+
+    const wrap = document.createElement("div");
+    wrap.style.marginBottom = "15px";
+
+    const bubble = document.createElement("div");
+    bubble.className = "assistant";
+
+    const typing = document.createElement("div");
+    typing.className = "typing";
+
+    for (let i = 0; i < 3; i++) {
+      const dot = document.createElement("span");
+      dot.className = "typing-dot";
+      typing.appendChild(dot);
+    }
+
+    bubble.appendChild(typing);
+    wrap.appendChild(bubble);
+    msgsEl.appendChild(wrap);
+
+    requestAnimationFrame(() => {
+      bubble.classList.add("bubble-show");
+    });
+
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+    typingWrap = wrap;
+  }
+
+  function hideTyping() {
+    if (typingWrap && typingWrap.parentNode) {
+      typingWrap.parentNode.removeChild(typingWrap);
+    }
+    typingWrap = null;
+  }
+
+async function sendMessage() {
+  const text = inputEl.value.trim();
+  if (!text) return;
+
+  inputEl.value = "";
+  addMessage("user", text);
+  history.push({ role: "user", content: text });
+
+  showTyping();
+
+  try {
+    const res = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/x-ndjson, application/json",
+      },
+      body: JSON.stringify({
+        message: text,
+        history: history.slice(-8),
+        stream: true,
+      }),
+    });
+
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+
+    if (ct.includes("application/x-ndjson")) {
+      if (!res.ok) {
+        hideTyping();
+        let errText = "サーバエラーが発生しました。時間をおいて再度お試しください。";
+        try {
+          const errData = JSON.parse(await res.text());
+          errText = (errData && errData.answer) || errText;
+        } catch {
+          /* ignore */
+        }
+        addMessage("assistant", errText);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let lineBuf = "";
+      let accum = "";
+      let sawDone = false;
+      let shell = null;
+      let refPages = [];
+      let streamHadError = false;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        lineBuf += decoder.decode(value, { stream: true });
+        for (;;) {
+          const nl = lineBuf.indexOf("\n");
+          if (nl === -1) break;
+          const line = lineBuf.slice(0, nl).trim();
+          lineBuf = lineBuf.slice(nl + 1);
+          if (!line) continue;
+          let obj;
+          try {
+            obj = JSON.parse(line);
+          } catch {
+            continue;
+          }
+          if (obj.type === "delta" && obj.text) {
+            accum += obj.text;
+          }
+          if (obj.type === "references" && Array.isArray(obj.pages)) {
+            refPages = obj.pages;
+          }
+          if (obj.type === "done") {
+            sawDone = true;
+          }
+          if (obj.type === "error") {
+            streamHadError = true;
+            hideTyping();
+            if (!shell) shell = addStreamingAssistantShell();
+            shell.contentEl.textContent = obj.message || "応答の送信が途中で止まりました。";
+          }
+        }
+      }
+
+      hideTyping();
+      if (!shell) shell = addStreamingAssistantShell();
+      if (!streamHadError) {
+        updateStreamingAssistantUI(accum, shell.contentEl, true);
+        appendReferenceChips(shell.bubble, refPages);
+      }
+      msgsEl.scrollTop = msgsEl.scrollHeight;
+
+      const finalText = normalizeLegacyTwoLayerAnswer(accum.trim());
+      if (finalText) {
+        history.push({ role: "assistant", content: finalText });
+      } else if (!sawDone) {
+        const prevChips = shell.bubble.querySelector(".assistant-ref-chips");
+        if (prevChips) prevChips.remove();
+        shell.contentEl.textContent =
+          "通信が途切れた可能性があります。もう一度お試しください。";
+      }
+      return;
+    }
+
+    const data = await res.json();
+    hideTyping();
+
+    if (res.status === 429) {
+      addMessage("assistant", "アクセスが集中しています。少し時間をおいてください。");
+      return;
+    }
+
+    if (!res.ok) {
+      const errText =
+        (data && (data.answer || data.error)) ||
+        "サーバエラーが発生しました。時間をおいて再度お試しください。";
+      addMessage("assistant", errText);
+      return;
+    }
+
+    const ansNorm = normalizeLegacyTwoLayerAnswer(data.answer || "");
+    addMessage("assistant", ansNorm, { referencedPages: data.referencedPages || [] });
+    history.push({ role: "assistant", content: ansNorm });
+  } catch {
+    hideTyping();
+    addMessage("assistant", "通信エラーが発生しました。");
+  }
+}
+
+sendBtn.addEventListener("click", sendMessage);
+inputEl.addEventListener("keydown", (e) => {
+  // Enter 単体は「変換確定／改行」として使い、送信は Command + Enter のみ
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+</script>
+</main>
+
+<?php
+get_footer();
