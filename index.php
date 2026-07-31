@@ -74,6 +74,7 @@ get_header();
   <div class="row">
     <input
       id="input"
+      maxlength="500"
       placeholder="お悩みをお聞かせください。（個人情報は入力しないでください）"
     />
     <button id="sendBtn">送信</button>
@@ -86,6 +87,32 @@ get_header();
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
 <script>
   const API_URL = "./api-proxy.php";
+  const MAX_MESSAGE_CHARS = 500;
+  const MAX_HISTORY_ITEMS = 10;
+  const MAX_HISTORY_ITEM_CHARS = 500;
+
+  function clipText(text, maxChars) {
+    return String(text || "").slice(0, maxChars);
+  }
+
+  function pushHistory(role, content) {
+    history.push({
+      role,
+      content: clipText(content, MAX_HISTORY_ITEM_CHARS),
+    });
+    if (history.length > MAX_HISTORY_ITEMS) {
+      history.splice(0, history.length - MAX_HISTORY_ITEMS);
+    }
+  }
+
+  function historyForRequest() {
+    return history
+      .slice(-MAX_HISTORY_ITEMS)
+      .map((h) => ({
+        role: h.role,
+        content: clipText(h.content, MAX_HISTORY_ITEM_CHARS),
+      }));
+  }
 
   const RICH_HTML_PREFIX = "[[[RICH_HTML]]]";
   const RICH_HTML_MARKER_ANY_RE = /\[\[\[(?:\/)?RICH_HTML\]\]\]+/gi;
@@ -559,9 +586,17 @@ async function sendMessage() {
   const text = inputEl.value.trim();
   if (!text) return;
 
+  if (text.length > MAX_MESSAGE_CHARS) {
+    addMessage(
+      "assistant",
+      `メッセージが長すぎます。${MAX_MESSAGE_CHARS}文字以内で入力してください。`
+    );
+    return;
+  }
+
   inputEl.value = "";
   addMessage("user", text);
-  history.push({ role: "user", content: text });
+  pushHistory("user", text);
 
   showTyping();
 
@@ -574,7 +609,7 @@ async function sendMessage() {
       },
       body: JSON.stringify({
         message: text,
-        history: history.slice(-8),
+        history: historyForRequest(),
         stream: true,
       }),
     });
@@ -648,7 +683,7 @@ async function sendMessage() {
 
       const finalText = normalizeLegacyTwoLayerAnswer(accum.trim());
       if (finalText) {
-        history.push({ role: "assistant", content: finalText });
+        pushHistory("assistant", finalText);
       } else if (!sawDone) {
         const prevChips = shell.bubble.querySelector(".assistant-ref-chips");
         if (prevChips) prevChips.remove();
@@ -676,7 +711,7 @@ async function sendMessage() {
 
     const ansNorm = normalizeLegacyTwoLayerAnswer(data.answer || "");
     addMessage("assistant", ansNorm, { referencedPages: data.referencedPages || [] });
-    history.push({ role: "assistant", content: ansNorm });
+    pushHistory("assistant", ansNorm);
   } catch {
     hideTyping();
     addMessage("assistant", "通信エラーが発生しました。");

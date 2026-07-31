@@ -46,6 +46,37 @@ const SITE_SNIPPET_MAX_CHARS = Math.max(
   parseInt(process.env.SITE_SNIPPET_MAX_CHARS || "6000", 10)
 );
 
+/** 1メッセージあたりの最大文字数 */
+const MAX_MESSAGE_CHARS = Math.max(
+  1,
+  parseInt(process.env.MAX_MESSAGE_CHARS || "500", 10)
+);
+/** history に含める最大件数 */
+const MAX_HISTORY_ITEMS = Math.max(
+  1,
+  parseInt(process.env.MAX_HISTORY_ITEMS || "10", 10)
+);
+/** history 1件あたりの最大文字数 */
+const MAX_HISTORY_ITEM_CHARS = Math.max(
+  1,
+  parseInt(process.env.MAX_HISTORY_ITEM_CHARS || "500", 10)
+);
+
+/**
+ * @param {unknown} history
+ * @returns {Array<{ role: string, content: string }>}
+ */
+function sanitizeHistory(history) {
+  if (!Array.isArray(history)) return [];
+  const out = [];
+  for (const h of history) {
+    if (!h || (h.role !== "user" && h.role !== "assistant")) continue;
+    const content = String(h.content || "").slice(0, MAX_HISTORY_ITEM_CHARS);
+    out.push({ role: h.role, content });
+  }
+  return out.slice(-MAX_HISTORY_ITEMS);
+}
+
 // false のとき JSON のみ（Web 補完なし）。未設定時は true＝ハイブリッド
 const CLINIC_WEB_SUPPLEMENT = !["false", "0", "no"].includes(
   (process.env.CLINIC_WEB_SUPPLEMENT || "true").toLowerCase().trim()
@@ -1025,6 +1056,13 @@ export default async function handler(req, res) {
     if (!userMessage) {
       return res.status(400).json({ answer: "メッセージが空です。", emergency: false });
     }
+    if (userMessage.length > MAX_MESSAGE_CHARS) {
+      return res.status(400).json({
+        answer: `メッセージが長すぎます。${MAX_MESSAGE_CHARS}文字以内で入力してください。`,
+        emergency: false,
+        error: "Message too long",
+      });
+    }
 
     // 危険サインはモデルに投げずに即時誘導（安全のため）
     if (detectEmergency(userMessage)) {
@@ -1040,7 +1078,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const safeHistory = Array.isArray(history) ? history.slice(-4) : [];
+    const safeHistory = sanitizeHistory(history);
 
     const casualGreetingOnly = isCasualGreetingOnlyMessage(userMessage, safeHistory);
 
