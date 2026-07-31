@@ -1,16 +1,12 @@
-# xbiz 用の PHP は Vercel に載せない（PHP runtime エラー防止）
+# xbiz 用（Vercel には不要）
 *.php
-api-proxy.php
-api-proxy-config.php
-api-proxy-config.example.php
-index.php
+**/*.php
 
-# ローカル・履歴・不要物
+# 履歴・ローカル
 .vscode/
-.history/
+**/.history/
 node_modules/
 .DS_Store
 .htaccess
 .htpasswd
 x_index.html
-assets/
