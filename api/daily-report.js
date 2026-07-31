@@ -41,11 +41,11 @@ function csvCell(s) {
 }
 
 function buildCsv(rows) {
-  const header = ["時間(JST)", "匿名ID", "メッセージ", "AI応答"];
+  const header = ["時間", "メッセージ", "AI応答", "ユーザーID"];
   const lines = [header.map(csvCell).join(",")];
   for (const r of rows) {
     lines.push(
-      [r.timeJst || r.time || "", r.clientId || "", r.message || "", r.answer || ""]
+      [r.timeJst || r.time || "", r.message || "", r.answer || "", r.clientId || ""]
         .map(csvCell)
         .join(",")
     );
@@ -63,9 +63,9 @@ function buildHtml(ymd, rows) {
           .map(
             (r) => `<tr>
   <td style="padding:8px;border:1px solid #ddd;vertical-align:top;white-space:nowrap;">${escapeHtml(r.timeJst || r.time || "")}</td>
-  <td style="padding:8px;border:1px solid #ddd;vertical-align:top;font-family:monospace;font-size:12px;">${escapeHtml(r.clientId || "")}</td>
   <td style="padding:8px;border:1px solid #ddd;vertical-align:top;">${escapeHtml(r.message || "").replace(/\n/g, "<br>")}</td>
   <td style="padding:8px;border:1px solid #ddd;vertical-align:top;">${escapeHtml(r.answer || "").replace(/\n/g, "<br>")}</td>
+  <td style="padding:8px;border:1px solid #ddd;vertical-align:top;font-family:monospace;font-size:12px;">${escapeHtml(r.clientId || "")}</td>
 </tr>`
           )
           .join("\n");
@@ -76,16 +76,16 @@ function buildHtml(ymd, rows) {
   <h2 style="margin:0 0 8px;">金井産婦人科 AI相談 日次レポート</h2>
   <p style="margin:0 0 16px;">
     対象期間（JST）: <strong>${escapeHtml(ymd)} 0:00〜24:00</strong><br>
-    件数: <strong>${count}</strong>　／　ユニーク匿名ID: <strong>${uniqueUsers}</strong>
+    件数: <strong>${count}</strong>　／　ユニークユーザーID: <strong>${uniqueUsers}</strong>
   </p>
   <p style="margin:0 0 12px;font-size:13px;color:#555;">詳細は添付 CSV もご確認ください。ログには相談内容が含まれる場合があります。</p>
   <table style="border-collapse:collapse;width:100%;font-size:13px;">
     <thead>
       <tr style="background:#f5f5f5;">
-        <th style="padding:8px;border:1px solid #ddd;text-align:left;">時間(JST)</th>
-        <th style="padding:8px;border:1px solid #ddd;text-align:left;">匿名ID</th>
+        <th style="padding:8px;border:1px solid #ddd;text-align:left;">時間</th>
         <th style="padding:8px;border:1px solid #ddd;text-align:left;">メッセージ</th>
         <th style="padding:8px;border:1px solid #ddd;text-align:left;">AI応答</th>
+        <th style="padding:8px;border:1px solid #ddd;text-align:left;">ユーザーID</th>
       </tr>
     </thead>
     <tbody>
