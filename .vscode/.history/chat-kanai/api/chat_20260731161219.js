@@ -1,8 +1,20 @@
 import OpenAI, { APIConnectionError, APIError } from "openai";
-import { ratelimit } from "./_ratelimit.js";
+import { ratelimit, hasUpstashConfig } from "./_ratelimit.js";
+import { appendChatLog } from "./_chatLog.js";
 import {
-  getSiteKnowledgeSnippet,
+  buildClinicKnowledgeSnippet,
+  peekClinicKnowledgeStatus,
+  rankClinicKnowledge,
+  selectReferencedPagesFromCsv,
+  shouldSupplementWithWeb,
+} from "./_clinicKnowledge.js";
+import {
+  ATTEND_INFO_PAGE_URL,
+  getSiteKnowledgeSnippetSupplement,
+  isAttendFocusedQuery,
+  isMeetingFocusedQuery,
   labelForKnowledgeChunk,
+  MEETING_INFO_PAGE_URL,
   peekSiteKnowledgeStatus,
   selectReferencedChunks,
   selectReferencedPagesForChips,
@@ -22,18 +34,53 @@ function getOpenAIClient() {
 // Chat Completions 用（未設定時は利用しやすい gpt-4o-mini）
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-// 未設定なら送らない（長いリッチHTML が必要なら空のまま）
+// 出力トークン上限（未設定時は 1200。リッチHTML 用に env で上書き可）
 const OPENAI_MAX_OUTPUT_TOKENS = (() => {
-  const raw = (process.env.OPENAI_MAX_OUTPUT_TOKENS || "").trim();
-  if (!raw) return undefined;
+  const raw = (process.env.OPENAI_MAX_OUTPUT_TOKENS || "1200").trim();
   const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : undefined;
+  return Number.isFinite(n) && n > 0 ? n : 1200;
 })();
 
 // 院内抜粋を API に載せる最大文字数（入力トークン削減＝待ち時間・コスト削減）
 const SITE_SNIPPET_MAX_CHARS = Math.max(
-  2000,
-  parseInt(process.env.SITE_SNIPPET_MAX_CHARS || "12000", 10)
+  1500,
+  parseInt(process.env.SITE_SNIPPET_MAX_CHARS || "6000", 10)
+);
+
+/** 1メッセージあたりの最大文字数 */
+const MAX_MESSAGE_CHARS = Math.max(
+  1,
+  parseInt(process.env.MAX_MESSAGE_CHARS || "500", 10)
+);
+/** history に含める最大件数 */
+const MAX_HISTORY_ITEMS = Math.max(
+  1,
+  parseInt(process.env.MAX_HISTORY_ITEMS || "10", 10)
+);
+/** history 1件あたりの最大文字数 */
+const MAX_HISTORY_ITEM_CHARS = Math.max(
+  1,
+  parseInt(process.env.MAX_HISTORY_ITEM_CHARS || "500", 10)
+);
+
+/**
+ * @param {unknown} history
+ * @returns {Array<{ role: string, content: string }>}
+ */
+function sanitizeHistory(history) {
+  if (!Array.isArray(history)) return [];
+  const out = [];
+  for (const h of history) {
+    if (!h || (h.role !== "user" && h.role !== "assistant")) continue;
+    const content = String(h.content || "").slice(0, MAX_HISTORY_ITEM_CHARS);
+    out.push({ role: h.role, content });
+  }
+  return out.slice(-MAX_HISTORY_ITEMS);
+}
+
+// false のとき JSON のみ（Web 補完なし）。未設定時は true＝ハイブリッド
+const CLINIC_WEB_SUPPLEMENT = !["false", "0", "no"].includes(
+  (process.env.CLINIC_WEB_SUPPLEMENT || "true").toLowerCase().trim()
 );
 
 // true のとき、サイト抜粋は「当院・手続きっぽい質問」のときだけ読む（未設定時は true＝挨拶だけで全ページ取得しない）。
@@ -49,8 +96,8 @@ const CHAT_INSTANT_GREETING = !["false", "0", "no"].includes(
 
 // 許可するフロントエンドのOrigin（環境変数 ALLOWED_ORIGINS にカンマ区切りで追加可能）
 const DEFAULT_ALLOWED_ORIGINS = [
-  "https://spica8217.xsrv.jp",
-  "https://www.spica8217.xsrv.jp",
+  "https://kanailc.xbiz.jp",
+  "https://www.kanailc.xbiz.jp",
 ];
 
 function loadAllowedOrigins() {
@@ -62,6 +109,29 @@ function loadAllowedOrigins() {
 }
 
 const ALLOWED_ORIGINS = loadAllowedOrigins();
+
+/** ブラウザ直叩き防止用（PHPプロキシが付与）。未設定時は拒否（fail-closed） */
+function getChatApiSecret() {
+  return String(process.env.CHAT_API_SECRET || "").trim();
+}
+
+function getRequestSecret(req) {
+  const h = req.headers || {};
+  const raw =
+    h["x-chat-secret"] ||
+    h["X-Chat-Secret"] ||
+    "";
+  return String(raw || "").trim();
+}
+
+function isValidChatApiSecret(req) {
+  const expected = getChatApiSecret();
+  if (!expected) return false;
+  const got = getRequestSecret(req);
+  if (!got || got.length !== expected.length) return false;
+  // 単純比較（タイミング攻撃は低リスクな運用想定）
+  return got === expected;
+}
 
 const SYSTEM = `
 あなたは産婦人科サイトの相談窓口として案内するアシスタントです。目的は診断や医療判断をすることではありません。
@@ -83,8 +153,8 @@ const SYSTEM = `
 - 相談に答えるような、寄り添った文章で話す。
 - 危険サインが疑われる場合は、一般説明を最小限にして「至急受診／救急」誘導を最優先する。
 - 個人情報（氏名、住所、電話番号、保険番号など）を求めない。入力されたら控えるよう促す。
-- 院内情報は、別メッセージで与えられる公式サイトの抜粋に基づいて回答し、根拠がないことは断言しない。
-- 公式サイトの抜粋や当院サイトに明確な情報がないテーマについては、情報がないと断定せず、「当院サイトに記載がないため、詳細はお問い合わせフォームで相談してほしい」ことを丁寧に伝える（必要に応じて一般的な背景説明を短く添える程度にとどめる）。
+- 院内情報は、別メッセージで与えられる院内FAQ（JSON）および必要時の公式サイト抜粋に基づいて回答し、根拠がないことは断言しない。
+- 公式サイトの抜粋や当院サイトに明確な情報がないテーマについては、情報がないと断定せず、「当院サイトに記載がないため、詳細は電話で相談してほしい」ことを丁寧に伝える（必要に応じて一般的な背景説明を短く添える程度にとどめる）。
 - 回答内では「院内サイト抜粋」「KNOWLEDGE」などの内部用語は一切出さない。
 - 回答内で「チャットボット」「AI」などと自称しない。必要な場合も「相談窓口としてご案内します」と表現する。
 - 相手が感情を示したときは短く受け止め、不安を言語化・整理する手助けをする。推測で感情を代弁しない。次の行動を「患者主体」で返す。
@@ -119,31 +189,22 @@ const SYSTEM = `
 
 レベル3（フラット）
 使用条件：攻撃的・他院批判・クレーム傾向
-ポイント：感情に引っ張られすぎない。ただし“冷たくしない”のが重要。
-危険性が高い内容
-例：ご不快な思いをされたのですね。ご意見として受け止めさせていただきます。
+ポイント：謝罪から入り、共感文は書かない。短く事務的に受け止めと改善姿勢を伝える。
+例：ご不快な思いをさせてしまい、大変申し訳ありません。ご指摘の点は真摯に受け止めます。今後の対応についても、より安心していただけるよう努めてまいります。
 
 【クレーム・攻撃的内容への対応（重要）】
-基本構造
-1.謝罪
-2.気持ちの受け止め
-3.改善・対応姿勢
-4.必要なら一般的な説明
+・共感文は書かない（「理解できます」「もっともだと思います」「無理もないことだと思います」「そのように感じられた」等は禁止）。
+・上から目線の言い回しも書かない（「期待に応えられなかった」「残念です」「私たちのサービス」等は禁止）。
+・基本は3文構成：（1）謝罪「ご不快な思いをさせてしまい、大変申し訳ありません。」（2）ご指摘の受け止め（3）改善姿勢（例：「今後の対応についても、より安心していただけるよう努めてまいります。」）。
+・感情の代弁、講義調（「〜は大切ですので」）、長い気持ちの受け止めは書かない。
+・**当院へのクレームのときだけ**上記の謝罪・改善姿勢を使う。「前の病院」「別の病院」「以前の病院」など**他院での経験**を話しているときは、当院への謝罪や「今後の対応改善」は書かない（話の辻褄が合わない）。
 
-パターン1（標準）
-- ご不快な思いをさせてしまい、申し訳ありません。
-- そのように感じられたこと、もっともだと思います。
-- 今後の対応についても、より安心していただけるよう努めてまいります。
-
-パターン2（やや共感強め）
-- 不安なお気持ちにさせてしまい、申し訳ありません。
-- そのように感じられるのは無理もないことだと思います。
-- 少しでも安心していただけるよう、改善に努めていきます。
-
-パターン3（強いクレーム）
-- ご不快な思いをさせてしまい、大変申し訳ありません。
-- ご指摘の点は真摯に受け止めさせていただきます。
-- 今後の対応改善に努めてまいります。
+【他院・以前の病院での経験について】
+ユーザーが当院以外（前の病院・別の病院等）での出来事や不安を話している場合：
+・当院への謝罪（「ご不快な思いをさせてしまい、申し訳ありません」等）は書かない。
+・「ご指摘を真摯に受け止め」「今後の対応改善に努めます」等、当院が悪かったかのような表現も書かない。
+・他院の医師・スタッフの善悪評価や批判には乗らない。
+・短くお礼を述べ、こちらでの受診を検討する際の不安や疑問があれば聞き出す。必要なら電話相談などの選択肢を提示する。
 
 【短文入力への対応ルール（最重要）】
 入力が短文（例：「お腹痛い」「出血」）の場合：
@@ -163,7 +224,7 @@ A. 緊急・準緊急の可能性あり
 B. 緊急性は低そうだが不安が強い
 予約を「選択肢として」提示
 - 強制・断定はしない
-例：一度相談しておくと安心につながりやすい内容だと思います。
+例：一度、診療時間内にお電話でご相談いただくことも選択肢のひとつです。
 
 C. 様子見も合理的
 - 予約を前面に出さない
@@ -177,7 +238,7 @@ C. 様子見も合理的
 【会話構造テンプレ（毎回これを意識）】
 - 感情の受け止め（短く。症状だけの短文では省略してよい）
 - 状況・不安の整理
-- 次の行動の選択肢提示
+- 選択肢の提示（「次の行動として、」などの前置きは書かず、提案をそのまま書く）
 - 患者主体で締める
 
 【避けるトーン・表現（最重要）】
@@ -186,6 +247,9 @@ C. 様子見も合理的
 - 「原因はいろいろありますが、ご不安なお気持ちはよく分かります」など、一般論＋感情のラベル付けのセット
 - 「〜のお気持ちも理解します」「不安にお感じになるのも当然です」と、相手が述べていない感情を断定する表現
 - 「次にどうするかは、あなた自身が選べる状態を大切にしていただきたいです。どのように進めていくのか考えてみることも良いですね。」のような、患者に判断を丸投げする締め
+- 「どのように進めるか、あなた自身で考えられることができると良いですね。」のような、上から目線・丸投げに聞こえる締め
+- 「あなたの安心につながると良いですね。」「〜と良いですね。」のように、相手の気持ちや状態を他人事のように眺めて締める表現（距離感が遠く、窓口スタッフが口頭で言わない）
+- 「なたの〜」「ご安心に〜」など、主語や語尾が崩れたままの定型締め
 代わりに、短文では事実確認・質問から入る。共感が必要なときも、長い一般論のあとに続けず、短い一文にとどめるか、相手の言葉を繰り返してから次に進む。
 
 【最後の一文の原則】
@@ -213,8 +277,11 @@ C. 様子見も合理的
   - 時間などの重要な情報は **太字** で強調する
   - 箇条書きの先頭に適切な絵文字（✅、📋、💡、ℹ️ など）を付けるとより見やすくなる
   - ただし、絵文字の使いすぎは避け、適度に使用する。また、**💕💖 の絵文字は使用しない**（その他の絵文字のみ適度に使用する）。
-- 当院の参照ページ URL は、チャット画面の**チップ**（画面下の参照リンク）として別途表示される。**回答本文に、当院サイトの URL の箇条書きや「・https://www.kanai.or.jp/...」の列挙を書かない**（本文中に生の URL を並べない）。
-- 公式サイトの内容に触れるときは、**「サイトに掲載されています」だけで終えない**。必ず、利用者が次に開けるよう **「画面下の参照リンク（関連ページ）をご確認ください」** など、**参照リンクの存在を明示**する一文を入れる（チップが実際に表示される前提の案内）。抽象的なサイト誘導だけで締めない。
+- 当院ページへの案内は、画面下の**参照リンク（チップ）**に任せる。**回答本文に URL を書かない**（https://www.kanai.or.jp/... の列挙・埋め込みは禁止）。
+- **Markdownリンク [ページ名](URL) は禁止**。ページ名だけ書く（例：産後ケアページ。角括弧・URL・括弧は付けない）。
+- 悪い例：「当院の[産後ケアページ](https://www.kanai.or.jp/aftercare/)をご確認ください。」
+- 良い例：「詳しいコースや料金については、産後ケアページの内容を画面下の参照リンクからご確認ください。」
+- **「画面下の参照リンク」**は、別メッセージ【このターンの参照リンク】でページが列挙されているときだけ案内する。列挙がないときは書かない（お問い合わせフォームやお電話など具体名で案内する）。
 - ユーザーが**自分の言葉で**不安・怖さを述べた場合に限り、短い一言で受け止める。推測で「不安ですよね」「理解します」と付け足さない。不必要な保証はしない。
 - ユーザーの質問が公式サイトの抜粋の内容と意味的に近い場合は、その内容をもとに自然な文章に言い換えて説明する。完全一致でなくてもよい。
 - 文末に絵文字を使用する場合は、句読点は表示しない。
@@ -223,23 +290,27 @@ C. 様子見も合理的
 - 最終出力の前に、必ず「病院窓口スタッフがそのまま口頭で言って自然か」を自己チェックし、不自然なら書き直してから出力する。
 - 1文を長くしすぎない。読点「、」が3つ以上続く文は分割する。
 - 「〜については」「〜に関しては」を1文内で重ねない。必要なら1回までにする。
-- 抽象語だけで終わらない。「詳細」「利用方法」「注意点」などの語を使うときは、案内先を明示する（当院サイトの場合は**画面下の参照リンク**、問い合わせの場合はフォームや電話など具体名）。
+- 抽象語だけで終わらない。「詳細」「利用方法」「注意点」などの語を使うときは、案内先を明示する（参照リンクが表示される場合は画面下の参照リンク、表示されない場合はお問い合わせフォームや電話など具体名）。
 - 丁寧だが回りくどい定型を避ける。短く具体的に言い切る。
 - 文頭に絵文字を置くときは、絵文字の前に「・」「-」「*」などの記号を付けない（例「✅ 受付時間は〜」）。
 
 【不自然になりやすい禁止パターン】
+- 「次の行動として、」「次のステップとして、」で提案を始める前置き（選択肢はそのまま書く）
 - 「〜については、何かご不明な点があればお知らせください。」のような、案内先が曖昧な締め
 - 「〜が考えられるため、〜であることも理解できます。」のような、一般論＋感情ラベル付けの硬い連結
 - 「〜していただく必要があります」を多用する命令調（必要時のみ使い、可能なら「〜してください」「〜をお願いします」に言い換える）
 - 同語反復（例「確認をご確認ください」「詳細の詳細」）
+- 「〜ますので、ご了承ください」「〜ますが、ご了承ください」のように「ご了承ください」を接続助詞でつなぐ言い方。「ご了承ください」は独立した1文にする（悪い例「変更になることもありますので、ご了承ください。」／良い例「変更になることもあります。ご了承ください。」）
 - 主語が抜けて意図が曖昧な文（誰が何をするかが不明）
+- 「〜と良いですね」「〜といいですね」で、相手の安心・心配・不安などを他人事のように締める文
+- [ページ名](https://...) 形式の Markdown リンク、文中の当院 URL 文字列
 
 【推奨する言い換え】
 - 悪い例  
   「詳しい利用方法や注意点については、何かご不明な点があればお知らせください。」
 - 良い例  
   「詳しい利用方法や注意点については、当院サイトをご確認ください。」
-  「ご不明な点があれば、お問い合わせフォームからご相談ください。」
+  「ご不明な点があれば、お電話でご相談ください。」
 
 【旧形式・二層マーカーの禁止】
 <<<PREVIEW>>>、<<</PREVIEW>>>、<<<DETAIL>>>、<<</DETAIL>>> などの二層用マーカーは**一切使わない**（仕様廃止済み）。ユーザー画面に制御文字が出る。通常の本文、または【リッチHTML】に従い先頭を [[[RICH_HTML]]] とした HTML のみを出力する。
@@ -250,9 +321,11 @@ C. 様子見も合理的
 ・料金・費用・予納金・支払い方法など、一覧表で示すのが適切な内容
 
 手順：
-1. 出力の**先頭**は、空白や改行を入れず、次の1行**のみ**：[[[RICH_HTML]]]
+1. 出力の**先頭**は、空白や改行を入れず、次の1行**のみ**：[[[RICH_HTML]]]（**括弧は開き3つ・閉じ3つ。スラッシュや4つ括弧は絶対に使わない**）
 2. その**直後の次の文字から** HTML のみ。マーカーの前後にプレーンテキストを**一切**書かない（挨拶等はすべて HTML の p や h3 の内側に書く）。
 3. ルートは **1つ** の <div class="chat-card"> にまとめる。共感の一文や締めもこの div 内に含める。
+4. **禁止**：[[[/RICH_HTML]]]、[[[\\/RICH_HTML]]]、マーカーだけの出力、閉じタグ風のマーカー。ユーザー画面にマーカー文字列そのものが見えてはならない。
+5. HTML カードで書けない場合は、マーカーを**使わず**通常の日本語文で答える（マーカーだけ出して終えることは禁止）。
 
 使ってよいタグは次に限る：div, h3, h4, p, table, thead, tbody, tr, th, td, ul, ol, li, strong, em, br, span, a, hr, section, caption
 属性は class のみ、および a には href（https://www.kanai.or.jp または https://kanai.or.jp で始まるURLのみ）, target="_blank", rel="noopener noreferrer" のみ。
@@ -262,8 +335,11 @@ script, style, iframe, onclick、data-*、id は使わない。
 
 カード内の a.chat-pill 等で当院ページへ誘導してよい。**本文末に URL の箇条書きは書かない**（チップに任せる）。
 
-【院内サイト抜粋（システム専用。ユーザー向けの回答テキストには、この名称を出さない）】
-このあと別の system メッセージとして与えられる「当院公式サイトのページ本文の抜粋（URL付き）」を主な根拠として回答を作成すること。
+【院内情報（システム専用。ユーザー向けの回答テキストには、この名称を出さない）】
+このあと別の system メッセージとして与えられる「院内FAQ（JSON）」および必要時の「当院公式サイトのページ本文の抜粋（URL付き）」を主な根拠として回答を作成すること。両方ある場合は FAQ を優先し、サイト抜粋は補足として使う。
+- ユーザー発話に「面会」が含まれるときは、そのターンの抜粋は**面会のお知らせページ（${MEETING_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
+- ユーザー発話に「立ち会い」が含まれるときは、そのターンの抜粋は**立ち会い分娩ページ（${ATTEND_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
+- ユーザー発話に「面会」が含まれるときは、そのターンの抜粋は**面会のお知らせページ（${MEETING_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
 `.trim();
 
 /** このターンだけリッチHTMLを強く指示（モデルがプレーン文に逃げるのを防ぐ） */
@@ -276,6 +352,30 @@ const RICH_HTML_THIS_TURN = [
   "2. 続けて HTML のみ。前後にプレーンテキストや Markdown を付けない。",
   "3. ルートは1つの <div class=\"chat-card\">。診療枠は <table class=\"chat-table\">。",
   "4. <<<PREVIEW>>> や <<<DETAIL>>> 等の二層マーカーは出さない（廃止済み）。",
+  "5. マーカーは [[[RICH_HTML]]] のみ。[[[/RICH_HTML]]] など誤形式・マーカー単体の出力は禁止。HTML が書けないならマーカーなしの通常文で答える。",
+].join("\n");
+
+/** クレーム・不満（条件付きで付与。他会話テンプレより優先） */
+const PROMPT_COMPLAINT = [
+  "【このターン：クレーム・不満への対応（最優先）】",
+  "・冒頭は「ご不快な思いをさせてしまい、大変申し訳ありません。」で始める。",
+  "・共感は一切書かない。「理解できます」「もっともだと思います」「無理もないことだと思います」「そのように感じられた」「大切ですので」等は禁止。",
+  "・上から目線の言い回しも禁止。「私たちのサービス」「期待に応えられなかった」「残念です」等は書かない。",
+  "・感情の代弁・気持ちの言語化・講義調の説明は書かない。",
+  "・続けて2文、ご指摘の受け止めと改善姿勢を伝える（例：「ご指摘の点は真摯に受け止めます。」「今後の対応についても、より安心していただけるよう努めてまいります。」）。",
+  "・良い例：ご不快な思いをさせてしまい、大変申し訳ありません。ご指摘の点は真摯に受け止めます。今後の対応についても、より安心していただけるよう努めてまいります。",
+].join("\n");
+
+/** 他院・以前の病院での経験（当院クレームではない） */
+const PROMPT_OTHER_HOSPITAL_EXPERIENCE = [
+  "【このターン：他院・以前の病院での経験の相談（最優先）】",
+  "ユーザーは当院へのクレームではなく、以前・別の病院での経験や、その影響による不安を話しています。",
+  "・当院への謝罪は書かない（「ご不快な思いをさせてしまい、申し訳ありません」等は禁止）。",
+  "・「ご指摘の点は真摯に受け止め」「今後の対応改善に努めます」等、当院が悪かったかのような改善約束も書かない。",
+  "・他院の医師・スタッフの善悪評価や批判には乗らない。",
+  "・「そういった経験をされたのですね」「〜は大切です」などの感情代弁・講義調も書かない。",
+  "・短くお礼を述べ、こちらで受診を検討する際に気になる点があれば聞き出す。必要なら診療時間内のお電話相談など選択肢を提示する。",
+  "・良い例：前の病院でのご経験についてお聞かせいただき、ありがとうございます。こちらで受診をお考えの場合、気になることがあれば遠慮なくお聞かせください。診療時間内にお電話でご相談いただくこともできます。",
 ].join("\n");
 
 function setCors(res, origin) {
@@ -388,6 +488,7 @@ function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
     /母乳ケア|妊婦健診|乳児健診|健診枠|検診|スケジュール|時間割|枠|空き状況/,
     /里帰り|分娩|出産|産科|婦人科|産後ケア/,
     /Q&A|よくある質問|クイック/,
+    /オンライン診療|オンライン|遠隔診療|テレビ電話/i,
     /電話|番号|06[-‐]?6931/i,
   ];
 
@@ -416,6 +517,138 @@ function shouldForceRichHtmlForMessage(userMessage, safeHistory) {
     /料金|費用|予納金|予約金|いくら|支払い|クレジット|クレカ|現金/.test(text);
 
   return schedule || fee;
+}
+
+function recentUserText(userMessage, safeHistory) {
+  const chunks = [String(userMessage || "")];
+  if (Array.isArray(safeHistory)) {
+    for (const h of safeHistory) {
+      if (h && h.role === "user") {
+        chunks.push(String(h.content || ""));
+      }
+    }
+  }
+  return chunks.join("\n").slice(-4000);
+}
+
+function isOtherHospitalExperienceMessage(userMessage, safeHistory) {
+  const text = recentUserText(userMessage, safeHistory);
+  const current = String(userMessage || "").trim();
+  const otherHospitalCue =
+    /前の病院|以前の病院|以前行った病院|別の病院|他の病院|他院では|他院で|前に行った病院|以前行った|前回の病院|元の病院|転院前|かかりつけが変わ|病院を変え|病院が変わ/;
+  const negativeCue =
+    /怖|ひど|威圧|怒|冷た|不安|嫌|つら|苦|信頼でき|不信|トラウマ|最悪|無理|不快|嫌だった|嫌で/;
+
+  if (otherHospitalCue.test(text) && negativeCue.test(text)) return true;
+  if (/前の病院|以前の病院|別の病院では|他の病院では|他院では/.test(current)) return true;
+  return false;
+}
+
+function shouldAddComplaintPrompt(userMessage, safeHistory) {
+  if (isOtherHospitalExperienceMessage(userMessage, safeHistory)) return false;
+  const text = recentUserText(userMessage, safeHistory);
+  return /クレーム|苦情|不快|ひどい|最悪|ありえない|許せない|不信|ふざけ|態度が悪|態度.*悪|無愛想|冷たい|窓口.*悪|受付.*悪|スタッフ.*悪|対応が悪|威圧|怖かった|怖く|怒鳴|叱咤|先生.*怖|医師.*怖|他院.*(良|いい)|他の病院.*(良|いい)|訴えたい|文句|ひどかった|最悪だった|怒られ|怒った/.test(
+    text
+  );
+}
+
+function shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory) {
+  return isOtherHospitalExperienceMessage(userMessage, safeHistory);
+}
+
+/** 症状・感情の相談（院内案内の事実確認ではない） */
+function looksLikeConsultWithoutReferencePages(userMessage, safeHistory) {
+  const text = recentUserText(userMessage, safeHistory);
+  if (
+    /怖い|不安|無理|トラウマ|心配|つらい|苦しい|痛い|腹痛|出血|吐き気|発熱|陣痛|破水|胎動|気持ち|つらかった/.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  const current = String(userMessage || "").trim();
+  return current.length > 0 && current.length <= 28 && /痛|血|熱|吐|痒|怖|辛/.test(current);
+}
+
+/** 画面下の参照リンク（チップ）を出さないターンか */
+function shouldSuppressReferencePages(userMessage, safeHistory, faqTopScore = 0) {
+  if (shouldAddComplaintPrompt(userMessage, safeHistory)) return true;
+
+  if (looksLikeConsultWithoutReferencePages(userMessage, safeHistory)) {
+    if (shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) && faqTopScore >= 10) {
+      return false;
+    }
+    return true;
+  }
+
+  if (!shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) && faqTopScore < 8) {
+    return true;
+  }
+
+  return false;
+}
+
+const RICH_HTML_PREFIX = "[[[RICH_HTML]]]";
+const RICH_HTML_MARKER_ANY_RE = /\[\[\[(?:\/)?RICH_HTML\]\]\]+/gi;
+const RICH_HTML_MARKER_HEAD_RE = /^(\[\[\[(?:\/)?RICH_HTML\]\]\]+)/i;
+const RICH_HTML_LOOKS_LIKE_HTML_RE =
+  /^\s*<(?:!\[CDATA\[|div|table|p|h[1-6]|section|ul|ol|thead|tbody|caption|span)\b/i;
+
+/**
+ * 誤ったリッチHTMLマーカー（[[[/RICH_HTML]]] 等）を除去・正規化。ユーザーに制御文字を見せない。
+ */
+function normalizeRichHtmlMarker(text) {
+  let s = String(text ?? "");
+  if (!s.trim()) return s;
+
+  if (/^\s*\[\[\[(?:\/)?RICH_HTML\]\]\]+\s*$/i.test(s.trim())) {
+    return "";
+  }
+
+  const head = s.trimStart();
+  const open = head.match(RICH_HTML_MARKER_HEAD_RE);
+  if (open) {
+    const after = head.slice(open[0].length).replace(/^\s*\n?/, "");
+    if (RICH_HTML_LOOKS_LIKE_HTML_RE.test(after)) {
+      s = RICH_HTML_PREFIX + after;
+    } else {
+      s = after;
+    }
+  }
+
+  s = s.replace(/\[\[\[\/RICH_HTML\]\]\]+/gi, "");
+
+  if (s.startsWith(RICH_HTML_PREFIX)) {
+    const body = s.slice(RICH_HTML_PREFIX.length).replace(RICH_HTML_MARKER_ANY_RE, "");
+    s = RICH_HTML_PREFIX + body;
+  } else {
+    s = s.replace(RICH_HTML_MARKER_ANY_RE, "");
+  }
+
+  if (s.trim() === RICH_HTML_PREFIX) {
+    return "";
+  }
+
+  return s.trim();
+}
+
+/** Markdownリンク・文中の当院URLを除去（チップ表示に任せる） */
+function stripMarkdownLinksAndInlineKanaiUrls(text) {
+  let s = String(text || "");
+  if (!s || s.startsWith("[[[RICH_HTML]]]")) return s;
+
+  // [産後ケアページ](https://...) → 産後ケアページ
+  s = s.replace(/\[([^\]\n]+)\]\(\s*https?:\/\/[^)\s]+\s*\)/g, "$1");
+
+  // 文中に残った当院 URL を除去
+  s = s.replace(/https?:\/\/(?:www\.)?kanai\.or\.jp[^\s)\]<>"]*/gi, "");
+
+  // URL除去後の不自然な空白・句読点を整理
+  s = s.replace(/[ \t]{2,}/g, " ");
+  s = s.replace(/\s+([、。])/g, "$1");
+  s = s.replace(/([、。])\s*([、。])/g, "$1");
+
+  return s.trim();
 }
 
 /** モデルが文末に付けた当院 URL の箇条書きを落とす（チップ表示と重複しないように） */
@@ -474,6 +707,9 @@ function normalizeLegacyTwoLayerAnswerCore(text) {
       "<</DETAIL>>>",
       "<<</PREVIEW>>",
       "<<</DETAIL>>",
+      "[[[RICH_HTML]]]",
+      "[[[/RICH_HTML]]]",
+      "[[[\\/RICH_HTML]]]",
     ];
     for (const m of order) {
       x = x.split(m).join("");
@@ -523,19 +759,175 @@ function normalizeLegacyTwoLayerAnswerCore(text) {
 }
 
 function stripOverDelegatingClosing(text) {
-  let s = String(text || '');
-  // 直接丸投げに見える定型は、簡潔な確認文へ置換
-  s = s.replace(
+  let s = String(text || "");
+  const fallback = "何か質問があれば、ぜひお聞かせください。";
+  const patterns = [
     /次にどうするかは、あなた自身が選べる状態を大切にしていただきたいです。?\s*どのように進めていくのか考えてみることも良いですね。?/g,
-    '何か質問があれば、ぜひお聞かせください。'
-  );
+    /どのように進め(?:る|ていく)か、?\s*あなた自身(?:で)?考え(?:られる|てみる)(?:こと)?(?:ができる)?(?:と)?良いですね。?/g,
+    // 他人事・距離感のある締め（「あなたの安心につながると良いですね」等）
+    /(?:あなたの|なたの|ご自身の)?安心[^。\n]*?と(?:良|い)いですね[。]?/g,
+    /(?:あなたの|なたの)[^。\n]{0,24}?と(?:良|い)いですね[。]?/g,
+    /[^。\n]*?につながると(?:良|い)いですね[。]?/g,
+    /[^。\n]*?お役に立てれば(?:と|と思)(?:良|い)いですね[。]?/g,
+  ];
+  for (const re of patterns) {
+    s = s.replace(re, fallback);
+  }
+  s = s.replace(/(?:何か質問があれば、ぜひお聞かせください。\s*){2,}/g, `${fallback}\n`);
+  // 締め置換だけが残った行を整理
+  s = s.replace(/\n{3,}/g, "\n\n").trim();
   return s;
 }
 
-function normalizeLegacyTwoLayerAnswer(text) {
-  return stripOverDelegatingClosing(
-    stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+function defaultRefPageTitle(url) {
+  const u = String(url || "").toLowerCase();
+  if (/\/qa\/?/i.test(u)) return "よくある質問（Q&A）";
+  if (/\/about\/?/i.test(u)) return "当院について";
+  if (/\/visit|\/gai/i.test(u)) return "外来のご案内";
+  return "当院サイト";
+}
+
+/** FAQ 抜粋内の「参考ページ: URL」からチップを補完（スコア閾値で漏れた場合の保険） */
+function enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages) {
+  const out = [...(referencedPages || [])];
+  const seen = new Set(out.map((p) => p.url));
+  const re = /参考ページ:\s*(https?:\/\/\S+)/g;
+  let m;
+  while ((m = re.exec(String(clinicSnippet || "")))) {
+    const url = m[1].replace(/[).、]+$/, "").trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ url, title: defaultRefPageTitle(url) });
+  }
+  return out;
+}
+
+/** モデルに参照チップの有無を明示（架空のリンク案内を防ぐ） */
+function buildReferenceLinksSystemPrompt(referencedPages) {
+  if (!referencedPages?.length) {
+    return [
+      "【このターンの参照リンク】",
+      "画面下部には参照リンク（チップ）は表示されません。",
+      "「画面下の参照リンク」「参照リンクからご確認ください」という案内は書かないでください。",
+      "サイト案内が必要なら、お電話など、具体名で案内してください。",
+    ].join("\n");
+  }
+  const lines = referencedPages.map((p) => `- ${(p.title || p.url || "").trim()}`);
+  return [
+    "【このターンの参照リンク】",
+    "回答の直下に次のページがチップとして表示されます。",
+    "サイト案内するときは「画面下の参照リンクからご確認ください」と書いてよいです。",
+    ...lines,
+  ].join("\n");
+}
+
+function stripFalseReferenceLinkMention(text, referencedPages) {
+  if (referencedPages && referencedPages.length > 0) return String(text || "");
+  let s = String(text || "");
+  s = s.replace(/[^。\n]*画面下の参照リンク[^。\n]*。/g, "");
+  s = s.replace(/[^。\n]*参照リンク[^。\n]*ご確認ください。/g, "");
+  return s.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function stripNextActionLeadIn(text) {
+  let s = String(text || "");
+  s = s.replace(/次の(?:行動|ステップ)として[、,]?/g, "");
+  return s.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function fixGoryoshoConnective(text) {
+  let s = String(text || "");
+  s = s.replace(/([^。\n])(?:ますので|ますが|ますし|ますから)、?\s*ご了承(?:の程|のほど)?(?:を)?\s*(?:お願い(?:いた)?します|ください|いただけますと幸いです)/g, (m, prefix) => {
+    return `${prefix}ます。ご了承ください`;
+  });
+  return s;
+}
+
+function stripIrrelevantModelClosing(text) {
+  let s = String(text || "");
+  const patterns = [
+    /住みやすい環境[^。\n]*。/g,
+    /快適な環境[^。\n]*ご了承[^。\n]*。/g,
+  ];
+  for (const re of patterns) {
+    s = s.replace(re, "");
+  }
+  return s.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function stripMisplacedKanaiApology(text, userMessage, safeHistory) {
+  if (!isOtherHospitalExperienceMessage(userMessage, safeHistory)) return String(text || "");
+  let s = String(text || "");
+  const patterns = [
+    /ご不快な思いをさせてしまい[^。\n]*。/g,
+    /ご指摘の点は真摯に受け止め[^。\n]*。/g,
+    /今後の対応についても[^。\n]*努めてまいります。/g,
+    /今後の対応改善[^。\n]*。/g,
+    /そういった経験をされたのですね[^。\n]*。/g,
+    /[^。\n]*安心して受診できる環境[^。\n]*。/g,
+    /[^。\n]*とても大切です[^。\n]*。/g,
+  ];
+  for (const re of patterns) {
+    s = s.replace(re, "");
+  }
+  return s.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function stripComplaintEmpathyPhrases(text, userMessage, safeHistory) {
+  if (!shouldAddComplaintPrompt(userMessage, safeHistory)) return String(text || "");
+  let s = String(text || "");
+  const patterns = [
+    /そのように感じられた[^。\n]*理解できます[^。\n]*。/g,
+    /[^。\n]*理解できます[^。\n]*。/g,
+    /そのように感じられたこと[^。\n]*もっともだと思います[^。\n]*。/g,
+    /[^。\n]*もっともだと思います[^。\n]*。/g,
+    /無理もないことだと思います[^。\n]*。/g,
+    /[^。\n]*大切ですので[^。\n]*。/g,
+    /ご不快な思いをされたのですね[^。\n]*。/g,
+    /私たちのサービスが[^。\n]*。/g,
+    /[^。\n]*期待に応えられなかった[^。\n]*。/g,
+    /[^。\n]*残念です[^。\n]*。/g,
+  ];
+  for (const re of patterns) {
+    s = s.replace(re, "");
+  }
+  return s.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory = []) {
+  return stripMisplacedKanaiApology(
+    stripComplaintEmpathyPhrases(
+      stripIrrelevantModelClosing(
+        stripFalseReferenceLinkMention(
+          fixGoryoshoConnective(
+            stripNextActionLeadIn(
+              normalizeLegacyTwoLayerAnswer(text)
+            )
+          ),
+          referencedPages
+        )
+      ),
+      userMessage,
+      safeHistory
+    ),
+    userMessage,
+    safeHistory
   );
+}
+
+function normalizeLegacyTwoLayerAnswer(text) {
+  const raw = String(text || "").trim();
+  const out = normalizeRichHtmlMarker(
+    stripMarkdownLinksAndInlineKanaiUrls(
+      stripOverDelegatingClosing(
+        stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+      )
+    )
+  );
+  if (raw && !out) {
+    return "すみません、表示用の回答を整形できませんでした。もう一度お試しください。";
+  }
+  return out;
 }
 
 function writeNdjsonLine(res, obj) {
@@ -545,12 +937,12 @@ function writeNdjsonLine(res, obj) {
 /**
  * OpenAI のストリームを NDJSON でクライアントへ流す（1行1JSON）
  */
-async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, referencedPages) {
+async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, referencedPages, safeHistory = [], clientId = "anonymous") {
   const stream = await openai.chat.completions.create({
     model: OPENAI_MODEL,
     messages,
     stream: true,
-    ...(OPENAI_MAX_OUTPUT_TOKENS != null ? { max_tokens: OPENAI_MAX_OUTPUT_TOKENS } : {}),
+    max_tokens: OPENAI_MAX_OUTPUT_TOKENS,
   });
 
   let fullAnswer = "";
@@ -562,18 +954,25 @@ async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, refere
     }
   }
 
-  const trimmed = normalizeLegacyTwoLayerAnswer(fullAnswer.trim());
+  const trimmed = finalizeAssistantAnswer(fullAnswer.trim(), referencedPages, userMessage, safeHistory);
   const now = new Date();
   console.log(
     "chat-log",
     JSON.stringify({
       ts: now.toISOString(),
       ts_jst: now.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
+      clientId,
       user: userMessage,
       answer: trimmed,
       streamed: true,
     })
   );
+  await appendChatLog({
+    message: userMessage,
+    answer: trimmed,
+    clientId,
+    meta: { streamed: true },
+  });
 
   if (referencedPages && referencedPages.length > 0) {
     writeNdjsonLine(res, { type: "references", pages: referencedPages });
@@ -609,24 +1008,42 @@ export default async function handler(req, res) {
       return res.status(200).end();
     }
 
-    // デプロイ確認・設定確認用（ブラウザで開かない想定）
+    // デプロイ確認用（詳細は出さない）
     if (req.method === "GET") {
       return res.status(200).json({
         ok: true,
         hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
-        model: OPENAI_MODEL,
-        maxOutputTokens: OPENAI_MAX_OUTPUT_TOKENS ?? null,
-        siteSnippetMaxChars: SITE_SNIPPET_MAX_CHARS,
-        emergencyRoutingWorks: detectEmergency("大量出血しています"),
-        knowledgeSource: "site",
-        siteKnowledgeGated: SITE_KNOWLEDGE_GATED,
-        instantGreeting: CHAT_INSTANT_GREETING,
-        siteKnowledge: peekSiteKnowledgeStatus(),
+        hasChatApiSecret: Boolean(getChatApiSecret()),
+        hasUpstashRateLimit: hasUpstashConfig,
+        rateLimit: hasUpstashConfig ? "20 req / 60 s / IP" : "disabled (env missing)",
+        hasSupabase: Boolean(
+          process.env.SUPABASE_URL &&
+            (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)
+        ),
+        hasResend: Boolean(process.env.RESEND_API_KEY),
+        hasCronSecret: Boolean(process.env.CRON_SECRET),
       });
     }
 
     if (req.method !== "POST") {
       return res.status(405).json({ error: "Method not allowed" });
+    }
+
+    // ---- API シークレット（必須）----
+    if (!getChatApiSecret()) {
+      console.error("CHAT_API_SECRET is not configured");
+      return res.status(500).json({
+        answer: "API認証の設定が完了していません。管理者に連絡してください。",
+        emergency: false,
+        error: "Secret not configured",
+      });
+    }
+    if (!isValidChatApiSecret(req)) {
+      return res.status(401).json({
+        answer: "認証に失敗したため送信できません。",
+        emergency: false,
+        error: "Unauthorized",
+      });
     }
 
     // ---- レート制限（IPごと）----
@@ -644,27 +1061,36 @@ export default async function handler(req, res) {
       });
     }
 
-    // 許可していないOriginからのアクセスは拒否（ブラウザの fetch では Origin ヘッダが付く）
-    if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
-      return res.status(403).json({
-        answer:
-          "接続元が許可されていないため送信できません。（ページの公開URLとサーバ設定の許可リストをご確認ください）",
-        emergency: false,
-        error: "Forbidden origin",
-      });
-    }
+    // シークレット検証済みのリクエストはサーバー間通信（PHPプロキシ）として扱う。
+    // Origin はブラウザ直叩き対策だが、シークレット無しは上で 401 済みのためここでは見ない。
+    // （プロキシ経由では Origin が無い／中継で想定外の値になることがある）
 
     const body = await readJsonBody(req);
     const userMessage = (body.message || "").trim();
     const wantStream = Boolean(body.stream);
     const history = body.history;
+    const clientId = String(body.clientId || body.client_id || "").trim();
     if (!userMessage) {
       return res.status(400).json({ answer: "メッセージが空です。", emergency: false });
+    }
+    if (userMessage.length > MAX_MESSAGE_CHARS) {
+      return res.status(400).json({
+        answer: `メッセージが長すぎます。${MAX_MESSAGE_CHARS}文字以内で入力してください。`,
+        emergency: false,
+        error: "Message too long",
+      });
     }
 
     // 危険サインはモデルに投げずに即時誘導（安全のため）
     if (detectEmergency(userMessage)) {
-      return res.status(200).json({ answer: emergencyMessage(), emergency: true });
+      const answer = emergencyMessage();
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: { emergency: true },
+      });
+      return res.status(200).json({ answer, emergency: true });
     }
 
     const openai = getOpenAIClient();
@@ -676,7 +1102,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const safeHistory = Array.isArray(history) ? history.slice(-4) : [];
+    const safeHistory = sanitizeHistory(history);
 
     const casualGreetingOnly = isCasualGreetingOnlyMessage(userMessage, safeHistory);
 
@@ -689,49 +1115,98 @@ export default async function handler(req, res) {
         JSON.stringify({
           ts: now.toISOString(),
           ts_jst: now.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
+          clientId,
           user: userMessage,
           answer,
           instantGreeting: true,
         })
       );
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: { instantGreeting: true },
+      });
       return res.status(200).json({ answer, emergency: false, instantGreeting: true });
     }
 
     let clinicSnippet = "";
     let referencedPages = [];
-    if (
-      !casualGreetingOnly &&
-      (!SITE_KNOWLEDGE_GATED || shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory))
-    ) {
-      const { snippet, state } = await getSiteKnowledgeSnippet(userMessage);
-      clinicSnippet = snippet || state?.knowledgeText || "";
+    let csvTopScore = 0;
+    const needsClinicKnowledgeJson = !casualGreetingOnly;
+    const shouldFetchWebKnowledge =
+      needsClinicKnowledgeJson &&
+      (!SITE_KNOWLEDGE_GATED || shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory));
+
+    if (needsClinicKnowledgeJson) {
+      const ranked = rankClinicKnowledge(userMessage);
+      csvTopScore = ranked.topScore;
+      clinicSnippet = buildClinicKnowledgeSnippet(userMessage);
+
+      const seenUrl = new Set();
+      for (const page of selectReferencedPagesFromCsv(userMessage)) {
+        if (!page?.url || seenUrl.has(page.url)) continue;
+        seenUrl.add(page.url);
+        referencedPages.push(page);
+      }
+
+      if (CLINIC_WEB_SUPPLEMENT && shouldFetchWebKnowledge && shouldSupplementWithWeb(userMessage, csvTopScore)) {
+        const { snippet: webSnippet, state } = await getSiteKnowledgeSnippetSupplement(userMessage);
+        if (webSnippet) {
+          clinicSnippet = clinicSnippet
+            ? `${clinicSnippet}\n\n---\n\n${webSnippet}`
+            : webSnippet;
+        }
+
+        let chunks = selectReferencedPagesForChips(userMessage, state);
+        if (
+          !chunks.length &&
+          webSnippet &&
+          ((state?.singlePageOnly ?? state?.meetingOnly) || shouldFetchWebKnowledge)
+        ) {
+          chunks = selectReferencedChunks(userMessage, state);
+        }
+        for (const c of chunks) {
+          if (!c?.url || seenUrl.has(c.url)) continue;
+          seenUrl.add(c.url);
+          referencedPages.push({
+            url: c.url,
+            title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || c.url,
+          });
+        }
+        if (state?.attendOnly && !referencedPages.some((p) => p.url === ATTEND_INFO_PAGE_URL)) {
+          referencedPages.push({
+            url: ATTEND_INFO_PAGE_URL,
+            title: "立ち会い分娩について",
+          });
+        } else if (state?.meetingOnly && !referencedPages.some((p) => p.url === MEETING_INFO_PAGE_URL)) {
+          referencedPages.push({
+            url: MEETING_INFO_PAGE_URL,
+            title: "面会について",
+          });
+        }
+      } else if (isAttendFocusedQuery(userMessage) && !referencedPages.length) {
+        referencedPages.push({ url: ATTEND_INFO_PAGE_URL, title: "立ち会い分娩について" });
+      } else if (isMeetingFocusedQuery(userMessage) && !referencedPages.length) {
+        referencedPages.push({ url: MEETING_INFO_PAGE_URL, title: "面会について" });
+      }
+
       if (clinicSnippet.length > SITE_SNIPPET_MAX_CHARS) {
         clinicSnippet =
           clinicSnippet.slice(0, SITE_SNIPPET_MAX_CHARS) +
           "\n\n（以降、文字数制限のため省略しました）";
       }
-      let chunks = selectReferencedPagesForChips(userMessage, state);
-      if (
-        !chunks.length &&
-        clinicSnippet &&
-        shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory)
-      ) {
-        chunks = selectReferencedChunks(userMessage, state);
-      }
-      const seenUrl = new Set();
-      for (const c of chunks) {
-        if (!c?.url || seenUrl.has(c.url)) continue;
-        seenUrl.add(c.url);
-        referencedPages.push({
-          url: c.url,
-          title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || c.url,
-        });
-      }
+
+      referencedPages = enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages);
+    }
+
+    if (shouldSuppressReferencePages(userMessage, safeHistory, csvTopScore)) {
+      referencedPages = [];
     }
 
     const messages = [
       { role: "system", content: SYSTEM },
-      // 院内情報（公式サイトの HTML 抜粋。SITE_URL_LIST または sitemap 由来）
+      // 院内情報（JSON 優先。不足時のみ Web 抜粋を付加）
       ...(clinicSnippet
         ? [
             {
@@ -740,9 +1215,18 @@ export default async function handler(req, res) {
             },
           ]
         : []),
+      {
+        role: "system",
+        content: buildReferenceLinksSystemPrompt(referencedPages),
+      },
       ...(shouldForceRichHtmlForMessage(userMessage, safeHistory)
         ? [{ role: "system", content: RICH_HTML_THIS_TURN }]
         : []),
+      ...(shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory)
+        ? [{ role: "system", content: PROMPT_OTHER_HOSPITAL_EXPERIENCE }]
+        : shouldAddComplaintPrompt(userMessage, safeHistory)
+          ? [{ role: "system", content: PROMPT_COMPLAINT }]
+          : []),
       ...safeHistory
         .filter((h) => h && (h.role === "user" || h.role === "assistant"))
         .map((h) => ({
@@ -762,7 +1246,15 @@ export default async function handler(req, res) {
           "Cache-Control": "no-cache, no-transform",
           "X-Accel-Buffering": "no",
         });
-        await pipeOpenAIStreamNdjson(res, openai, userMessage, messages, referencedPages);
+        await pipeOpenAIStreamNdjson(
+          res,
+          openai,
+          userMessage,
+          messages,
+          referencedPages,
+          safeHistory,
+          clientId
+        );
         res.end();
       } catch (streamErr) {
         console.error("openai stream error:", streamErr?.message || streamErr);
@@ -788,13 +1280,13 @@ export default async function handler(req, res) {
     const completion = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages,
-      ...(OPENAI_MAX_OUTPUT_TOKENS != null ? { max_tokens: OPENAI_MAX_OUTPUT_TOKENS } : {}),
+      max_tokens: OPENAI_MAX_OUTPUT_TOKENS,
     });
 
     const raw =
       (completion.choices[0]?.message?.content || "").trim() ||
       "すみません、うまく回答を生成できませんでした。";
-    const answer = normalizeLegacyTwoLayerAnswer(raw);
+    const answer = finalizeAssistantAnswer(raw, referencedPages, userMessage, safeHistory);
 
     // Vercel のログにチャット内容（生テキスト）を残す
     // - IP やブラウザ情報などの識別子は含めない
@@ -808,10 +1300,16 @@ export default async function handler(req, res) {
       JSON.stringify({
         ts: tsIso,
         ts_jst: tsJst,
+        clientId,
         user: userMessage,
         answer,
       })
     );
+    await appendChatLog({
+      message: userMessage,
+      answer,
+      clientId,
+    });
 
     return res.status(200).json({ answer, emergency: false, referencedPages });
   } catch (e) {
