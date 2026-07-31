@@ -1,5 +1,6 @@
 import OpenAI, { APIConnectionError, APIError } from "openai";
 import { ratelimit, hasUpstashConfig } from "./_ratelimit.js";
+import { appendChatLog } from "./_chatLog.js";
 import {
   buildClinicKnowledgeSnippet,
   peekClinicKnowledgeStatus,
@@ -936,7 +937,7 @@ function writeNdjsonLine(res, obj) {
 /**
  * OpenAI のストリームを NDJSON でクライアントへ流す（1行1JSON）
  */
-async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, referencedPages, safeHistory = []) {
+async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, referencedPages, safeHistory = [], clientId = "anonymous") {
   const stream = await openai.chat.completions.create({
     model: OPENAI_MODEL,
     messages,
@@ -960,11 +961,18 @@ async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, refere
     JSON.stringify({
       ts: now.toISOString(),
       ts_jst: now.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
+      clientId,
       user: userMessage,
       answer: trimmed,
       streamed: true,
     })
   );
+  await appendChatLog({
+    message: userMessage,
+    answer: trimmed,
+    clientId,
+    meta: { streamed: true },
+  });
 
   if (referencedPages && referencedPages.length > 0) {
     writeNdjsonLine(res, { type: "references", pages: referencedPages });
@@ -1008,6 +1016,12 @@ export default async function handler(req, res) {
         hasChatApiSecret: Boolean(getChatApiSecret()),
         hasUpstashRateLimit: hasUpstashConfig,
         rateLimit: hasUpstashConfig ? "20 req / 60 s / IP" : "disabled (env missing)",
+        hasSupabase: Boolean(
+          process.env.SUPABASE_URL &&
+            (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)
+        ),
+        hasResend: Boolean(process.env.RESEND_API_KEY),
+        hasCronSecret: Boolean(process.env.CRON_SECRET),
       });
     }
 
@@ -1055,6 +1069,7 @@ export default async function handler(req, res) {
     const userMessage = (body.message || "").trim();
     const wantStream = Boolean(body.stream);
     const history = body.history;
+    const clientId = String(body.clientId || body.client_id || "").trim();
     if (!userMessage) {
       return res.status(400).json({ answer: "メッセージが空です。", emergency: false });
     }
@@ -1068,7 +1083,14 @@ export default async function handler(req, res) {
 
     // 危険サインはモデルに投げずに即時誘導（安全のため）
     if (detectEmergency(userMessage)) {
-      return res.status(200).json({ answer: emergencyMessage(), emergency: true });
+      const answer = emergencyMessage();
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: { emergency: true },
+      });
+      return res.status(200).json({ answer, emergency: true });
     }
 
     const openai = getOpenAIClient();
@@ -1093,11 +1115,18 @@ export default async function handler(req, res) {
         JSON.stringify({
           ts: now.toISOString(),
           ts_jst: now.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
+          clientId,
           user: userMessage,
           answer,
           instantGreeting: true,
         })
       );
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: { instantGreeting: true },
+      });
       return res.status(200).json({ answer, emergency: false, instantGreeting: true });
     }
 
@@ -1217,7 +1246,15 @@ export default async function handler(req, res) {
           "Cache-Control": "no-cache, no-transform",
           "X-Accel-Buffering": "no",
         });
-        await pipeOpenAIStreamNdjson(res, openai, userMessage, messages, referencedPages, safeHistory);
+        await pipeOpenAIStreamNdjson(
+          res,
+          openai,
+          userMessage,
+          messages,
+          referencedPages,
+          safeHistory,
+          clientId
+        );
         res.end();
       } catch (streamErr) {
         console.error("openai stream error:", streamErr?.message || streamErr);
@@ -1263,10 +1300,16 @@ export default async function handler(req, res) {
       JSON.stringify({
         ts: tsIso,
         ts_jst: tsJst,
+        clientId,
         user: userMessage,
         answer,
       })
     );
+    await appendChatLog({
+      message: userMessage,
+      answer,
+      clientId,
+    });
 
     return res.status(200).json({ answer, emergency: false, referencedPages });
   } catch (e) {

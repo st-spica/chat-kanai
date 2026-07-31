@@ -90,6 +90,26 @@ get_header();
   const MAX_MESSAGE_CHARS = 500;
   const MAX_HISTORY_ITEMS = 10;
   const MAX_HISTORY_ITEM_CHARS = 500;
+  const CLIENT_ID_KEY = "kanai_chat_client_id";
+
+  function getOrCreateClientId() {
+    try {
+      let id = localStorage.getItem(CLIENT_ID_KEY);
+      if (id && /^[A-Za-z0-9_-]{8,64}$/.test(id)) return id;
+      if (window.crypto && typeof window.crypto.randomUUID === "function") {
+        id = window.crypto.randomUUID().replace(/-/g, "");
+      } else {
+        id = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+      }
+      id = String(id).slice(0, 64);
+      localStorage.setItem(CLIENT_ID_KEY, id);
+      return id;
+    } catch {
+      return `anon${Date.now().toString(36)}`;
+    }
+  }
+
+  const clientId = getOrCreateClientId();
 
   function clipText(text, maxChars) {
     return String(text || "").slice(0, maxChars);
@@ -610,6 +630,7 @@ async function sendMessage() {
       body: JSON.stringify({
         message: text,
         history: historyForRequest(),
+        clientId,
         stream: true,
       }),
     });
