@@ -166,6 +166,7 @@ export default async function handler(req, res) {
     }
 
     const rows = await getChatLogsForYmd(ymd);
+    const todayJst = getJstYmd();
     const mail = await sendReportEmail({ ymd, rows });
 
     if (!mail.ok) {
@@ -173,24 +174,33 @@ export default async function handler(req, res) {
       return res.status(502).json({
         ok: false,
         ymd,
+        todayJst,
         count: rows.length,
+        hint:
+          rows.length === 0
+            ? `0件です。今日のログを見る場合は ?date=${todayJst} を指定してください（date省略時は昨日分）。`
+            : undefined,
         generatedAtJst: new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
-        todayJst: getJstYmd(),
         error: mail.error,
       });
     }
 
     console.log(
       "daily-report sent",
-      JSON.stringify({ ymd, count: rows.length, to: REPORT_TO, id: mail.id })
+      JSON.stringify({ ymd, todayJst, count: rows.length, to: REPORT_TO, id: mail.id })
     );
 
     return res.status(200).json({
       ok: true,
       ymd,
+      todayJst,
       count: rows.length,
       to: REPORT_TO,
       emailId: mail.id,
+      hint:
+        rows.length === 0
+          ? `0件です。今日のログを見る場合は ?date=${todayJst} を指定してください（date省略時は昨日分）。`
+          : undefined,
       generatedAtJst: new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
     });
   } catch (e) {

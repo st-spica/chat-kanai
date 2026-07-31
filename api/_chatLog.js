@@ -1,7 +1,7 @@
 /**
  * チャットログ（Supabase）
  * テーブル: chat_logs
- * 日付キー: ymd_jst（Asia/Tokyo の YYYY-MM-DD）
+ * 日付: ymd_jst（参考）＋ created_at の JST 1日分レンジで取得
  */
 
 const MAX_CLIENT_ID_LEN = 64;
@@ -18,12 +18,16 @@ export const hasSupabaseConfig = () => getSupabaseConfig().ok;
 
 /** @returns {string} YYYY-MM-DD in Asia/Tokyo */
 export function getJstYmd(date = new Date()) {
-  return new Intl.DateTimeFormat("en-CA", {
+  const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Tokyo",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(date);
+  }).formatToParts(date);
+  const y = parts.find((p) => p.type === "year")?.value;
+  const m = parts.find((p) => p.type === "month")?.value;
+  const d = parts.find((p) => p.type === "day")?.value;
+  return `${y}-${m}-${d}`;
 }
 
 /** 前日（JST 暦日）の YYYY-MM-DD */
@@ -32,6 +36,19 @@ export function getYesterdayJstYmd(date = new Date()) {
   const [y, m, d] = today.split("-").map(Number);
   const noonJstAsUtc = Date.UTC(y, m - 1, d, 3, 0, 0);
   return getJstYmd(new Date(noonJstAsUtc - 24 * 60 * 60 * 1000));
+}
+
+/**
+ * JST の暦日 0:00〜24:00 を UTC ISO の半開区間 [start, end) に変換
+ * @param {string} ymd YYYY-MM-DD
+ */
+export function jstDayRangeUtc(ymd) {
+  const start = new Date(`${ymd}T00:00:00+09:00`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return {
+    startIso: start.toISOString(),
+    endIso: end.toISOString(),
+  };
 }
 
 export function normalizeClientId(raw) {
@@ -93,13 +110,17 @@ export async function getChatLogsForYmd(ymd) {
   const { url, key, ok } = getSupabaseConfig();
   if (!ok) return [];
 
+  const { startIso, endIso } = jstDayRangeUtc(ymd);
+
   try {
-    const qs = new URLSearchParams({
-      select: "created_at,time_jst,client_id,message,answer,meta",
-      ymd_jst: `eq.${ymd}`,
-      order: "created_at.asc",
-      limit: "2000",
-    });
+    // created_at の JST 1日分で取得（ymd_jst が空でも拾える）
+    const qs = new URLSearchParams();
+    qs.set("select", "created_at,time_jst,ymd_jst,client_id,message,answer,meta");
+    qs.set("created_at", `gte.${startIso}`);
+    qs.append("created_at", `lt.${endIso}`);
+    qs.set("order", "created_at.asc");
+    qs.set("limit", "2000");
+
     const res = await fetch(`${url}/rest/v1/chat_logs?${qs.toString()}`, {
       method: "GET",
       headers: {
@@ -109,21 +130,49 @@ export async function getChatLogsForYmd(ymd) {
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      console.error("getChatLogsForYmd supabase error:", res.status, text.slice(0, 300));
+      console.error("getChatLogsForYmd supabase error:", res.status, text.slice(0, 500));
       return [];
     }
     const data = await res.json();
     if (!Array.isArray(data)) return [];
-    return data.map((r) => ({
-      time: r.created_at || "",
-      timeJst: r.time_jst || "",
-      clientId: r.client_id || "",
-      message: r.message || "",
-      answer: r.answer || "",
-      meta: r.meta || null,
-    }));
+
+    // フォールバック: created_at で0件なら ymd_jst 一致でも試す
+    if (data.length === 0) {
+      const qs2 = new URLSearchParams({
+        select: "created_at,time_jst,ymd_jst,client_id,message,answer,meta",
+        ymd_jst: `eq.${ymd}`,
+        order: "created_at.asc",
+        limit: "2000",
+      });
+      const res2 = await fetch(`${url}/rest/v1/chat_logs?${qs2.toString()}`, {
+        method: "GET",
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+        },
+      });
+      if (res2.ok) {
+        const data2 = await res2.json();
+        if (Array.isArray(data2) && data2.length > 0) {
+          return data2.map(mapLogRow);
+        }
+      }
+    }
+
+    return data.map(mapLogRow);
   } catch (e) {
     console.error("getChatLogsForYmd error:", e?.message || e);
     return [];
   }
+}
+
+function mapLogRow(r) {
+  return {
+    time: r.created_at || "",
+    timeJst: r.time_jst || "",
+    clientId: r.client_id || "",
+    message: r.message || "",
+    answer: r.answer || "",
+    meta: r.meta || null,
+  };
 }
