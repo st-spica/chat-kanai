@@ -73,10 +73,10 @@ function buildHtml(ymd, rows) {
   return `<!doctype html>
 <html lang="ja">
 <body style="font-family:sans-serif;color:#222;line-height:1.5;">
-  <h2 style="margin:0 0 8px;">金井産婦人科 AI相談 日次レポート</h2>
+  <h2 style="margin:0 0 8px;">金井産婦人科 AIお悩み相談 日次レポート</h2>
   <p style="margin:0 0 16px;">
     対象期間: <strong>${escapeHtml(ymd)} 0:00〜24:00</strong><br>
-    件数: <strong>${count}</strong>　／　ユーザー: <strong>${uniqueUsers}人</strong>
+    件数: <strong>${count}</strong>／ユーザー: <strong>${uniqueUsers}人</strong>
   </p>
   <table style="border-collapse:collapse;width:100%;font-size:13px;">
     <thead>
