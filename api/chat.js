@@ -1,5 +1,5 @@
 import OpenAI, { APIConnectionError, APIError } from "openai";
-import { ratelimit } from "./_ratelimit.js";
+import { ratelimit, hasUpstashConfig } from "./_ratelimit.js";
 import {
   buildClinicKnowledgeSnippet,
   peekClinicKnowledgeStatus,
@@ -1006,6 +1006,8 @@ export default async function handler(req, res) {
         ok: true,
         hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
         hasChatApiSecret: Boolean(getChatApiSecret()),
+        hasUpstashRateLimit: hasUpstashConfig,
+        rateLimit: hasUpstashConfig ? "20 req / 60 s / IP" : "disabled (env missing)",
       });
     }
 

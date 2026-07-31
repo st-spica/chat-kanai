@@ -71,6 +71,26 @@ $accept = isset($_SERVER['HTTP_ACCEPT'])
   ? (string) $_SERVER['HTTP_ACCEPT']
   : 'application/x-ndjson, application/json';
 
+$clientIp = '';
+if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+  $clientIp = trim(explode(',', (string) $_SERVER['HTTP_X_FORWARDED_FOR'])[0]);
+} elseif (!empty($_SERVER['REMOTE_ADDR'])) {
+  $clientIp = trim((string) $_SERVER['REMOTE_ADDR']);
+}
+
+$upstreamHeaders = [
+  'Content-Type: application/json',
+  'Accept: ' . $accept,
+  'X-Chat-Secret: ' . $secret,
+  // 上流が Origin を見る旧実装でも通るよう、公開サイトの Origin を明示
+  'Origin: https://kanailc.xbiz.jp',
+];
+if ($clientIp !== '') {
+  // Upstash のレート制限を「利用者ごと」に効かせる
+  $upstreamHeaders[] = 'X-Forwarded-For: ' . $clientIp;
+  $upstreamHeaders[] = 'X-Real-IP: ' . $clientIp;
+}
+
 $ch = curl_init($upstream);
 if ($ch === false) {
   http_response_code(500);
@@ -104,13 +124,7 @@ $sendResponseHeaders = static function () use (&$headersSent, &$responseHeaders,
 curl_setopt_array($ch, [
   CURLOPT_POST => true,
   CURLOPT_POSTFIELDS => $rawBody,
-  CURLOPT_HTTPHEADER => [
-    'Content-Type: application/json',
-    'Accept: ' . $accept,
-    'X-Chat-Secret: ' . $secret,
-    // 上流が Origin を見る旧実装でも通るよう、公開サイトの Origin を明示
-    'Origin: https://kanailc.xbiz.jp',
-  ],
+  CURLOPT_HTTPHEADER => $upstreamHeaders,
   CURLOPT_RETURNTRANSFER => false,
   CURLOPT_HEADER => false,
   CURLOPT_FOLLOWLOCATION => false,

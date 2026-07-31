@@ -7,10 +7,13 @@ import { Redis } from "@upstash/redis";
 const url = process.env.UPSTASH_REDIS_REST_URL;
 const token = process.env.UPSTASH_REDIS_REST_TOKEN;
 
+/** 環境変数が入っていれば true（接続試行する設定になっている） */
+export const hasUpstashConfig = Boolean(url && token);
+
 let redis = null;
 let ratelimit = null;
 
-if (url && token) {
+if (hasUpstashConfig) {
   // Upstash が設定されている場合のみ、本物のレートリミッタを使う
   redis = new Redis({ url, token });
   ratelimit = new Ratelimit({
