@@ -108,6 +108,8 @@ curl_setopt_array($ch, [
     'Content-Type: application/json',
     'Accept: ' . $accept,
     'X-Chat-Secret: ' . $secret,
+    // 上流が Origin を見る旧実装でも通るよう、公開サイトの Origin を明示
+    'Origin: https://kanailc.xbiz.jp',
   ],
   CURLOPT_RETURNTRANSFER => false,
   CURLOPT_HEADER => false,

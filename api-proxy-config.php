@@ -1,6 +1,6 @@
 <?php
 /**
- * 本番用設定（このファイルは .gitignore 対象）
+ * 本番用設定（Git 管理対象）
  * Vercel の CHAT_API_SECRET と同じ値を入れる
  */
 return [

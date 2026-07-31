@@ -1014,15 +1014,9 @@ export default async function handler(req, res) {
       });
     }
 
-    // Origin チェック：ブラウザ直アクセス向け。シークレット付きのサーバー間通信（PHPプロキシ）は Origin なしでも可
-    if (origin && !ALLOWED_ORIGINS.includes(origin)) {
-      return res.status(403).json({
-        answer:
-          "接続元が許可されていないため送信できません。（ページの公開URLとサーバ設定の許可リストをご確認ください）",
-        emergency: false,
-        error: "Forbidden origin",
-      });
-    }
+    // シークレット検証済みのリクエストはサーバー間通信（PHPプロキシ）として扱う。
+    // Origin はブラウザ直叩き対策だが、シークレット無しは上で 401 済みのためここでは見ない。
+    // （プロキシ経由では Origin が無い／中継で想定外の値になることがある）
 
     const body = await readJsonBody(req);
     const userMessage = (body.message || "").trim();
