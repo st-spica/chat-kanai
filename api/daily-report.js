@@ -1,13 +1,17 @@
 /**
  * 日次チャット報告書
  * - 保存先: Supabase (chat_logs)
- * - Vercel Cron: 毎日 00:00 UTC = 日本時間 9:00
- * - 対象: 前日 0:00〜24:00（JST）= ymd_jst = 昨日
+ * - Vercel Cron: 毎日 00:00 UTC ≒ 日本時間 9:00台（Hobby は同一時内のどこか）
+ * - 対象: 前日 0:00〜24:00（JST）
  * - 送信: Resend（HTML表 + CSV添付）
+ * - 認証: Authorization: Bearer <CRON_SECRET>（Cron 時は Vercel が自動付与）
  *
- * 認証: Authorization: Bearer <CRON_SECRET>
- * 手動テスト例:
- *   curl -X POST "https://xxx.vercel.app/api/daily-report?date=2026-07-30" \
+ * ドメイン確定後はコード変更不要。Vercel 環境変数だけ書き換え:
+ *   REPORT_FROM_EMAIL … AI相談レポート <noreply@検証済みドメイン>
+ *   REPORT_EMAIL_TO   … ueno@st-spica.jp
+ *
+ * 手動テスト:
+ *   curl -X GET "https://xxx.vercel.app/api/daily-report?date=2026-07-31" \
  *     -H "Authorization: Bearer $CRON_SECRET"
  */
 
