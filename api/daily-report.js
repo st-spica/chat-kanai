@@ -75,17 +75,16 @@ function buildHtml(ymd, rows) {
 <body style="font-family:sans-serif;color:#222;line-height:1.5;">
   <h2 style="margin:0 0 8px;">金井産婦人科 AI相談 日次レポート</h2>
   <p style="margin:0 0 16px;">
-    対象期間（JST）: <strong>${escapeHtml(ymd)} 0:00〜24:00</strong><br>
-    件数: <strong>${count}</strong>　／　ユニークユーザーID: <strong>${uniqueUsers}</strong>
+    対象期間: <strong>${escapeHtml(ymd)} 0:00〜24:00</strong><br>
+    件数: <strong>${count}</strong>　／　ユーザー: <strong>${uniqueUsers}人</strong>
   </p>
-  <p style="margin:0 0 12px;font-size:13px;color:#555;">詳細は添付 CSV もご確認ください。ログには相談内容が含まれる場合があります。</p>
   <table style="border-collapse:collapse;width:100%;font-size:13px;">
     <thead>
       <tr style="background:#f5f5f5;">
-        <th style="padding:8px;border:1px solid #ddd;text-align:left;">時間</th>
-        <th style="padding:8px;border:1px solid #ddd;text-align:left;">メッセージ</th>
-        <th style="padding:8px;border:1px solid #ddd;text-align:left;">AI応答</th>
-        <th style="padding:8px;border:1px solid #ddd;text-align:left;">ユーザーID</th>
+        <th style="padding:8px;border:1px solid #ddd;text-align:left;width:15%;">時間</th>
+        <th style="padding:8px;border:1px solid #ddd;text-align:left;width:30%;">メッセージ</th>
+        <th style="padding:8px;border:1px solid #ddd;text-align:left;width:40%;">AI応答</th>
+        <th style="padding:8px;border:1px solid #ddd;text-align:left;width:15%;">ユーザーID</th>
       </tr>
     </thead>
     <tbody>
