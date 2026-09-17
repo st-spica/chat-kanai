@@ -154,7 +154,8 @@ const SYSTEM = `
 - 危険サインが疑われる場合は、一般説明を最小限にして「至急受診／救急」誘導を最優先する。
 - 個人情報（氏名、住所、電話番号、保険番号など）を求めない。入力されたら控えるよう促す。
 - 院内情報は、別メッセージで与えられる院内FAQ（JSON）および必要時の公式サイト抜粋に基づいて回答し、根拠がないことは断言しない。
-- FAQ・院内情報で「実施していない／行っていない／休診」と分かっている内容（例：無痛分娩、日曜診療、乳がん検診）を聞かれたときは、冒頭を必ず「お問い合わせありがとうございます。大変申し訳ございませんが、◯◯は実施しておりません。」の順（お礼→謝罪）にする。曖昧にしない。
+- 【お礼→謝罪は例外のみ】「お問い合わせありがとうございます。大変申し訳ございませんが、…」は、(A) 当院へのクレーム・不満、または (B) 実施していない／お客様の要望に応えられない内容（例：無痛分娩、日曜診療、乳がん検診）のときだけ使う。分娩予約・利用できる制度・診療時間・料金などの通常の案内では謝罪文を書かない（お礼だけ、またはいきなり案内してよい）。「利用可能です」「できます」など案内できる内容の前に謝罪を置かない。
+- FAQ・院内情報で「実施していない／行っていない／休診」と分かっている内容を聞かれたときだけ、冒頭を「お問い合わせありがとうございます。大変申し訳ございませんが、◯◯は実施しておりません。」にする。曖昧にしない。
 - 公式サイトの抜粋や当院サイトに明確な情報がないテーマについては、情報がないと断定せず、「当院サイトに記載がないため、詳細は電話で相談してほしい」ことを丁寧に伝える（必要に応じて一般的な背景説明を短く添える程度にとどめる）。
 - 回答内では「院内サイト抜粋」「KNOWLEDGE」などの内部用語は一切出さない。
 - 回答内で「チャットボット」「AI」などと自称しない。必要な場合も「相談窓口としてご案内します」と表現する。
@@ -445,6 +446,7 @@ function buildNotOfferedPrompt(label) {
     "・実施していないことを曖昧にしない・遠回しにしない。",
     "・必要なら続けて、休診案内・代替の案内・電話相談など短い補足を書いてよい。",
     `・良い例：${NOT_OFFERED_THANKS}大変申し訳ございませんが、${label}は実施しておりません。`,
+    "・注意：通常の案内質問（予約方法・制度・診療時間など）ではこのお礼→謝罪テンプレは使わない。このターンだけ例外。",
   ].join("\n");
 }
 
@@ -700,6 +702,45 @@ function normalizeRichHtmlMarker(text) {
   }
 
   return s.trim();
+}
+
+/**
+ * 平文回答に混入した HTML / 制御マーカー断片（例: </ 、<<<PREVIEW>>>）を除去する。
+ * RICH_HTML 本体のタグは維持する。
+ */
+function stripLeakedControlMarkup(text) {
+  let s = String(text ?? "");
+  if (!s.trim()) return s;
+
+  if (s.trimStart().startsWith(RICH_HTML_PREFIX)) {
+    let body = s.trimStart().slice(RICH_HTML_PREFIX.length);
+    body = body.replace(/\[\[\[\/?RICH_HTML\]\]\]+/gi, "");
+    body = body.replace(/<<<\/?[A-Za-z_]+>>>?/g, "");
+    return (RICH_HTML_PREFIX + body).trim();
+  }
+
+  s = s.replace(/\[\[\[\/?RICH_HTML\]\]\]+/gi, "");
+  s = s.replace(/<<<\/?[A-Za-z_]+>>>?/g, "");
+  s = s.replace(/<\/?[a-zA-Z][^>\n]*>/g, "");
+  s = s.replace(/<\/?[a-zA-Z][^>\n]{0,40}/g, "");
+  s = s.replace(/<\/?/g, "");
+  s = s.replace(/<{2,}/g, "");
+  s = s.replace(/>{2,}/g, "");
+  s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return s;
+}
+
+/** 定型冒頭と混ぜる前に、HTML回答を平文へ落とす */
+function flattenHtmlAnswerToPlain(text) {
+  let s = String(text || "");
+  if (!s.trim()) return "";
+  s = s.replace(/\[\[\[\/?RICH_HTML\]\]\]+/gi, "");
+  s = s.replace(/<<<\/?[A-Za-z_]+>>>?/g, "");
+  s = s.replace(/<br\s*\/?>/gi, "\n");
+  s = s.replace(/<\/(?:p|div|h[1-6]|li|tr)>/gi, "\n");
+  s = s.replace(/<\/?[a-zA-Z][^>]*>/g, "");
+  s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return stripLeakedControlMarkup(s);
 }
 
 /** Markdownリンク・文中の当院URLを除去（チップ表示に任せる） */
@@ -960,7 +1001,7 @@ function stripMisplacedKanaiApology(text, userMessage, safeHistory) {
 /** 当院クレーム時は冒頭を必ず「お礼→謝罪」の順に揃える */
 function ensureComplaintThanksThenApology(text, userMessage, safeHistory) {
   if (!shouldAddComplaintPrompt(userMessage, safeHistory)) return String(text || "");
-  let s = String(text || "").trim();
+  let s = flattenHtmlAnswerToPlain(text);
 
   const stripOpenings = [
     /状況についてご教示くださりありがとうございます。?/g,
@@ -976,7 +1017,7 @@ function ensureComplaintThanksThenApology(text, userMessage, safeHistory) {
   s = s.replace(/^[ \t\n]+/, "").replace(/\n{3,}/g, "\n\n").trim();
 
   const body = s ? `\n${s}` : "";
-  return `${COMPLAINT_THANKS}${COMPLAINT_APOLOGY}${body}`.trim();
+  return stripLeakedControlMarkup(`${COMPLAINT_THANKS}${COMPLAINT_APOLOGY}${body}`.trim());
 }
 
 /** 実施していない内容への質問は冒頭を「お礼→謝罪＋未実施」に揃える */
@@ -988,7 +1029,7 @@ function ensureNotOfferedThanksThenApology(text, userMessage, safeHistory) {
   const hit = detectNotOfferedService(userMessage);
   if (!hit) return String(text || "");
 
-  let s = String(text || "").trim();
+  let s = flattenHtmlAnswerToPlain(text);
   const apology = `大変申し訳ございませんが、${hit.label}は実施しておりません。`;
   const stripOpenings = [
     /お問い合わせありがとうございます。?/g,
@@ -1006,7 +1047,52 @@ function ensureNotOfferedThanksThenApology(text, userMessage, safeHistory) {
   s = s.replace(/^[ \t\n]+/, "").replace(/\n{3,}/g, "\n\n").trim();
 
   const body = s ? `\n${s}` : "";
-  return `${NOT_OFFERED_THANKS}${apology}${body}`.trim();
+  return stripLeakedControlMarkup(`${NOT_OFFERED_THANKS}${apology}${body}`.trim());
+}
+
+function isInabilityApologyRest(rest) {
+  return /(?:実施|行って|お取り|対応)してい?(?:ません|おりません)|ご要望に添え|お応えでき(?:ません|かね)|ご希望に添え/.test(
+    String(rest || "")
+  );
+}
+
+/**
+ * 通常案内で誤って付いた「お礼→謝罪」を除去する。
+ * クレーム／未実施ターンでは触らない。
+ */
+function stripMisplacedThanksApologyOnNormalQuestions(text, userMessage, safeHistory) {
+  if (shouldAddComplaintPrompt(userMessage, safeHistory)) return String(text || "");
+  if (detectNotOfferedService(userMessage)) return String(text || "");
+
+  let s = String(text || "");
+  if (!s.trim() || s.trimStart().startsWith(RICH_HTML_PREFIX)) return s;
+
+  // 「お問い合わせありがとう。大変申し訳ございませんが、〜。」
+  s = s.replace(
+    /お問い合わせありがとうございます。\s*大変申し訳ございませんが、([^。\n]*)。/g,
+    (full, rest) => {
+      if (isInabilityApologyRest(rest)) return full;
+      return `お問い合わせありがとうございます。${rest}。`;
+    }
+  );
+  s = s.replace(
+    /ご質問ありがとうございます。\s*大変申し訳ございませんが、([^。\n]*)。/g,
+    (full, rest) => {
+      if (isInabilityApologyRest(rest)) return full;
+      return `ご質問ありがとうございます。${rest}。`;
+    }
+  );
+
+  // 冒頭だけの「大変申し訳ございませんが、」＋案内できる内容
+  s = s.replace(
+    /(^|\n)大変申し訳ございませんが、([^。\n]*)。/g,
+    (full, lead, rest) => {
+      if (isInabilityApologyRest(rest)) return full;
+      return `${lead}${rest}。`;
+    }
+  );
+
+  return s.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function stripComplaintEmpathyPhrases(text, userMessage, safeHistory) {
@@ -1031,19 +1117,23 @@ function stripComplaintEmpathyPhrases(text, userMessage, safeHistory) {
 }
 
 function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory = []) {
-  return ensureNotOfferedThanksThenApology(
-    ensureComplaintThanksThenApology(
-      stripMisplacedKanaiApology(
-        stripComplaintEmpathyPhrases(
-          stripIrrelevantModelClosing(
-            stripFalseReferenceLinkMention(
-              fixGoryoshoConnective(
-                stripNextActionLeadIn(
-                  normalizeLegacyTwoLayerAnswer(text)
-                )
-              ),
-              referencedPages
-            )
+  return stripMisplacedThanksApologyOnNormalQuestions(
+    ensureNotOfferedThanksThenApology(
+      ensureComplaintThanksThenApology(
+        stripMisplacedKanaiApology(
+          stripComplaintEmpathyPhrases(
+            stripIrrelevantModelClosing(
+              stripFalseReferenceLinkMention(
+                fixGoryoshoConnective(
+                  stripNextActionLeadIn(
+                    normalizeLegacyTwoLayerAnswer(text)
+                  )
+                ),
+                referencedPages
+              )
+            ),
+            userMessage,
+            safeHistory
           ),
           userMessage,
           safeHistory
@@ -1061,10 +1151,12 @@ function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory
 
 function normalizeLegacyTwoLayerAnswer(text) {
   const raw = String(text || "").trim();
-  const out = normalizeRichHtmlMarker(
-    stripMarkdownLinksAndInlineKanaiUrls(
-      stripOverDelegatingClosing(
-        stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+  const out = stripLeakedControlMarkup(
+    normalizeRichHtmlMarker(
+      stripMarkdownLinksAndInlineKanaiUrls(
+        stripOverDelegatingClosing(
+          stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+        )
       )
     )
   );

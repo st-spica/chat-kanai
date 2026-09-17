@@ -120,6 +120,32 @@ function normalizeRichHtmlMarker(text) {
   return s.trim();
 }
 
+/**
+ * 平文回答に混入した HTML / 制御マーカー断片（例: </ ）を除去する。
+ * RICH_HTML 本体のタグは維持する。
+ */
+function stripLeakedControlMarkup(text) {
+  let s = String(text ?? "");
+  if (!s.trim()) return s;
+
+  if (s.trimStart().startsWith(RICH_HTML_PREFIX)) {
+    let body = s.trimStart().slice(RICH_HTML_PREFIX.length);
+    body = body.replace(/\[\[\[\/?RICH_HTML\]\]\]+/gi, "");
+    body = body.replace(/<<<\/?[A-Za-z_]+>>>?/g, "");
+    return (RICH_HTML_PREFIX + body).trim();
+  }
+
+  s = s.replace(/\[\[\[\/?RICH_HTML\]\]\]+/gi, "");
+  s = s.replace(/<<<\/?[A-Za-z_]+>>>?/g, "");
+  s = s.replace(/<\/?[a-zA-Z][^>\n]*>/g, "");
+  s = s.replace(/<\/?[a-zA-Z][^>\n]{0,40}/g, "");
+  s = s.replace(/<\/?/g, "");
+  s = s.replace(/<{2,}/g, "");
+  s = s.replace(/>{2,}/g, "");
+  s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return s;
+}
+
 (function initRichHtmlSanitizer() {
   if (typeof DOMPurify === "undefined") return;
   const KANAI_HREF = /^https?:\/\/(www\.)?kanai\.or\.jp(\/|$)/i;
@@ -270,9 +296,11 @@ function normalizeLegacyTwoLayerAnswerCore(text) {
 
 function normalizeLegacyTwoLayerAnswer(text) {
   const raw = String(text || "").trim();
-  const out = normalizeRichHtmlMarker(
-    stripMarkdownLinksAndInlineKanaiUrls(
-      stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+  const out = stripLeakedControlMarkup(
+    normalizeRichHtmlMarker(
+      stripMarkdownLinksAndInlineKanaiUrls(
+        stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+      )
     )
   );
   if (raw && !out) {
@@ -412,9 +440,12 @@ let typingWrap = null;
 // 簡単なMarkdown変換（太字、改行、リンク）＋ XSS 対策
 function formatMessage(text) {
   if (!text) return "";
+
+  // HTMLタグや制御マーカーの断片が平文に残っている場合は先に除去
+  const cleaned = stripLeakedControlMarkup(String(text));
   
   // まずは HTML をエスケープして、スクリプトやタグがそのまま実行されないようにする
-  const escaped = text
+  const escaped = cleaned
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
