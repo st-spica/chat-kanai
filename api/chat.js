@@ -366,6 +366,7 @@ const RICH_HTML_THIS_TURN = [
 /** クレーム・不満（条件付きで付与。他会話テンプレより優先） */
 const PROMPT_COMPLAINT = [
   "【このターン：クレーム・不満への対応（最優先）】",
+  "・ユーザーは当院への不満・クレームを話しています。「他の病院に変更したい」など転院・他院変更の意向があっても、他院での過去経験の相談ではない。当院クレームとして対応する。",
   "・冒頭は必ず次の2文をこの順番で書く（順番を入れ替えない）。",
   "  1）状況についてご教示くださりありがとうございます。",
   "  2）この度は、ご不快な思いをおかけすることとなり、改めてお詫び申し上げます。",
@@ -374,6 +375,7 @@ const PROMPT_COMPLAINT = [
   "・上から目線の言い回しも禁止。「私たちのサービス」「期待に応えられなかった」「残念です」等は書かない。",
   "・感情の代弁・気持ちの言語化・講義調の説明は書かない。",
   "・続けてご指摘の受け止めと改善姿勢を伝える（例：「ご指摘の点は真摯に受け止めます。」「今後の対応についても、より安心していただけるよう努めてまいります。」）。",
+  "・「こちらでの受診をお考えの場合」「前の病院でのご経験について」など、他院経験向け・新規受診向けの定型文は書かない。",
   "・文末は必ず次の1文で、状況の詳細を丁寧に聞く（話題を流す締めは禁止）。",
   "  今後の改善につなげたいので、その際の状況について差し支えのない範囲でお聞かせいただけますと幸いです。",
   "・禁止する文末例：「他に気になることや、お話しされたいことがあればお聞かせください。」「何か質問があれば〜」「ほかに気になることがあれば〜」。",
@@ -384,6 +386,7 @@ const PROMPT_COMPLAINT = [
 const PROMPT_OTHER_HOSPITAL_EXPERIENCE = [
   "【このターン：他院・以前の病院での経験の相談（最優先）】",
   "ユーザーは当院へのクレームではなく、以前・別の病院での経験や、その影響による不安を話しています。",
+  "・「他の病院に変更したい」「転院したい」など、いま当院から離れたい意向の発言にはこのテンプレを使わない（それは当院クレーム側）。",
   "・当院への謝罪は書かない（「ご不快な思いをさせてしまい、申し訳ありません」「この度は、ご不快な思いをおかけすることとなり」等は禁止）。",
   "・「ご指摘の点は真摯に受け止め」「今後の対応改善に努めます」等、当院が悪かったかのような改善約束も書かない。",
   "・他院の医師・スタッフの善悪評価や批判には乗らない。",
@@ -609,13 +612,54 @@ function recentUserText(userMessage, safeHistory) {
   return chunks.join("\n").slice(-4000);
 }
 
+function looksLikeWantToLeaveKanai(text) {
+  return /他の病院に(?:変更|移|変え|転院)|別の病院に(?:変更|移|変え|転院)|他院に(?:変更|移|転院)|転院したい|病院を変えたい|かかりつけを変えたい|病院を変更したい|ここをやめ|当院をやめ|金井.*(?:やめ|変え|転院|変更)/.test(
+    String(text || "")
+  );
+}
+
+/** 不満の対象が当院であることの手がかり */
+function looksLikeKanaiComplaintTarget(text) {
+  const t = String(text || "");
+  return /当院|本院|金井|ここの(?:病院|クリニック|スタッフ|看護師|受付)|こちらの(?:病院|スタッフ|看護師|受付)/.test(
+    t
+  );
+}
+
+/**
+ * 他院・以前の病院での過去経験の相談か。
+ * 「他の病院に変更したい」など当院から離れたい意向は含めない（当院クレーム側）。
+ */
 function isOtherHospitalExperienceMessage(userMessage, safeHistory) {
   const text = recentUserText(userMessage, safeHistory);
   const current = String(userMessage || "").trim();
+
+  // 当院への不満で転院・他院変更の意向 → 他院経験ではない
+  if (looksLikeWantToLeaveKanai(current)) return false;
+
+  // 当院を名指しで非難している → 他院経験テンプレにしない
+  if (
+    /当院(?:は|の|が|を)?[^。\n]{0,24}(?:最悪|ひど|不快|悪|ダメ)|(?:ここ|こちらの病院)(?:は|の|が)?[^。\n]{0,24}(?:最悪|ひど|不快|悪)/.test(
+      text
+    )
+  ) {
+    return false;
+  }
+
+  // 過去・別の病院での経験を示す表現（「他の病院に変更」は含めない）
   const otherHospitalCue =
-    /前の病院|以前の病院|以前行った病院|別の病院|他の病院|他院では|他院で|前に行った病院|以前行った|前回の病院|元の病院|転院前|かかりつけが変わ|病院を変え|病院が変わ/;
+    /前の病院|以前の病院|以前行った病院|別の病院では|別の病院で(?!変更)|他の病院では|他の病院で(?!変更)|他院では|他院で(?![ァ-ヶー]*変更)|前に行った病院|以前行った|前回の病院|元の病院|転院前|前のかかりつけ|以前のかかりつけ/;
   const negativeCue =
     /怖|ひど|威圧|怒|冷た|不安|嫌|つら|苦|信頼でき|不信|トラウマ|最悪|無理|不快|嫌だった|嫌で/;
+
+  if (looksLikeWantToLeaveKanai(text) && !/前の病院|以前の病院|前回の病院|元の病院|転院前/.test(text)) {
+    return false;
+  }
+
+  // 他院比較＋当院名指しは当院クレーム優先（他院経験にしない）
+  if (otherHospitalCue.test(text) && looksLikeKanaiComplaintTarget(text) && /最悪|ひど|不快|態度|許せ/.test(text)) {
+    return false;
+  }
 
   if (otherHospitalCue.test(text) && negativeCue.test(text)) return true;
   if (/前の病院|以前の病院|別の病院では|他の病院では|他院では/.test(current)) return true;
@@ -625,6 +669,10 @@ function isOtherHospitalExperienceMessage(userMessage, safeHistory) {
 function shouldAddComplaintPrompt(userMessage, safeHistory) {
   if (isOtherHospitalExperienceMessage(userMessage, safeHistory)) return false;
   const text = recentUserText(userMessage, safeHistory);
+  const current = String(userMessage || "").trim();
+  if (looksLikeWantToLeaveKanai(current) && /不快|ひど|最悪|態度|冷たい|威圧|怖|怒|クレーム|苦情|文句|許せ|ありえない|不信/.test(text)) {
+    return true;
+  }
   return /クレーム|苦情|不快|ひどい|最悪|ありえない|許せない|不信|ふざけ|態度が悪|態度.*悪|無愛想|冷たい|窓口.*悪|受付.*悪|スタッフ.*悪|看護師.*悪|看護師.*ひど|看護師.*態度|ナース.*悪|対応が悪|威圧|怖かった|怖く|怒鳴|叱咤|先生.*怖|医師.*怖|当院.*(ひど|悪|最悪|不快)|他院.*(良|いい)|他の病院.*(良|いい)|訴えたい|文句|ひどかった|最悪だった|怒られ|怒った/.test(
     text
   );
@@ -1042,6 +1090,8 @@ function ensureComplaintDetailAskClosing(text, userMessage, safeHistory) {
     /他にご質問があれば[^。\n]*。/g,
     /何かございましたら[^。\n]*。/g,
     /お気軽にお聞かせください。?/g,
+    /こちらでの受診をお考えの場合[^。\n]*。/g,
+    /前の病院でのご経験について[^。\n]*。/g,
   ];
   for (const re of dismissiveClosings) {
     s = s.replace(re, "");
