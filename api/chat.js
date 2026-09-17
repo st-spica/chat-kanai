@@ -136,7 +136,7 @@ function isValidChatApiSecret(req) {
 const SYSTEM = `
 あなたは産婦人科サイトの相談窓口として案内するアシスタントです。目的は診断や医療判断をすることではありません。
 目的：患者の不安に寄り添う、受診前の一般的な案内、受診目安の一般情報の提供。
-役割：患者の不安や感情を一度受け止め、整理し、次の行動を患者自身が選べる状態にすることです。
+役割：患者の不安や感情を一度受け止め、整理し、次の一歩を具体的に案内することです。諭したり講義したりしない。
 
 【絶対に守る基本原則】
 以下を 必ず守ってください。
@@ -154,6 +154,7 @@ const SYSTEM = `
 - 危険サインが疑われる場合は、一般説明を最小限にして「至急受診／救急」誘導を最優先する。
 - 個人情報（氏名、住所、電話番号、保険番号など）を求めない。入力されたら控えるよう促す。
 - 院内情報は、別メッセージで与えられる院内FAQ（JSON）および必要時の公式サイト抜粋に基づいて回答し、根拠がないことは断言しない。
+- FAQ・院内情報で「実施していない／行っていない／休診」と分かっている内容（例：無痛分娩、日曜診療、乳がん検診）を聞かれたときは、冒頭を必ず「お問い合わせありがとうございます。大変申し訳ございませんが、◯◯は実施しておりません。」の順（お礼→謝罪）にする。曖昧にしない。
 - 公式サイトの抜粋や当院サイトに明確な情報がないテーマについては、情報がないと断定せず、「当院サイトに記載がないため、詳細は電話で相談してほしい」ことを丁寧に伝える（必要に応じて一般的な背景説明を短く添える程度にとどめる）。
 - 回答内では「院内サイト抜粋」「KNOWLEDGE」などの内部用語は一切出さない。
 - 回答内で「チャットボット」「AI」などと自称しない。必要な場合も「相談窓口としてご案内します」と表現する。
@@ -189,19 +190,20 @@ const SYSTEM = `
 
 レベル3（フラット）
 使用条件：攻撃的・他院批判・クレーム傾向
-ポイント：謝罪から入り、共感文は書かない。短く事務的に受け止めと改善姿勢を伝える。
-例：ご不快な思いをさせてしまい、大変申し訳ありません。ご指摘の点は真摯に受け止めます。今後の対応についても、より安心していただけるよう努めてまいります。
+ポイント：まずお礼、続けて謝罪。共感文は書かない。短く事務的に受け止めと改善姿勢を伝える。
+例：状況についてご教示くださりありがとうございます。この度は、ご不快な思いをおかけすることとなり、改めてお詫び申し上げます。ご指摘の点は真摯に受け止めます。今後の対応についても、より安心していただけるよう努めてまいります。
 
 【クレーム・攻撃的内容への対応（重要）】
 ・共感文は書かない（「理解できます」「もっともだと思います」「無理もないことだと思います」「そのように感じられた」等は禁止）。
 ・上から目線の言い回しも書かない（「期待に応えられなかった」「残念です」「私たちのサービス」等は禁止）。
-・基本は3文構成：（1）謝罪「ご不快な思いをさせてしまい、大変申し訳ありません。」（2）ご指摘の受け止め（3）改善姿勢（例：「今後の対応についても、より安心していただけるよう努めてまいります。」）。
+・基本は次の順：（1）お礼「状況についてご教示くださりありがとうございます。」（2）謝罪「この度は、ご不快な思いをおかけすることとなり、改めてお詫び申し上げます。」（3）ご指摘の受け止め（4）改善姿勢（例：「今後の対応についても、より安心していただけるよう努めてまいります。」）。
+・**謝罪から始めない。必ずお礼→謝罪の順**にする。
 ・感情の代弁、講義調（「〜は大切ですので」）、長い気持ちの受け止めは書かない。
 ・**当院へのクレームのときだけ**上記の謝罪・改善姿勢を使う。「前の病院」「別の病院」「以前の病院」など**他院での経験**を話しているときは、当院への謝罪や「今後の対応改善」は書かない（話の辻褄が合わない）。
 
 【他院・以前の病院での経験について】
 ユーザーが当院以外（前の病院・別の病院等）での出来事や不安を話している場合：
-・当院への謝罪（「ご不快な思いをさせてしまい、申し訳ありません」等）は書かない。
+・当院への謝罪（「ご不快な思いをさせてしまい、申し訳ありません」「この度は、ご不快な思いをおかけすることとなり」等）は書かない。
 ・「ご指摘を真摯に受け止め」「今後の対応改善に努めます」等、当院が悪かったかのような表現も書かない。
 ・他院の医師・スタッフの善悪評価や批判には乗らない。
 ・短くお礼を述べ、こちらでの受診を検討する際の不安や疑問があれば聞き出す。必要なら電話相談などの選択肢を提示する。
@@ -249,13 +251,17 @@ C. 様子見も合理的
 - 「次にどうするかは、あなた自身が選べる状態を大切にしていただきたいです。どのように進めていくのか考えてみることも良いですね。」のような、患者に判断を丸投げする締め
 - 「どのように進めるか、あなた自身で考えられることができると良いですね。」のような、上から目線・丸投げに聞こえる締め
 - 「あなたの安心につながると良いですね。」「〜と良いですね。」のように、相手の気持ちや状態を他人事のように眺めて締める表現（距離感が遠く、窓口スタッフが口頭で言わない）
+- 「あなた自身の状態をしっかり確認するのが大切です」「ご自身の体調をよく見ることが重要です」など、講義調・上から目線・他人事に聞こえる締め（窓口スタッフが口頭で言わない）
+- 「〜するのが大切です」「〜することが大切ですね」「〜が重要です」だけで締める説教調（一般論の訓示に聞こえる）
 - 「なたの〜」「ご安心に〜」など、主語や語尾が崩れたままの定型締め
 代わりに、短文では事実確認・質問から入る。共感が必要なときも、長い一般論のあとに続けず、短い一文にとどめるか、相手の言葉を繰り返してから次に進む。
+締めは「何か気になる点があれば教えてください」「お電話でもご相談いただけます」など、窓口としての次の一歩や聞き返しにする。相手を諭さない。
 
 【最後の一文の原則】
 - 安心しきらせない
 - 不安を煽らない
-- 「選べる状態」を作る
+- 相手を諭したり、他人事のように眺めたりしない
+- 必要なら具体的な次の一歩や質問で締める（「大切です」で訓示しない）
 
 【あなたの立ち位置】
 - 医師の代わりではない
@@ -358,25 +364,89 @@ const RICH_HTML_THIS_TURN = [
 /** クレーム・不満（条件付きで付与。他会話テンプレより優先） */
 const PROMPT_COMPLAINT = [
   "【このターン：クレーム・不満への対応（最優先）】",
-  "・冒頭は「ご不快な思いをさせてしまい、大変申し訳ありません。」で始める。",
+  "・冒頭は必ず次の2文をこの順番で書く（順番を入れ替えない）。",
+  "  1）状況についてご教示くださりありがとうございます。",
+  "  2）この度は、ご不快な思いをおかけすることとなり、改めてお詫び申し上げます。",
+  "・謝罪から始めない。お礼→謝罪の順を守る。",
   "・共感は一切書かない。「理解できます」「もっともだと思います」「無理もないことだと思います」「そのように感じられた」「大切ですので」等は禁止。",
   "・上から目線の言い回しも禁止。「私たちのサービス」「期待に応えられなかった」「残念です」等は書かない。",
   "・感情の代弁・気持ちの言語化・講義調の説明は書かない。",
-  "・続けて2文、ご指摘の受け止めと改善姿勢を伝える（例：「ご指摘の点は真摯に受け止めます。」「今後の対応についても、より安心していただけるよう努めてまいります。」）。",
-  "・良い例：ご不快な思いをさせてしまい、大変申し訳ありません。ご指摘の点は真摯に受け止めます。今後の対応についても、より安心していただけるよう努めてまいります。",
+  "・続けてご指摘の受け止めと改善姿勢を伝える（例：「ご指摘の点は真摯に受け止めます。」「今後の対応についても、より安心していただけるよう努めてまいります。」）。",
+  "・良い例：状況についてご教示くださりありがとうございます。この度は、ご不快な思いをおかけすることとなり、改めてお詫び申し上げます。ご指摘の点は真摯に受け止めます。今後の対応についても、より安心していただけるよう努めてまいります。",
 ].join("\n");
 
 /** 他院・以前の病院での経験（当院クレームではない） */
 const PROMPT_OTHER_HOSPITAL_EXPERIENCE = [
   "【このターン：他院・以前の病院での経験の相談（最優先）】",
   "ユーザーは当院へのクレームではなく、以前・別の病院での経験や、その影響による不安を話しています。",
-  "・当院への謝罪は書かない（「ご不快な思いをさせてしまい、申し訳ありません」等は禁止）。",
+  "・当院への謝罪は書かない（「ご不快な思いをさせてしまい、申し訳ありません」「この度は、ご不快な思いをおかけすることとなり」等は禁止）。",
   "・「ご指摘の点は真摯に受け止め」「今後の対応改善に努めます」等、当院が悪かったかのような改善約束も書かない。",
   "・他院の医師・スタッフの善悪評価や批判には乗らない。",
   "・「そういった経験をされたのですね」「〜は大切です」などの感情代弁・講義調も書かない。",
   "・短くお礼を述べ、こちらで受診を検討する際に気になる点があれば聞き出す。必要なら診療時間内のお電話相談など選択肢を提示する。",
   "・良い例：前の病院でのご経験についてお聞かせいただき、ありがとうございます。こちらで受診をお考えの場合、気になることがあれば遠慮なくお聞かせください。診療時間内にお電話でご相談いただくこともできます。",
 ].join("\n");
+
+const COMPLAINT_THANKS =
+  "状況についてご教示くださりありがとうございます。";
+const COMPLAINT_APOLOGY =
+  "この度は、ご不快な思いをおかけすることとなり、改めてお詫び申し上げます。";
+
+const NOT_OFFERED_THANKS = "お問い合わせありがとうございます。";
+
+/** FAQ上、当院で実施していないことが分かっている内容 */
+const NOT_OFFERED_SERVICES = [
+  {
+    id: "epidural",
+    label: "無痛分娩",
+    pattern: /無痛分娩|無痛(?:で)?(?:の)?(?:お産|出産|分娩)|硬膜外麻酔|硬膜外|エピ(?:ジュラル)?/,
+  },
+  {
+    id: "sunday",
+    label: "日曜診療",
+    pattern:
+      /日曜診療|日曜(?:日)?(?:も|に|は)?(?:診療|診察|外来|開院|開い|やって|診て|受診|来院できる)/,
+  },
+  {
+    id: "holiday",
+    label: "祝日診療",
+    pattern:
+      /祝日診療|祝日(?:も|に|は)?(?:診療|診察|外来|開院|開い|やって|診て|受診|来院できる)/,
+  },
+  {
+    id: "breast_cancer_screening",
+    label: "乳がん検診",
+    pattern: /乳がん検診|乳癌検診|マンモグラフィ|マンモグラフィー/,
+  },
+  {
+    id: "nursery",
+    label: "託児所",
+    pattern: /託児所|託児サービス/,
+  },
+];
+
+function detectNotOfferedService(userMessage) {
+  const text = String(userMessage || "").trim();
+  if (!text) return null;
+  for (const item of NOT_OFFERED_SERVICES) {
+    if (item.pattern.test(text)) return item;
+  }
+  return null;
+}
+
+function buildNotOfferedPrompt(label) {
+  return [
+    "【このターン：実施していない内容への回答（最優先）】",
+    `院内情報により、ユーザーが尋ねている「${label}」は当院では実施していないことが分かっています。`,
+    "・冒頭は必ず次の2文をこの順番で書く（順番を入れ替えない）。",
+    `  1）${NOT_OFFERED_THANKS}`,
+    `  2）大変申し訳ございませんが、${label}は実施しておりません。`,
+    "・謝罪から始めない。お礼→謝罪（＋実施していない旨）の順を守る。",
+    "・実施していないことを曖昧にしない・遠回しにしない。",
+    "・必要なら続けて、休診案内・代替の案内・電話相談など短い補足を書いてよい。",
+    `・良い例：${NOT_OFFERED_THANKS}大変申し訳ございませんが、${label}は実施しておりません。`,
+  ].join("\n");
+}
 
 function setCors(res, origin) {
   // 許可リストに含まれるOriginのみ許可
@@ -547,7 +617,7 @@ function isOtherHospitalExperienceMessage(userMessage, safeHistory) {
 function shouldAddComplaintPrompt(userMessage, safeHistory) {
   if (isOtherHospitalExperienceMessage(userMessage, safeHistory)) return false;
   const text = recentUserText(userMessage, safeHistory);
-  return /クレーム|苦情|不快|ひどい|最悪|ありえない|許せない|不信|ふざけ|態度が悪|態度.*悪|無愛想|冷たい|窓口.*悪|受付.*悪|スタッフ.*悪|対応が悪|威圧|怖かった|怖く|怒鳴|叱咤|先生.*怖|医師.*怖|他院.*(良|いい)|他の病院.*(良|いい)|訴えたい|文句|ひどかった|最悪だった|怒られ|怒った/.test(
+  return /クレーム|苦情|不快|ひどい|最悪|ありえない|許せない|不信|ふざけ|態度が悪|態度.*悪|無愛想|冷たい|窓口.*悪|受付.*悪|スタッフ.*悪|看護師.*悪|看護師.*ひど|看護師.*態度|ナース.*悪|対応が悪|威圧|怖かった|怖く|怒鳴|叱咤|先生.*怖|医師.*怖|当院.*(ひど|悪|最悪|不快)|他院.*(良|いい)|他の病院.*(良|いい)|訴えたい|文句|ひどかった|最悪だった|怒られ|怒った/.test(
     text
   );
 }
@@ -761,7 +831,7 @@ function normalizeLegacyTwoLayerAnswerCore(text) {
 function stripOverDelegatingClosing(text) {
   let s = String(text || "");
   const fallback = "何か質問があれば、ぜひお聞かせください。";
-  const patterns = [
+  const replaceWithFallback = [
     /次にどうするかは、あなた自身が選べる状態を大切にしていただきたいです。?\s*どのように進めていくのか考えてみることも良いですね。?/g,
     /どのように進め(?:る|ていく)か、?\s*あなた自身(?:で)?考え(?:られる|てみる)(?:こと)?(?:ができる)?(?:と)?良いですね。?/g,
     // 他人事・距離感のある締め（「あなたの安心につながると良いですね」等）
@@ -770,12 +840,24 @@ function stripOverDelegatingClosing(text) {
     /[^。\n]*?につながると(?:良|い)いですね[。]?/g,
     /[^。\n]*?お役に立てれば(?:と|と思)(?:良|い)いですね[。]?/g,
   ];
-  for (const re of patterns) {
+  for (const re of replaceWithFallback) {
     s = s.replace(re, fallback);
+  }
+  // 講義調・上から目線・他人事の訓示（削除のみ）
+  const stripLecture = [
+    /[^。\n]*(?:あなた自身|ご自身)[^。\n]{0,40}(?:大切|重要)です[ね]?[。]?/g,
+    /[^。\n]*しっかり(?:と)?確認[^。\n]{0,20}(?:大切|重要)です[ね]?[。]?/g,
+    /[^。\n]*(?:状態|体調|症状)を[^。\n]{0,24}確認[^。\n]{0,16}(?:大切|重要)です[ね]?[。]?/g,
+    /[^。\n]*確認するのが(?:大切|重要)です[ね]?[。]?/g,
+    /[^。\n]*のが(?:大切|重要)です[ね]?[。]?/g,
+    /[^。\n]*することが(?:大切|重要)です[ね]?[。]?/g,
+  ];
+  for (const re of stripLecture) {
+    s = s.replace(re, "");
   }
   s = s.replace(/(?:何か質問があれば、ぜひお聞かせください。\s*){2,}/g, `${fallback}\n`);
   // 締め置換だけが残った行を整理
-  s = s.replace(/\n{3,}/g, "\n\n").trim();
+  s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   return s;
 }
 
@@ -859,6 +941,8 @@ function stripMisplacedKanaiApology(text, userMessage, safeHistory) {
   if (!isOtherHospitalExperienceMessage(userMessage, safeHistory)) return String(text || "");
   let s = String(text || "");
   const patterns = [
+    /状況についてご教示くださりありがとうございます。?/g,
+    /この度は、?ご不快な思いをおかけすることとなり、?改めてお詫び申し上げます。?/g,
     /ご不快な思いをさせてしまい[^。\n]*。/g,
     /ご指摘の点は真摯に受け止め[^。\n]*。/g,
     /今後の対応についても[^。\n]*努めてまいります。/g,
@@ -871,6 +955,58 @@ function stripMisplacedKanaiApology(text, userMessage, safeHistory) {
     s = s.replace(re, "");
   }
   return s.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** 当院クレーム時は冒頭を必ず「お礼→謝罪」の順に揃える */
+function ensureComplaintThanksThenApology(text, userMessage, safeHistory) {
+  if (!shouldAddComplaintPrompt(userMessage, safeHistory)) return String(text || "");
+  let s = String(text || "").trim();
+
+  const stripOpenings = [
+    /状況についてご教示くださりありがとうございます。?/g,
+    /(?:ご状況|状況)について(?:お聞かせ|ご教示|教えて)くださり[^。\n]*ありがとう[^。\n]*。/g,
+    /この度は、?ご不快な思いをおかけすることとなり、?改めてお詫び申し上げます。?/g,
+    /ご不快な思いをさせてしまい、?(?:大変)?申し訳ありません。?/g,
+    /ご不快な思いをおかけし[^。\n]*。/g,
+    /大変申し訳ありません。?/g,
+  ];
+  for (const re of stripOpenings) {
+    s = s.replace(re, "");
+  }
+  s = s.replace(/^[ \t\n]+/, "").replace(/\n{3,}/g, "\n\n").trim();
+
+  const body = s ? `\n${s}` : "";
+  return `${COMPLAINT_THANKS}${COMPLAINT_APOLOGY}${body}`.trim();
+}
+
+/** 実施していない内容への質問は冒頭を「お礼→謝罪＋未実施」に揃える */
+function ensureNotOfferedThanksThenApology(text, userMessage, safeHistory) {
+  if (shouldAddComplaintPrompt(userMessage, safeHistory)) return String(text || "");
+  if (shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory)) {
+    return String(text || "");
+  }
+  const hit = detectNotOfferedService(userMessage);
+  if (!hit) return String(text || "");
+
+  let s = String(text || "").trim();
+  const apology = `大変申し訳ございませんが、${hit.label}は実施しておりません。`;
+  const stripOpenings = [
+    /お問い合わせありがとうございます。?/g,
+    /お問い合わせくださりありがとうございます。?/g,
+    /ご質問ありがとうございます。?/g,
+    /大変申し訳ございませんが、[^。\n]{1,40}は実施しておりません。?/g,
+    /大変申し訳ございませんが、[^。\n]{1,40}(?:は|を)(?:実施|行って)(?:しておりません|いません)。?/g,
+    /申し訳ございませんが、[^。\n]{1,40}は実施しておりません。?/g,
+    /当院では[^。\n]{0,20}実施していません。?/g,
+    /当院では[^。\n]{0,20}行っていません。?/g,
+  ];
+  for (const re of stripOpenings) {
+    s = s.replace(re, "");
+  }
+  s = s.replace(/^[ \t\n]+/, "").replace(/\n{3,}/g, "\n\n").trim();
+
+  const body = s ? `\n${s}` : "";
+  return `${NOT_OFFERED_THANKS}${apology}${body}`.trim();
 }
 
 function stripComplaintEmpathyPhrases(text, userMessage, safeHistory) {
@@ -895,17 +1031,25 @@ function stripComplaintEmpathyPhrases(text, userMessage, safeHistory) {
 }
 
 function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory = []) {
-  return stripMisplacedKanaiApology(
-    stripComplaintEmpathyPhrases(
-      stripIrrelevantModelClosing(
-        stripFalseReferenceLinkMention(
-          fixGoryoshoConnective(
-            stripNextActionLeadIn(
-              normalizeLegacyTwoLayerAnswer(text)
+  return ensureNotOfferedThanksThenApology(
+    ensureComplaintThanksThenApology(
+      stripMisplacedKanaiApology(
+        stripComplaintEmpathyPhrases(
+          stripIrrelevantModelClosing(
+            stripFalseReferenceLinkMention(
+              fixGoryoshoConnective(
+                stripNextActionLeadIn(
+                  normalizeLegacyTwoLayerAnswer(text)
+                )
+              ),
+              referencedPages
             )
           ),
-          referencedPages
-        )
+          userMessage,
+          safeHistory
+        ),
+        userMessage,
+        safeHistory
       ),
       userMessage,
       safeHistory
@@ -1219,14 +1363,24 @@ export default async function handler(req, res) {
         role: "system",
         content: buildReferenceLinksSystemPrompt(referencedPages),
       },
-      ...(shouldForceRichHtmlForMessage(userMessage, safeHistory)
+      ...(shouldForceRichHtmlForMessage(userMessage, safeHistory) &&
+      !detectNotOfferedService(userMessage)
         ? [{ role: "system", content: RICH_HTML_THIS_TURN }]
         : []),
       ...(shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory)
         ? [{ role: "system", content: PROMPT_OTHER_HOSPITAL_EXPERIENCE }]
         : shouldAddComplaintPrompt(userMessage, safeHistory)
           ? [{ role: "system", content: PROMPT_COMPLAINT }]
-          : []),
+          : detectNotOfferedService(userMessage)
+            ? [
+                {
+                  role: "system",
+                  content: buildNotOfferedPrompt(
+                    detectNotOfferedService(userMessage).label
+                  ),
+                },
+              ]
+            : []),
       ...safeHistory
         .filter((h) => h && (h.role === "user" || h.role === "assistant"))
         .map((h) => ({

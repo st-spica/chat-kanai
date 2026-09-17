@@ -19,7 +19,7 @@ function createAssistantAvatar() {
   img.width = 70;
   img.height = 70;
   img.style.cssText =
-    "display:block;width:70px;height:70px;max-width:70px!important;max-height:70px!important;object-fit:cover;border-radius:50%;margin:0;padding:0;";
+    "display:block;width:70px!important;height:70px!important;max-width:70px!important;max-height:70px!important;object-fit:cover;border-radius:50%;margin:0;padding:0;";
   avatar.appendChild(img);
   return avatar;
 }
@@ -399,13 +399,6 @@ const sendBtn = document.getElementById("sendBtn");
 
 disclaimerFixed.textContent = disclaimerText;
 
-/** 初回送信時にメッセージ欄を表示 */
-function revealMsgs() {
-  if (msgsEl && !msgsEl.classList.contains("is-visible")) {
-    msgsEl.classList.add("is-visible");
-  }
-}
-
 const history = [];
 let typingWrap = null;
 
@@ -561,8 +554,6 @@ function hideTyping() {
 async function sendMessage() {
 const text = inputEl.value.trim();
 if (!text) return;
-
-revealMsgs();
 
 if (text.length > MAX_MESSAGE_CHARS) {
   addMessage(

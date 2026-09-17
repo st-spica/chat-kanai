@@ -399,13 +399,6 @@ const sendBtn = document.getElementById("sendBtn");
 
 disclaimerFixed.textContent = disclaimerText;
 
-/** 初回送信時にメッセージ欄を表示 */
-function revealMsgs() {
-  if (msgsEl && !msgsEl.classList.contains("is-visible")) {
-    msgsEl.classList.add("is-visible");
-  }
-}
-
 const history = [];
 let typingWrap = null;
 
@@ -561,8 +554,6 @@ function hideTyping() {
 async function sendMessage() {
 const text = inputEl.value.trim();
 if (!text) return;
-
-revealMsgs();
 
 if (text.length > MAX_MESSAGE_CHARS) {
   addMessage(

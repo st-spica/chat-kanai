@@ -34,16 +34,12 @@
   letter-spacing: -0.01em;
 }
 .consul-ai .msgs {
-  display: none;
   min-height: 360px;
   max-height: 520px;
   overflow-y: auto;
   border: 1px solid #ff7b8e;
   border-radius: 10px;
   padding: 20px 30px;
-}
-.consul-ai .msgs.is-visible {
-  display: block;
 }
 .consul-ai pre {
   white-space: pre-wrap;

@@ -34,16 +34,12 @@
   letter-spacing: -0.01em;
 }
 .consul-ai .msgs {
-  display: none;
   min-height: 360px;
   max-height: 520px;
   overflow-y: auto;
   border: 1px solid #ff7b8e;
   border-radius: 10px;
   padding: 20px 30px;
-}
-.consul-ai .msgs.is-visible {
-  display: block;
 }
 .consul-ai pre {
   white-space: pre-wrap;
@@ -306,51 +302,12 @@
 
 @media screen and (max-width:599px){
   .consul-ai #chatUI {
-    padding: 20px 5% 45px;
+    padding: 30px 5% 45px;
   }
-  .consul-ai input{
-    font-size: 14px;
-    padding: 5px 12px;
-    border-radius: 7px;
-  }
-  .consul-ai button{
-    padding: 5px 12px;
-    width: 40px;
-    font-size: 14px;
-    line-height: 1.35;
-    border-radius: 7px;
+  .consul-ai .row{
+    flex-wrap: wrap;
   }
   .consul-ai .attention{
-    font-size: 14px;
-    margin: 15px 0 20px;
-  }
-  .consul-ai .msgs{
-    padding: 15px 10px;
-    border-radius: 7px;
-  }
-  .consul-ai .assistant-avatar {
-    flex: 0 0 55px !important;
-    width: 55px !important;
-    height: 55px !important;
-  }
-  .consul-ai .msg-row-assistant{
-    gap: 8px !important;
-  }
-  .consul-ai .assistant-avatar img,
-  .consul-ai .msg-row-assistant .assistant-avatar img {
-    width: 55px !important;
-    height: 55px !important;
-  }
-  .consul-ai .assistant,
-  .consul-ai .user {
-    padding: 10px 13px;
-    font-size: 14px;
-  }
-  .consul-ai .assistant .assistant-ref-chips{
-    gap: 5px;
-  }
-  .consul-ai .assistant a.chat-pill{
-    padding: 5px 13px;
-    font-size: 12px;
+    margin: 20px 0;
   }
 }

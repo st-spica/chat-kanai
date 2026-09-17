@@ -20,7 +20,7 @@
 }
 .consul-ai #chatUI {
   max-width: 880px;
-  padding: 40px 0;
+  padding: 60px 0 80px;
   margin: 0 auto;
 }
 .consul-ai .box {
@@ -82,6 +82,40 @@
 }
 .consul-ai .muted {
   font-size: 16px;
+}
+.consul-ai .msg-row-assistant {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  gap: 12px;
+  width: 100%;
+}
+.consul-ai .assistant-avatar {
+  flex: 0 0 70px !important;
+  width: 70px !important;
+  height: 70px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 50%;
+}
+.consul-ai .assistant-avatar img,
+.consul-ai .msg-row-assistant .assistant-avatar img {
+  display: block !important;
+  width: 70px !important;
+  height: 70px !important;
+  max-width: 70px !important;
+  max-height: 70px !important;
+  border-radius: 50% !important;
+  object-fit: cover !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.consul-ai .msg-row-assistant .assistant {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  width: auto !important;
+  max-width: none;
 }
 .consul-ai .assistant,
 .consul-ai .user {
@@ -256,12 +290,53 @@
   justify-content: center;
   gap: 5px;
   width: 210px;
-  border: 1px solid $brown;
-  color: $brown;
+  border: 1px solid #793800;
+  color: #793800;
   border-radius: 50px;
   padding: 8px 0;
   margin: 75px auto 0;
 }
 .home_btn a img{
   width: 20px;
+}
+
+@media screen and (max-width:599px){
+  .consul-ai #chatUI {
+    padding: 30px 5% 45px;
+  }
+  .consul-ai input{
+    font-size: 14px;
+    padding: 10px 12px;
+  }
+  .consul-ai button{
+    padding: 10px 12px;
+    width: 50px;
+    font-size: 14px;
+    line-height: 1.35;
+  }
+  .consul-ai .attention{
+    font-size: 14px;
+    margin: 20px 0;
+  }
+  .consul-ai .msgs{
+    padding: 15px 10px;
+  }
+  .consul-ai .assistant-avatar {
+    flex: 0 0 55px !important;
+    width: 55px !important;
+    height: 55px !important;
+  }
+  .consul-ai .msg-row-assistant{
+    font-size: 14px;
+    gap: 8px !important;
+  }
+  .consul-ai .assistant-avatar img,
+  .consul-ai .msg-row-assistant .assistant-avatar img {
+    width: 55px !important;
+    height: 55px !important;
+  }
+  .consul-ai .assistant,
+  .consul-ai .user {
+    padding: 10px 13px;
+  }
 }
