@@ -1,7 +1,8 @@
 /**
  * 日次チャット報告書
  * - 保存先: Supabase (chat_logs)
- * - Vercel Cron: 毎日 00:00 UTC ≒ 日本時間 9:00台（Hobby は同一時内のどこか）
+ * - Vercel Cron: 毎日 00:00 UTC ≒ 日本時間 9:00
+ *   ※ Hobby プランは同一時内のどこか（例: 9:43）になる。分単位の厳密指定は Pro
  * - 対象: 前日 0:00〜24:00（JST）
  * - 送信: Resend（HTML表 + CSV添付）
  * - 認証: Authorization: Bearer <CRON_SECRET>（Cron 時は Vercel が自動付与）
