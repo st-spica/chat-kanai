@@ -191,13 +191,14 @@ const SYSTEM = `
 
 レベル3（フラット）
 使用条件：攻撃的・他院批判・クレーム傾向
-ポイント：まずお礼、続けて謝罪。共感文は書かない。短く事務的に受け止めと改善姿勢を伝える。
-例：状況についてご教示くださりありがとうございます。この度は、ご不快な思いをおかけすることとなり、改めてお詫び申し上げます。ご指摘の点は真摯に受け止めます。今後の対応についても、より安心していただけるよう努めてまいります。
+ポイント：まずお礼、続けて謝罪。共感文は書かない。短く事務的に受け止めと改善姿勢を伝え、最後に状況の詳細を丁寧に聞く。
+例：状況についてご教示くださりありがとうございます。この度は、ご不快な思いをおかけすることとなり、改めてお詫び申し上げます。ご指摘の点は真摯に受け止めます。今後の対応についても、より安心していただけるよう努めてまいります。今後の改善につなげたいので、その際の状況について差し支えのない範囲でお聞かせいただけますと幸いです。
 
 【クレーム・攻撃的内容への対応（重要）】
 ・共感文は書かない（「理解できます」「もっともだと思います」「無理もないことだと思います」「そのように感じられた」等は禁止）。
 ・上から目線の言い回しも書かない（「期待に応えられなかった」「残念です」「私たちのサービス」等は禁止）。
-・基本は次の順：（1）お礼「状況についてご教示くださりありがとうございます。」（2）謝罪「この度は、ご不快な思いをおかけすることとなり、改めてお詫び申し上げます。」（3）ご指摘の受け止め（4）改善姿勢（例：「今後の対応についても、より安心していただけるよう努めてまいります。」）。
+・基本は次の順：（1）お礼「状況についてご教示くださりありがとうございます。」（2）謝罪「この度は、ご不快な思いをおかけすることとなり、改めてお詫び申し上げます。」（3）ご指摘の受け止め（4）改善姿勢（例：「今後の対応についても、より安心していただけるよう努めてまいります。」）（5）文末は必ず「今後の改善につなげたいので、その際の状況について差し支えのない範囲でお聞かせいただけますと幸いです。」で、状況の詳細を丁寧に聞く。
+・文末に「他に気になることや、お話しされたいことがあればお聞かせください。」「何か質問があれば〜」など、話題を流す・切り上げる締めは使わない。
 ・**謝罪から始めない。必ずお礼→謝罪の順**にする。
 ・感情の代弁、講義調（「〜は大切ですので」）、長い気持ちの受け止めは書かない。
 ・**当院へのクレームのときだけ**上記の謝罪・改善姿勢を使う。「前の病院」「別の病院」「以前の病院」など**他院での経験**を話しているときは、当院への謝罪や「今後の対応改善」は書かない（話の辻褄が合わない）。
@@ -373,7 +374,10 @@ const PROMPT_COMPLAINT = [
   "・上から目線の言い回しも禁止。「私たちのサービス」「期待に応えられなかった」「残念です」等は書かない。",
   "・感情の代弁・気持ちの言語化・講義調の説明は書かない。",
   "・続けてご指摘の受け止めと改善姿勢を伝える（例：「ご指摘の点は真摯に受け止めます。」「今後の対応についても、より安心していただけるよう努めてまいります。」）。",
-  "・良い例：状況についてご教示くださりありがとうございます。この度は、ご不快な思いをおかけすることとなり、改めてお詫び申し上げます。ご指摘の点は真摯に受け止めます。今後の対応についても、より安心していただけるよう努めてまいります。",
+  "・文末は必ず次の1文で、状況の詳細を丁寧に聞く（話題を流す締めは禁止）。",
+  "  今後の改善につなげたいので、その際の状況について差し支えのない範囲でお聞かせいただけますと幸いです。",
+  "・禁止する文末例：「他に気になることや、お話しされたいことがあればお聞かせください。」「何か質問があれば〜」「ほかに気になることがあれば〜」。",
+  "・良い例：状況についてご教示くださりありがとうございます。この度は、ご不快な思いをおかけすることとなり、改めてお詫び申し上げます。ご指摘の点は真摯に受け止めます。今後の対応についても、より安心していただけるよう努めてまいります。今後の改善につなげたいので、その際の状況について差し支えのない範囲でお聞かせいただけますと幸いです。",
 ].join("\n");
 
 /** 他院・以前の病院での経験（当院クレームではない） */
@@ -392,6 +396,8 @@ const COMPLAINT_THANKS =
   "状況についてご教示くださりありがとうございます。";
 const COMPLAINT_APOLOGY =
   "この度は、ご不快な思いをおかけすることとなり、改めてお詫び申し上げます。";
+const COMPLAINT_DETAIL_ASK =
+  "今後の改善につなげたいので、その際の状況について差し支えのない範囲でお聞かせいただけますと幸いです。";
 
 const NOT_OFFERED_THANKS = "お問い合わせありがとうございます。";
 
@@ -1020,6 +1026,35 @@ function ensureComplaintThanksThenApology(text, userMessage, safeHistory) {
   return stripLeakedControlMarkup(`${COMPLAINT_THANKS}${COMPLAINT_APOLOGY}${body}`.trim());
 }
 
+/** クレーム時の文末を、状況詳細を丁寧に聞く文言に揃える */
+function ensureComplaintDetailAskClosing(text, userMessage, safeHistory) {
+  if (!shouldAddComplaintPrompt(userMessage, safeHistory)) return String(text || "");
+  let s = String(text || "").trim();
+  if (!s) return COMPLAINT_DETAIL_ASK;
+
+  const dismissiveClosings = [
+    /他に気になることや[、,]?お話しされたいことがあればお聞かせください。?/g,
+    /他に気になること(?:が|や)[^。\n]*お聞かせください。?/g,
+    /お話しされたいことがあれば[^。\n]*。/g,
+    /何か(?:他に)?(?:ご)?質問があれば[^。\n]*。/g,
+    /ほかに(?:ご)?不明な点があれば[^。\n]*。/g,
+    /ほかに気になることがあれば[^。\n]*。/g,
+    /他にご質問があれば[^。\n]*。/g,
+    /何かございましたら[^。\n]*。/g,
+    /お気軽にお聞かせください。?/g,
+  ];
+  for (const re of dismissiveClosings) {
+    s = s.replace(re, "");
+  }
+  s = s.replace(/今後の改善につなげたいので[^。\n]*。?/g, "");
+  s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+
+  if (!s.includes(COMPLAINT_DETAIL_ASK)) {
+    s = `${s}\n${COMPLAINT_DETAIL_ASK}`.trim();
+  }
+  return s;
+}
+
 /** 実施していない内容への質問は冒頭を「お礼→謝罪＋未実施」に揃える */
 function ensureNotOfferedThanksThenApology(text, userMessage, safeHistory) {
   if (shouldAddComplaintPrompt(userMessage, safeHistory)) return String(text || "");
@@ -1119,18 +1154,22 @@ function stripComplaintEmpathyPhrases(text, userMessage, safeHistory) {
 function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory = []) {
   return stripMisplacedThanksApologyOnNormalQuestions(
     ensureNotOfferedThanksThenApology(
-      ensureComplaintThanksThenApology(
-        stripMisplacedKanaiApology(
-          stripComplaintEmpathyPhrases(
-            stripIrrelevantModelClosing(
-              stripFalseReferenceLinkMention(
-                fixGoryoshoConnective(
-                  stripNextActionLeadIn(
-                    normalizeLegacyTwoLayerAnswer(text)
-                  )
-                ),
-                referencedPages
-              )
+      ensureComplaintDetailAskClosing(
+        ensureComplaintThanksThenApology(
+          stripMisplacedKanaiApology(
+            stripComplaintEmpathyPhrases(
+              stripIrrelevantModelClosing(
+                stripFalseReferenceLinkMention(
+                  fixGoryoshoConnective(
+                    stripNextActionLeadIn(
+                      normalizeLegacyTwoLayerAnswer(text)
+                    )
+                  ),
+                  referencedPages
+                )
+              ),
+              userMessage,
+              safeHistory
             ),
             userMessage,
             safeHistory
