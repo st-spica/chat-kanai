@@ -248,8 +248,9 @@ C. 様子見も合理的
 
 【避けるトーン・表現（最重要）】
 次のような言い回しは、説明してから相手の気持ちを「許可」しているように聞こえるため**使わない**。
-- 「理解できます」「理解できますね」「よく理解できます」など、理解を宣言する表現（**全面禁止**）
+- 「理解できます」「理解できますね」「よく理解できます」「理解します」など、理解を宣言する表現（**全面禁止**）
 - 「納得です」「納得できます」「納得しました」など、納得を宣言する表現（**全面禁止**）
+- 「それは大変でしたね。」「大変でしたね。」など、相手の苦労を代弁・決めつける表現（**全面禁止**）
 - 「〜はさまざまな原因が考えられるため、不安に感じていることも理解できます」
 - 「原因はいろいろありますが、ご不安なお気持ちはよく分かります」など、一般論＋感情のラベル付けのセット
 - 「〜のお気持ちも理解します」「不安にお感じになるのも当然です」と、相手が述べていない感情を断定する表現
@@ -259,8 +260,9 @@ C. 様子見も合理的
 - 「あなた自身の状態をしっかり確認するのが大切です」「ご自身の体調をよく見ることが重要です」など、講義調・上から目線・他人事に聞こえる締め（窓口スタッフが口頭で言わない）
 - 「〜するのが大切です」「〜することが大切ですね」「〜が重要です」だけで締める説教調（一般論の訓示に聞こえる）
 - 「なたの〜」「ご安心に〜」など、主語や語尾が崩れたままの定型締め
+- 「他に気になることや、お話しされたいことがあればお聞かせください。」「何か質問があれば〜」など、文末で追加発言を催促・切り上げる定型（**全面禁止**）
 代わりに、短文では事実確認・質問から入る。共感が必要なときも、長い一般論のあとに続けず、短い一文にとどめるか、相手の言葉を繰り返してから次に進む。
-締めは「何か気になる点があれば教えてください」「お電話でもご相談いただけます」など、窓口としての次の一歩や聞き返しにする。相手を諭さない。
+締めは案内内容そのもので終えてよい。追加の催促・聞き返し定型は付けない。相手を諭さない。
 
 【最後の一文の原則】
 - 安心しきらせない
@@ -925,8 +927,7 @@ function normalizeLegacyTwoLayerAnswerCore(text) {
 
 function stripOverDelegatingClosing(text) {
   let s = String(text || "");
-  const fallback = "何か質問があれば、ぜひお聞かせください。";
-  const replaceWithFallback = [
+  const replaceWithEmpty = [
     /次にどうするかは、あなた自身が選べる状態を大切にしていただきたいです。?\s*どのように進めていくのか考えてみることも良いですね。?/g,
     /どのように進め(?:る|ていく)か、?\s*あなた自身(?:で)?考え(?:られる|てみる)(?:こと)?(?:ができる)?(?:と)?良いですね。?/g,
     // 他人事・距離感のある締め（「あなたの安心につながると良いですね」等）
@@ -935,8 +936,8 @@ function stripOverDelegatingClosing(text) {
     /[^。\n]*?につながると(?:良|い)いですね[。]?/g,
     /[^。\n]*?お役に立てれば(?:と|と思)(?:良|い)いですね[。]?/g,
   ];
-  for (const re of replaceWithFallback) {
-    s = s.replace(re, fallback);
+  for (const re of replaceWithEmpty) {
+    s = s.replace(re, "");
   }
   // 講義調・上から目線・他人事の訓示（削除のみ）
   const stripLecture = [
@@ -950,10 +951,33 @@ function stripOverDelegatingClosing(text) {
   for (const re of stripLecture) {
     s = s.replace(re, "");
   }
-  s = s.replace(/(?:何か質問があれば、ぜひお聞かせください。\s*){2,}/g, `${fallback}\n`);
-  // 締め置換だけが残った行を整理
   s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   return s;
+}
+
+/** 文末の催促・切り上げ定型を全回答から除去 */
+function stripPromptingClosings(text) {
+  let s = String(text || "");
+  if (!s.trim()) return s;
+  const patterns = [
+    /他に気になることや[、,]?お話しされたいことがあればお聞かせください。?/g,
+    /他に気になること(?:が|や)[^。\n]*お聞かせください。?/g,
+    /お話しされたいことがあれば[^。\n]*。/g,
+    /何か(?:他に)?(?:ご)?質問があれば[^。\n]*。/g,
+    /ほかに(?:ご)?不明な点があれば[^。\n]*。/g,
+    /ほかに気になることがあれば[^。\n]*。/g,
+    /他にご質問があれば[^。\n]*。/g,
+    /他に(?:ご)?不明な点[^。\n]*。/g,
+    /何かございましたら[^。\n]*。/g,
+    /何か気になる(?:点|こと)があれば[^。\n]*。/g,
+    /気になることがあれば(?:遠慮なく)?お(?:聞かせ|申し付け)ください。?/g,
+    /お気軽にお(?:聞かせ|問い合わせ)ください。?/g,
+    /ぜひお聞かせください。?/g,
+  ];
+  for (const re of patterns) {
+    s = s.replace(re, "");
+  }
+  return s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function defaultRefPageTitle(url) {
@@ -1188,14 +1212,22 @@ function stripBannedEmpathyPhrases(text) {
   if (!s.trim()) return s;
 
   const patterns = [
-    /[^。\n<]*理解でき(?:ます|ました)[ね]?[^。\n<]*。/g,
-    /理解でき(?:ます|ました)[ね]?[。]?/g,
-    /[^。\n<]*納得です[ね]?[^。\n<]*。/g,
-    /納得です[ね]?[。]?/g,
-    /[^。\n<]*納得でき(?:ます|ました)[ね]?[^。\n<]*。/g,
-    /納得でき(?:ます|ました)[ね]?[。]?/g,
-    /[^。\n<]*納得いたしました[^。\n<]*。/g,
-    /納得いたしました[。]?/g,
+    /[^。．\n<]*理解でき(?:ます|ました)[ね]?[^。．\n<]*[。．]?/g,
+    /理解でき(?:ます|ました)[ね]?[。．]?/g,
+    /[^。．\n<]*理解します[ね]?[^。．\n<]*[。．]?/g,
+    /理解します[ね]?[。．]?/g,
+    /[^。．\n<]*納得です[ね]?[^。．\n<]*[。．]?/g,
+    /納得です[ね]?[。．]?/g,
+    /[^。．\n<]*納得でき(?:ます|ました)[ね]?[^。．\n<]*[。．]?/g,
+    /納得でき(?:ます|ました)[ね]?[。．]?/g,
+    /[^。．\n<]*納得いたしました[^。．\n<]*[。．]?/g,
+    /納得いたしました[。．]?/g,
+    /[^。．\n<]*それは大変でしたね[。．]?/g,
+    /それは大変でしたね[。．]?/g,
+    /[^。．\n<]*大変でしたね[。．]?/g,
+    /大変でしたね[。．]?/g,
+    /[^。．\n<]*それはつらい(?:です|でした)ね[。．]?/g,
+    /[^。．\n<]*お辛かったですね[。．]?/g,
   ];
   for (const re of patterns) {
     s = s.replace(re, "");
@@ -1265,11 +1297,15 @@ function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory
 
 function normalizeLegacyTwoLayerAnswer(text) {
   const raw = String(text || "").trim();
-  const out = stripLeakedControlMarkup(
-    normalizeRichHtmlMarker(
-      stripMarkdownLinksAndInlineKanaiUrls(
-        stripOverDelegatingClosing(
-          stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+  const out = stripPromptingClosings(
+    stripBannedEmpathyPhrases(
+      stripLeakedControlMarkup(
+        normalizeRichHtmlMarker(
+          stripMarkdownLinksAndInlineKanaiUrls(
+            stripOverDelegatingClosing(
+              stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+            )
+          )
         )
       )
     )
@@ -1327,7 +1363,7 @@ async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, refere
   if (referencedPages && referencedPages.length > 0) {
     writeNdjsonLine(res, { type: "references", pages: referencedPages });
   }
-  writeNdjsonLine(res, { type: "done" });
+  writeNdjsonLine(res, { type: "done", text: trimmed });
   return trimmed;
 }
 

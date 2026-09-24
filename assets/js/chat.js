@@ -296,10 +296,14 @@ function normalizeLegacyTwoLayerAnswerCore(text) {
 
 function normalizeLegacyTwoLayerAnswer(text) {
   const raw = String(text || "").trim();
-  const out = stripLeakedControlMarkup(
-    normalizeRichHtmlMarker(
-      stripMarkdownLinksAndInlineKanaiUrls(
-        stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+  const out = stripPromptingClosings(
+    stripBannedEmpathyPhrases(
+      stripLeakedControlMarkup(
+        normalizeRichHtmlMarker(
+          stripMarkdownLinksAndInlineKanaiUrls(
+            stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+          )
+        )
       )
     )
   );
@@ -307,6 +311,58 @@ function normalizeLegacyTwoLayerAnswer(text) {
     return "すみません、表示用の回答を整形できませんでした。もう一度お試しください。";
   }
   return out;
+}
+
+function stripPromptingClosings(text) {
+  let s = String(text || "");
+  if (!s.trim()) return s;
+  const patterns = [
+    /他に気になることや[、,]?お話しされたいことがあればお聞かせください。?/g,
+    /他に気になること(?:が|や)[^。\n]*お聞かせください。?/g,
+    /お話しされたいことがあれば[^。\n]*。/g,
+    /何か(?:他に)?(?:ご)?質問があれば[^。\n]*。/g,
+    /ほかに(?:ご)?不明な点があれば[^。\n]*。/g,
+    /ほかに気になることがあれば[^。\n]*。/g,
+    /他にご質問があれば[^。\n]*。/g,
+    /他に(?:ご)?不明な点[^。\n]*。/g,
+    /何かございましたら[^。\n]*。/g,
+    /何か気になる(?:点|こと)があれば[^。\n]*。/g,
+    /気になることがあれば(?:遠慮なく)?お(?:聞かせ|申し付け)ください。?/g,
+    /お気軽にお(?:聞かせ|問い合わせ)ください。?/g,
+    /ぜひお聞かせください。?/g,
+  ];
+  for (const re of patterns) {
+    s = s.replace(re, "");
+  }
+  return s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function stripBannedEmpathyPhrases(text) {
+  let s = String(text || "");
+  if (!s.trim()) return s;
+
+  const patterns = [
+    /[^。．\n<]*理解でき(?:ます|ました)[ね]?[^。．\n<]*[。．]?/g,
+    /理解でき(?:ます|ました)[ね]?[。．]?/g,
+    /[^。．\n<]*理解します[ね]?[^。．\n<]*[。．]?/g,
+    /理解します[ね]?[。．]?/g,
+    /[^。．\n<]*納得です[ね]?[^。．\n<]*[。．]?/g,
+    /納得です[ね]?[。．]?/g,
+    /[^。．\n<]*納得でき(?:ます|ました)[ね]?[^。．\n<]*[。．]?/g,
+    /納得でき(?:ます|ました)[ね]?[。．]?/g,
+    /[^。．\n<]*納得いたしました[^。．\n<]*[。．]?/g,
+    /納得いたしました[。．]?/g,
+    /[^。．\n<]*それは大変でしたね[。．]?/g,
+    /それは大変でしたね[。．]?/g,
+    /[^。．\n<]*大変でしたね[。．]?/g,
+    /大変でしたね[。．]?/g,
+    /[^。．\n<]*それはつらい(?:です|でした)ね[。．]?/g,
+    /[^。．\n<]*お辛かったですね[。．]?/g,
+  ];
+  for (const re of patterns) {
+    s = s.replace(re, "");
+  }
+  return s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function updateStreamingAssistantUI(accum, contentEl, streamEnded) {
@@ -644,6 +700,7 @@ try {
     const decoder = new TextDecoder();
     let lineBuf = "";
     let accum = "";
+    let finalFromServer = "";
     let sawDone = false;
     let shell = null;
     let refPages = [];
@@ -673,6 +730,9 @@ try {
         }
         if (obj.type === "done") {
           sawDone = true;
+          if (typeof obj.text === "string" && obj.text.trim()) {
+            finalFromServer = obj.text.trim();
+          }
         }
         if (obj.type === "error") {
           streamHadError = true;
@@ -685,13 +745,15 @@ try {
 
     hideTyping();
     if (!shell) shell = addStreamingAssistantShell();
+    const finalText = normalizeLegacyTwoLayerAnswer(
+      (finalFromServer || accum).trim()
+    );
     if (!streamHadError) {
-      updateStreamingAssistantUI(accum, shell.contentEl, true);
+      updateStreamingAssistantUI(finalText, shell.contentEl, true);
       appendReferenceChips(shell.bubble, refPages);
     }
     msgsEl.scrollTop = msgsEl.scrollHeight;
 
-    const finalText = normalizeLegacyTwoLayerAnswer(accum.trim());
     if (finalText) {
       pushHistory("assistant", finalText);
     } else if (!sawDone) {
