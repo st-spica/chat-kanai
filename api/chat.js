@@ -31,8 +31,8 @@ function getOpenAIClient() {
   return client;
 }
 
-// Chat Completions 用（未設定時は利用しやすい gpt-4o-mini）
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+// Chat Completions 用（未設定時は利用しやすい gpt-5.4-mini）
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.4-mini";
 
 // 出力トークン上限（未設定時は 1200。リッチHTML 用に env で上書き可）
 const OPENAI_MAX_OUTPUT_TOKENS = (() => {
@@ -259,6 +259,7 @@ C. 様子見も合理的
 - 「理解できます」「理解できますね」「よく理解できます」「理解します」など、理解を宣言する表現（**全面禁止**）
 - 「納得です」「納得できます」「納得しました」など、納得を宣言する表現（**全面禁止**）
 - 「それは大変でしたね。」「大変でしたね。」など、相手の苦労を代弁・決めつける表現（**全面禁止**）
+- 「残念です」「残念ですね」など、残念がる・評する表現（**全面禁止**）
 - 「〜はさまざまな原因が考えられるため、不安に感じていることも理解できます」
 - 「原因はいろいろありますが、ご不安なお気持ちはよく分かります」など、一般論＋感情のラベル付けのセット
 - 「〜のお気持ちも理解します」「不安にお感じになるのも当然です」と、相手が述べていない感情を断定する表現
@@ -388,8 +389,8 @@ const PROMPT_COMPLAINT = [
   "  2）この度は、ご不快な思いをおかけすることとなり、改めてお詫び申し上げます。",
   "・謝罪から始めない。お礼→謝罪の順を守る。",
   "・共感は一切書かない。「理解できます」「納得です」「もっともだと思います」「無理もないことだと思います」「そのように感じられた」「大切ですので」等は禁止。",
-  "・上から目線の言い回しも禁止。「私たちのサービス」「期待に応えられなかった」「残念です」等は書かない。",
-  "・感情の代弁・気持ちの言語化・講義調の説明は書かない。",
+  "・上から目線の言い回しも禁止。「私たちのサービス」「期待に応えられなかった」「残念です」「残念ですね」等は書かない。",
+  "・感情の代弁・気持ちの言語化・講義調の説明は書かない。混雑や待ち時間について「残念ですね」と評さない。",
   "・続けてご指摘の受け止めと改善姿勢を伝える（例：「ご指摘の点は真摯に受け止めます。」「今後の対応についても、より安心していただけるよう努めてまいります。」）。",
   "・「こちらでの受診をお考えの場合」「前の病院でのご経験について」など、他院経験向け・新規受診向けの定型文は書かない。",
   "・詳細の催促は禁止。「具体的な状況を教えてください」「詳しく教えてください」「もう少し詳しく」「どのような状況だったか教えて」「差し支えのない範囲でお聞かせください」など、追加説明を求める文は書かない。",
@@ -1008,19 +1009,28 @@ function stripPromptingClosings(text) {
     /他にも?気になること(?:が|や)あればお(?:聞かせ|知らせ)ください。?/g,
     /他にも?気になること(?:が|や)[^。\n]*お(?:聞かせ|知らせ)ください。?/g,
     /お話しされたいことがあれば[^。\n]*。/g,
-    /何か(?:他に)?(?:ご)?質問があれば[^。\n]*。/g,
-    /ほかに(?:ご)?不明な点があれば[^。\n]*。/g,
-    /ほかにも?気になることがあれば[^。\n]*。/g,
-    /他にご質問があれば[^。\n]*。/g,
-    /他に(?:ご)?不明な点[^。\n]*。/g,
-    /何かございましたら[^。\n]*。/g,
-    /何か気になる(?:点|こと)があれば[^。\n]*。/g,
+    /何か(?:他に)?(?:ご)?質問があれば[^。\n]*。?/g,
+    /ほかに(?:ご)?不明な点があれば[^。\n]*。?/g,
+    /ほかにも?気になることがあれば[^。\n]*。?/g,
+    /他にご質問があれば[^。\n]*。?/g,
+    /他に(?:ご)?不明な点[^。\n]*。?/g,
+    /何かございましたら[^。\n]*。?/g,
+    /何か気になる(?:点|こと)があれば[^。\n]*。?/g,
     /気になることがあれば(?:遠慮なく)?お(?:聞かせ|申し付け|知らせ)ください。?/g,
     /お気軽にお(?:聞かせ|問い合わせ)ください。?/g,
     /ぜひお聞かせください。?/g,
+    // 出力途中切れで残る催促の破片
+    /(?:\n|^)何か(?:他に)?(?:ご)?(?:質問|気になる|ござい)[^\n。．]*$/g,
+    /(?:\n|^)何か\s*$/g,
   ];
   for (const re of patterns) {
     s = s.replace(re, "");
+  }
+  s = s.replace(/([。．！？])\s*何か\s*$/g, "$1");
+  // 句点で終わらない末尾の途中切れ文を落とす（直前の完成文まで残す）
+  if (s && !s.trimStart().startsWith(RICH_HTML_PREFIX) && !/[。．！？)」』]$/.test(s.trim())) {
+    const cut = s.match(/^([\s\S]*[。．！？])\s*[^\n。．！？]{1,80}$/);
+    if (cut) s = cut[1].trim();
   }
   return s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -1281,6 +1291,9 @@ function stripBannedEmpathyPhrases(text) {
     /[^。．\n<]*お身体の状態や過去の状況[^。．\n<]*[。．]?/g,
     /[^。．\n<]*お身体の状態により[^。．\n<]*[。．]?/g,
     /[^。．\n<]*過去の状況により[^。．\n<]*[。．]?/g,
+    // 「残念です／残念ですね」
+    /[^。．\n<]*残念です[ね]?[^。．\n<]*[。．]?/g,
+    /残念です[ね]?[。．]?/g,
   ];
   for (const re of patterns) {
     s = s.replace(re, "");
@@ -1385,8 +1398,11 @@ async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, refere
   });
 
   let fullAnswer = "";
+  let finishReason = null;
   for await (const part of stream) {
-    const delta = part.choices[0]?.delta?.content || "";
+    const choice = part.choices[0];
+    if (choice?.finish_reason) finishReason = choice.finish_reason;
+    const delta = choice?.delta?.content || "";
     if (delta) {
       fullAnswer += delta;
       writeNdjsonLine(res, { type: "delta", text: delta });
@@ -1404,6 +1420,8 @@ async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, refere
       user: userMessage,
       answer: trimmed,
       streamed: true,
+      finishReason,
+      rawLen: fullAnswer.length,
     })
   );
   await appendChatLog({
