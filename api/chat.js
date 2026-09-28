@@ -31,15 +31,41 @@ function getOpenAIClient() {
   return client;
 }
 
-// Chat Completions 用（未設定時は利用しやすい gpt-5.4-mini）
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.4-mini";
+// Chat Completions 用（未設定時は gpt-5-nano）
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5-nano";
 
-// 出力トークン上限（未設定時は 1200。リッチHTML 用に env で上書き可）
+// 出力トークン上限（未設定時は 1200。GPT-5 系は reasoning 分も含まれるため既定を厚めに）
 const OPENAI_MAX_OUTPUT_TOKENS = (() => {
-  const raw = (process.env.OPENAI_MAX_OUTPUT_TOKENS || "1200").trim();
+  const isGpt5 = /^gpt-5/i.test(String(process.env.OPENAI_MODEL || "gpt-5-nano").trim());
+  const fallback = isGpt5 ? "2500" : "1200";
+  const raw = (process.env.OPENAI_MAX_OUTPUT_TOKENS || fallback).trim();
   const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : 1200;
+  return Number.isFinite(n) && n > 0 ? n : parseInt(fallback, 10);
 })();
+
+/** GPT-5 / o 系は max_tokens 非対応のため max_completion_tokens を使う */
+function usesMaxCompletionTokens(model) {
+  return /^(gpt-5|o\d)/i.test(String(model || "").trim());
+}
+
+function buildOpenAICompletionParams({ messages, stream = false }) {
+  const params = {
+    model: OPENAI_MODEL,
+    messages,
+  };
+  if (stream) params.stream = true;
+  if (usesMaxCompletionTokens(OPENAI_MODEL)) {
+    params.max_completion_tokens = OPENAI_MAX_OUTPUT_TOKENS;
+    // reasoning を抑えて体感速度を確保（空文字ならパラメータ自体を送らない）
+    const effort = (process.env.OPENAI_REASONING_EFFORT ?? "minimal").trim();
+    if (effort && effort !== "off" && effort !== "none") {
+      params.reasoning_effort = effort;
+    }
+  } else {
+    params.max_tokens = OPENAI_MAX_OUTPUT_TOKENS;
+  }
+  return params;
+}
 
 // 院内抜粋を API に載せる最大文字数（入力トークン削減＝待ち時間・コスト削減）
 const SITE_SNIPPET_MAX_CHARS = Math.max(
@@ -1022,15 +1048,10 @@ function stripPromptingClosings(text) {
     // 出力途中切れで残る催促の破片
     /(?:\n|^)何か(?:他に)?(?:ご)?(?:質問|気になる|ござい)[^\n。．]*$/g,
     /(?:\n|^)何か\s*$/g,
+    /[。．！？]\s*何か\s*$/g,
   ];
   for (const re of patterns) {
-    s = s.replace(re, "");
-  }
-  s = s.replace(/([。．！？])\s*何か\s*$/g, "$1");
-  // 句点で終わらない末尾の途中切れ文を落とす（直前の完成文まで残す）
-  if (s && !s.trimStart().startsWith(RICH_HTML_PREFIX) && !/[。．！？)」』]$/.test(s.trim())) {
-    const cut = s.match(/^([\s\S]*[。．！？])\s*[^\n。．！？]{1,80}$/);
-    if (cut) s = cut[1].trim();
+    s = s.replace(re, (m) => (/[。．！？]\s*何か\s*$/.test(m) ? m.replace(/\s*何か\s*$/, "") : ""));
   }
   return s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -1291,9 +1312,6 @@ function stripBannedEmpathyPhrases(text) {
     /[^。．\n<]*お身体の状態や過去の状況[^。．\n<]*[。．]?/g,
     /[^。．\n<]*お身体の状態により[^。．\n<]*[。．]?/g,
     /[^。．\n<]*過去の状況により[^。．\n<]*[。．]?/g,
-    // 「残念です／残念ですね」
-    /[^。．\n<]*残念です[ね]?[^。．\n<]*[。．]?/g,
-    /残念です[ね]?[。．]?/g,
   ];
   for (const re of patterns) {
     s = s.replace(re, "");
@@ -1388,19 +1406,26 @@ function writeNdjsonLine(res, obj) {
 
 /**
  * OpenAI のストリームを NDJSON でクライアントへ流す（1行1JSON）
+ * ※ create は writeHead より前に行い、API エラーを JSON で返せるようにする
  */
-async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, referencedPages, safeHistory = [], clientId = "anonymous") {
-  const stream = await openai.chat.completions.create({
-    model: OPENAI_MODEL,
-    messages,
-    stream: true,
-    max_tokens: OPENAI_MAX_OUTPUT_TOKENS,
-  });
+async function createOpenAIStream(openai, messages) {
+  return openai.chat.completions.create(
+    buildOpenAICompletionParams({ messages, stream: true })
+  );
+}
 
+async function pipeOpenAIStreamNdjson(
+  res,
+  stream,
+  userMessage,
+  referencedPages,
+  safeHistory = [],
+  clientId = "anonymous"
+) {
   let fullAnswer = "";
   let finishReason = null;
   for await (const part of stream) {
-    const choice = part.choices[0];
+    const choice = part.choices?.[0];
     if (choice?.finish_reason) finishReason = choice.finish_reason;
     const delta = choice?.delta?.content || "";
     if (delta) {
@@ -1409,7 +1434,18 @@ async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, refere
     }
   }
 
-  const trimmed = finalizeAssistantAnswer(fullAnswer.trim(), referencedPages, userMessage, safeHistory);
+  let trimmed = finalizeAssistantAnswer(
+    fullAnswer.trim(),
+    referencedPages,
+    userMessage,
+    safeHistory
+  );
+  if (!trimmed) {
+    trimmed =
+      finishReason === "length"
+        ? "回答が長くなりすぎたため途中で止まりました。もう一度、短く質問してみてください。"
+        : "すみません、うまく回答を生成できませんでした。もう一度お試しください。";
+  }
   const now = new Date();
   console.log(
     "chat-log",
@@ -1421,6 +1457,7 @@ async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, refere
       answer: trimmed,
       streamed: true,
       finishReason,
+      model: OPENAI_MODEL,
       rawLen: fullAnswer.length,
     })
   );
@@ -1428,7 +1465,7 @@ async function pipeOpenAIStreamNdjson(res, openai, userMessage, messages, refere
     message: userMessage,
     answer: trimmed,
     clientId,
-    meta: { streamed: true },
+    meta: { streamed: true, finishReason, model: OPENAI_MODEL },
   });
 
   if (referencedPages && referencedPages.length > 0) {
@@ -1709,6 +1746,30 @@ export default async function handler(req, res) {
     ];
 
     if (wantStream) {
+      let stream;
+      try {
+        stream = await createOpenAIStream(openai, messages);
+      } catch (createErr) {
+        console.error("openai stream create error:", createErr?.message || createErr);
+        const status = createErr?.status || createErr?.statusCode || 500;
+        const msg = String(createErr?.message || "");
+        let answer = "サーバ側でエラーが発生しました。時間をおいて再度お試しください。";
+        if (status === 401 || /incorrect api key|invalid api key/i.test(msg)) {
+          answer =
+            "AIサービスの認証に失敗しました。本番環境の OPENAI_API_KEY をダッシュボードで確認してください。";
+        } else if (status === 404 || /model/i.test(msg)) {
+          answer = `AIモデル「${OPENAI_MODEL}」が利用できません。Vercel の OPENAI_MODEL を確認してください。`;
+        } else if (/max_tokens|max_completion_tokens|reasoning_effort|unsupported parameter/i.test(msg)) {
+          answer =
+            "AIへのリクエスト形式がモデルと合いません。管理者が OPENAI_MODEL / OPENAI_REASONING_EFFORT を確認してください。";
+        }
+        return res.status(status >= 400 && status < 600 ? status : 500).json({
+          answer,
+          emergency: false,
+          error: msg.slice(0, 200),
+        });
+      }
+
       try {
         res.writeHead(200, {
           "Content-Type": "application/x-ndjson; charset=utf-8",
@@ -1717,9 +1778,8 @@ export default async function handler(req, res) {
         });
         await pipeOpenAIStreamNdjson(
           res,
-          openai,
+          stream,
           userMessage,
-          messages,
           referencedPages,
           safeHistory,
           clientId
@@ -1736,7 +1796,9 @@ export default async function handler(req, res) {
         try {
           writeNdjsonLine(res, {
             type: "error",
-            message: "応答の送信が途中で止まりました。時間をおいて再度お試しください。",
+            message:
+              String(streamErr?.message || "").slice(0, 120) ||
+              "応答の送信が途中で止まりました。時間をおいて再度お試しください。",
           });
         } catch {
           /* ignore */
@@ -1746,11 +1808,9 @@ export default async function handler(req, res) {
       return;
     }
 
-    const completion = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages,
-      max_tokens: OPENAI_MAX_OUTPUT_TOKENS,
-    });
+    const completion = await openai.chat.completions.create(
+      buildOpenAICompletionParams({ messages, stream: false })
+    );
 
     const raw =
       (completion.choices[0]?.message?.content || "").trim() ||
@@ -1817,7 +1877,7 @@ export default async function handler(req, res) {
 
     if (status === 404) {
       return res.status(500).json({
-        answer: `AIモデル「${OPENAI_MODEL}」が利用できません。Vercel の OPENAI_MODEL を gpt-4o-mini などに設定し直してください。`,
+        answer: `AIモデル「${OPENAI_MODEL}」が利用できません。Vercel の OPENAI_MODEL を gpt-5-nano などに設定し直してください。`,
         emergency: false,
       });
     }

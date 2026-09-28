@@ -6,8 +6,8 @@
     "node": "20.x"
   },
   "dependencies": {
-    "openai": "^4.0.0",
     "@upstash/ratelimit": "^2.0.3",
-    "@upstash/redis": "^1.30.0"
+    "@upstash/redis": "^1.30.0",
+    "openai": "^4.104.0"
   }
 }

@@ -771,11 +771,18 @@ try {
 
     if (finalText) {
       pushHistory("assistant", finalText);
+    } else if (streamHadError) {
+      /* エラー表示済み */
     } else if (!sawDone) {
       const prevChips = shell.bubble.querySelector(".assistant-ref-chips");
       if (prevChips) prevChips.remove();
       shell.contentEl.textContent =
         "通信が途切れた可能性があります。もう一度お試しください。";
+    } else {
+      const prevChips = shell.bubble.querySelector(".assistant-ref-chips");
+      if (prevChips) prevChips.remove();
+      shell.contentEl.textContent =
+        "すみません、うまく回答を生成できませんでした。もう一度お試しください。";
     }
     return;
   }
