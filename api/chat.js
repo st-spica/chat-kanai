@@ -365,27 +365,12 @@ C. 様子見も合理的
   「ご不明な点があれば、お電話でご相談ください。」
 
 【旧形式・二層マーカーの禁止】
-<<<PREVIEW>>>、<<</PREVIEW>>>、<<<DETAIL>>>、<<</DETAIL>>> などの二層用マーカーは**一切使わない**（仕様廃止済み）。ユーザー画面に制御文字が出る。通常の本文、または【リッチHTML】に従い先頭を [[[RICH_HTML]]] とした HTML のみを出力する。
+<<<PREVIEW>>>、<<</PREVIEW>>>、<<<DETAIL>>>、<<</DETAIL>>> などの二層用マーカーは**一切使わない**（仕様廃止済み）。ユーザー画面に制御文字が出る。
 
-【リッチHTML（表・カード型の見せ方）】
-次に当てはまる質問では、プレーン文や Markdown だけの箇条書き・**太字**に頼った回答は**禁止**。**必ず**次の形式にする（例外なし）。
-・診療時間・診察時間・受付時間・休診・曜日ごとのスケジュール・午前診／午後診／夜診・「いつまで診ているか」等
-・料金・費用・予納金・支払い方法など、一覧表で示すのが適切な内容
-
-手順：
-1. 出力の**先頭**は、空白や改行を入れず、次の1行**のみ**：[[[RICH_HTML]]]（**括弧は開き3つ・閉じ3つ。スラッシュや4つ括弧は絶対に使わない**）
-2. その**直後の次の文字から** HTML のみ。マーカーの前後にプレーンテキストを**一切**書かない（挨拶等はすべて HTML の p や h3 の内側に書く）。
-3. ルートは **1つ** の <div class="chat-card"> にまとめる。共感の一文や締めもこの div 内に含める。
-4. **禁止**：[[[/RICH_HTML]]]、[[[\\/RICH_HTML]]]、マーカーだけの出力、閉じタグ風のマーカー。ユーザー画面にマーカー文字列そのものが見えてはならない。
-5. HTML カードで書けない場合は、マーカーを**使わず**通常の日本語文で答える（マーカーだけ出して終えることは禁止）。
-
-使ってよいタグは次に限る：div, h3, h4, p, table, thead, tbody, tr, th, td, ul, ol, li, strong, em, br, span, a, hr, section, caption
-属性は class のみ、および a には href（https://www.kanai.or.jp または https://kanai.or.jp で始まるURLのみ）, target="_blank", rel="noopener noreferrer" のみ。
-script, style, iframe, onclick、data-*、id は使わない。
-ルートの枠は class="chat-card"、見出しは **div.chat-card-head** の内側に span.chat-card-icon と **h3.chat-card-title** を置く（h3 に chat-card-head を直接付けない）。
-表は class="chat-table"、※注記は class="chat-note"、当院ページへの導線は class="chat-pill-row" と a.chat-pill、まとめ見出しは class="chat-section"、まとめリストは class="chat-list"。
-
-カード内の a.chat-pill 等で当院ページへ誘導してよい。**本文末に URL の箇条書きは書かない**（チップに任せる）。
+【カード・リッチHTMLの禁止（最重要）】
+- [[[RICH_HTML]]] マーカー、HTMLカード、class="chat-card"、class="chat-card-title"、class="chat-card-head"、class="chat-card-icon" は**全面禁止**。
+- 診療時間・料金などでもカードや枠付きボックスは作らない。通常の日本語文（必要なら「・」箇条書き）で案内する。
+- 回答はプレーンテキストのみ。HTMLタグ（div, h3, table 等）を出力しない。
 
 【院内情報（システム専用。ユーザー向けの回答テキストには、この名称を出さない）】
 このあと別の system メッセージとして与えられる「院内FAQ（JSON）」および必要時の「当院公式サイトのページ本文の抜粋（URL付き）」を主な根拠として回答を作成すること。両方ある場合は FAQ を優先し、サイト抜粋は補足として使う。
@@ -393,19 +378,6 @@ script, style, iframe, onclick、data-*、id は使わない。
 - ユーザー発話に「立ち会い」が含まれるときは、そのターンの抜粋は**立ち会い分娩ページ（${ATTEND_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
 - ユーザー発話に「面会」が含まれるときは、そのターンの抜粋は**面会のお知らせページ（${MEETING_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
 `.trim();
-
-/** このターンだけリッチHTMLを強く指示（モデルがプレーン文に逃げるのを防ぐ） */
-const RICH_HTML_THIS_TURN = [
-  "【このターンの回答形式（最優先・他会話テンプレより上）】",
-  "このユーザー発話は、診療時間・休診・曜日別スケジュール、または料金・費用の確認に該当します。",
-  "",
-  "必ず次のみで出力してください。",
-  "1. 先頭は空白・改行なしで次の1行だけ：[[[RICH_HTML]]]",
-  "2. 続けて HTML のみ。前後にプレーンテキストや Markdown を付けない。",
-  "3. ルートは1つの <div class=\"chat-card\">。診療枠は <table class=\"chat-table\">。",
-  "4. <<<PREVIEW>>> や <<<DETAIL>>> 等の二層マーカーは出さない（廃止済み）。",
-  "5. マーカーは [[[RICH_HTML]]] のみ。[[[/RICH_HTML]]] など誤形式・マーカー単体の出力は禁止。HTML が書けないならマーカーなしの通常文で答える。",
-].join("\n");
 
 /** クレーム・不満（条件付きで付与。他会話テンプレより優先） */
 const PROMPT_COMPLAINT = [
@@ -650,30 +622,6 @@ function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
   return triggers.some((re) => re.test(text));
 }
 
-/**
- * 診療時間・料金など「表・カード必須」の質問か（現在＋直近ユーザー発話）
- */
-function shouldForceRichHtmlForMessage(userMessage, safeHistory) {
-  const chunks = [String(userMessage || "")];
-  if (Array.isArray(safeHistory)) {
-    for (const h of safeHistory) {
-      if (h && h.role === "user") {
-        chunks.push(String(h.content || ""));
-      }
-    }
-  }
-  const text = chunks.join("\n").slice(-4000);
-
-  const schedule =
-    /診療時間|診察時間|受付時間|休診|夜診|午前診|午後診|日曜|祝日|開いてい|何時から|何時まで|診療.*いつ|いつ.*診療/.test(
-      text
-    );
-  const fee =
-    /料金|費用|予納金|予約金|いくら|支払い|クレジット|クレカ|現金/.test(text);
-
-  return schedule || fee;
-}
-
 function recentUserText(userMessage, safeHistory) {
   const chunks = [String(userMessage || "")];
   if (Array.isArray(safeHistory)) {
@@ -869,6 +817,21 @@ function flattenHtmlAnswerToPlain(text) {
   s = s.replace(/<\/?[a-zA-Z][^>]*>/g, "");
   s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   return stripLeakedControlMarkup(s);
+}
+
+/**
+ * chat-card / RICH_HTML が出た場合は平文に落とす（カード表示を禁止）
+ */
+function demoteChatCardToPlain(text) {
+  let s = String(text ?? "");
+  if (!s.trim()) return s;
+  const looksCard =
+    s.includes(RICH_HTML_PREFIX) ||
+    /class\s*=\s*["'][^"']*chat-card/i.test(s) ||
+    /class\s*=\s*["'][^"']*chat-card-title/i.test(s) ||
+    /<div\b[^>]*chat-card/i.test(s);
+  if (!looksCard) return s;
+  return flattenHtmlAnswerToPlain(s);
 }
 
 /** Markdownリンク・文中の当院URLを除去（チップ表示に任せる） */
@@ -1384,11 +1347,13 @@ function normalizeLegacyTwoLayerAnswer(text) {
   const raw = String(text || "").trim();
   const out = stripPromptingClosings(
     stripBannedEmpathyPhrases(
-      stripLeakedControlMarkup(
-        normalizeRichHtmlMarker(
-          stripMarkdownLinksAndInlineKanaiUrls(
-            stripOverDelegatingClosing(
-              stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+      demoteChatCardToPlain(
+        stripLeakedControlMarkup(
+          normalizeRichHtmlMarker(
+            stripMarkdownLinksAndInlineKanaiUrls(
+              stripOverDelegatingClosing(
+                stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
+              )
             )
           )
         )
@@ -1718,10 +1683,7 @@ export default async function handler(req, res) {
         role: "system",
         content: buildReferenceLinksSystemPrompt(referencedPages),
       },
-      ...(shouldForceRichHtmlForMessage(userMessage, safeHistory) &&
-      !detectNotOfferedService(userMessage)
-        ? [{ role: "system", content: RICH_HTML_THIS_TURN }]
-        : []),
+      // chat-card / RICH_HTML は禁止（強制注入しない）
       ...(shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory)
         ? [{ role: "system", content: PROMPT_OTHER_HOSPITAL_EXPERIENCE }]
         : shouldAddComplaintPrompt(userMessage, safeHistory)
