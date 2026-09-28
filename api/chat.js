@@ -221,6 +221,14 @@ const SYSTEM = `
 - 相手が「不安」と言っていないのに「不安も理解します」「不安に感じるのも無理はありません」と感情を決めつけない。
 例：教えてくれてありがとうございます。少し状況を整理したいので、分かる範囲で教えてください。
 
+【短い相槌への対応ルール（最重要）】
+会話の途中で、ユーザーが「うん」「はい」「そうなんです」「そうですね」「わかりました」など短い相槌・同意だけを返した場合：
+- 相槌の文言だけを見て定型返答しない（新規の挨拶・一般論・共感だけで終わらない）。
+- **直前までの相談内容（履歴）を必ず踏まえて**返答する。
+- すでに共感・受け止めを伝えている場合は、同じ共感表現を繰り返さない。
+- 相談内容に沿って会話を一歩進める。例：「少しでも楽になる方法を一緒に考えてみましょうか？」「今いちばん気になっている点はどれでしょう。」
+- 「そうですか。」「分かりました。」だけの相槌返しで終わらない。
+
 【情報を聞き出した後の分岐ルール】
 A. 緊急・準緊急の可能性あり
 - 予約を出さない
@@ -402,6 +410,18 @@ const PROMPT_OTHER_HOSPITAL_EXPERIENCE = [
   "・良い例：前の病院でのご経験についてお聞かせいただき、ありがとうございます。こちらで受診をお考えの場合、気になることがあれば遠慮なくお聞かせください。診療時間内にお電話でご相談いただくこともできます。",
 ].join("\n");
 
+/** 会話途中の短い相槌（うん・はい・そうなんです 等） */
+const PROMPT_SHORT_BACKCHANNEL = [
+  "【このターン：短い相槌への対応（最優先）】",
+  "ユーザー発話は「うん」「はい」「そうなんです」などの短い相槌・同意です。",
+  "・この短文だけを見て定型返答しない（挨拶・一般論・新規の共感だけで終わらない）。",
+  "・直前までの会話履歴（症状・不安・質問・案内内容）を必ず踏まえて返答する。",
+  "・すでに共感・受け止めを伝えている場合は、同じ共感表現を繰り返さない。",
+  "・相談内容に沿って会話を一歩進める。例：「少しでも楽になる方法を一緒に考えてみましょうか？」「今いちばん気になっている点はどれでしょう。」",
+  "・「そうですか。」「分かりました。」だけの相槌返しで終わらない。",
+  "・禁止の共感宣言（理解できます・大変でしたね・アドバイス 等）は使わない。",
+].join("\n");
+
 const COMPLAINT_THANKS =
   "状況についてご教示くださりありがとうございます。";
 const COMPLAINT_APOLOGY =
@@ -533,6 +553,27 @@ function isCasualGreetingOnlyMessage(userMessage, safeHistory) {
   return /^(こんにちは|こんばんは|おはようございます|おはよう|はじめまして|よろしくお願いします|よろしく|hello|hi)([!！.。…]*)?$/i.test(
     compact
   );
+}
+
+/**
+ * 会話途中の短い相槌・同意か（履歴を踏まえた続行が必要）
+ */
+function isShortBackchannelMessage(userMessage, safeHistory) {
+  const userPrior = (safeHistory || []).filter((h) => h && h.role === "user").length;
+  if (userPrior < 1) return false;
+  const raw = String(userMessage || "").trim();
+  if (!raw || raw.length > 40) return false;
+  const compact = raw.replace(/[\s\u3000]+/g, "");
+  return /^(うん|うんうん|はい|はいはい|ええ|そう|そうです|そうなんです|そうなんですよ|そうですよね|そうですね|そうだよ|そうだね|そうですよ|なるほど|了解|了解です|了解しました|わかりました|分かりました|わかった|分かった|ええそうです|はいそうです|はいそうなんです|そうなの|そうなんだ|まぁ|まあ)([!！?？.。…〜ー]*)?$/i.test(
+    compact
+  );
+}
+
+function shouldAddShortBackchannelPrompt(userMessage, safeHistory) {
+  if (shouldAddComplaintPrompt(userMessage, safeHistory)) return false;
+  if (shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory)) return false;
+  if (detectNotOfferedService(userMessage)) return false;
+  return isShortBackchannelMessage(userMessage, safeHistory);
 }
 
 function detectEmergency(text) {
@@ -1631,7 +1672,9 @@ export default async function handler(req, res) {
                   ),
                 },
               ]
-            : []),
+            : shouldAddShortBackchannelPrompt(userMessage, safeHistory)
+              ? [{ role: "system", content: PROMPT_SHORT_BACKCHANNEL }]
+              : []),
       ...safeHistory
         .filter((h) => h && (h.role === "user" || h.role === "assistant"))
         .map((h) => ({
