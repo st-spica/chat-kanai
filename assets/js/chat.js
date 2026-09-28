@@ -294,42 +294,14 @@ function normalizeLegacyTwoLayerAnswerCore(text) {
   return stripKnownMarkers(t);
 }
 
-/** HTML回答を平文へ落とす */
-function flattenHtmlAnswerToPlain(text) {
-  let s = String(text || "");
-  if (!s.trim()) return "";
-  s = s.replace(/\[\[\[\/?RICH_HTML\]\]\]+/gi, "");
-  s = s.replace(/<<<\/?[A-Za-z_]+>>>?/g, "");
-  s = s.replace(/<br\s*\/?>/gi, "\n");
-  s = s.replace(/<\/(?:p|div|h[1-6]|li|tr)>/gi, "\n");
-  s = s.replace(/<\/?[a-zA-Z][^>]*>/g, "");
-  s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-  return stripLeakedControlMarkup(s);
-}
-
-/** chat-card / RICH_HTML が出た場合は平文に落とす */
-function demoteChatCardToPlain(text) {
-  let s = String(text ?? "");
-  if (!s.trim()) return s;
-  const looksCard =
-    s.includes(RICH_HTML_PREFIX) ||
-    /class\s*=\s*["'][^"']*chat-card/i.test(s) ||
-    /class\s*=\s*["'][^"']*chat-card-title/i.test(s) ||
-    /<div\b[^>]*chat-card/i.test(s);
-  if (!looksCard) return s;
-  return flattenHtmlAnswerToPlain(s);
-}
-
 function normalizeLegacyTwoLayerAnswer(text) {
   const raw = String(text || "").trim();
   const out = stripPromptingClosings(
     stripBannedEmpathyPhrases(
-      demoteChatCardToPlain(
-        stripLeakedControlMarkup(
-          normalizeRichHtmlMarker(
-            stripMarkdownLinksAndInlineKanaiUrls(
-              stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
-            )
+      stripLeakedControlMarkup(
+        normalizeRichHtmlMarker(
+          stripMarkdownLinksAndInlineKanaiUrls(
+            stripTrailingKanaiUrlBulletLines(normalizeLegacyTwoLayerAnswerCore(text))
           )
         )
       )
