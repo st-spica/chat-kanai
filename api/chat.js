@@ -1462,11 +1462,15 @@ async function pipeOpenAIStreamNdjson(
       rawLen: fullAnswer.length,
     })
   );
-  await appendChatLog({
+
+  // ログ失敗で応答完了を止めない
+  void appendChatLog({
     message: userMessage,
     answer: trimmed,
     clientId,
     meta: { streamed: true, finishReason, model: OPENAI_MODEL },
+  }).catch((e) => {
+    console.error("appendChatLog failed:", e?.message || e);
   });
 
   if (referencedPages && referencedPages.length > 0) {
@@ -1747,6 +1751,30 @@ export default async function handler(req, res) {
     ];
 
     if (wantStream) {
+      let stream;
+      try {
+        stream = await createOpenAIStream(openai, messages);
+      } catch (createErr) {
+        console.error("openai stream create error:", createErr?.message || createErr);
+        const status = createErr?.status || createErr?.statusCode || 500;
+        const msg = String(createErr?.message || "");
+        let answer = "サーバ側でエラーが発生しました。時間をおいて再度お試しください。";
+        if (status === 401 || /incorrect api key|invalid api key/i.test(msg)) {
+          answer =
+            "AIサービスの認証に失敗しました。本番環境の OPENAI_API_KEY をダッシュボードで確認してください。";
+        } else if (status === 404 || /model_not_found|does not exist|model/i.test(msg)) {
+          answer = `AIモデル「${OPENAI_MODEL}」が利用できません。Vercel の OPENAI_MODEL を確認してください。`;
+        } else if (/max_tokens|max_completion_tokens|reasoning_effort|unsupported parameter/i.test(msg)) {
+          answer =
+            "AIへのリクエスト形式がモデルと合いません。管理者が OPENAI_MODEL 等を確認してください。";
+        }
+        return res.status(status >= 400 && status < 600 ? status : 500).json({
+          answer,
+          emergency: false,
+          error: msg.slice(0, 200),
+        });
+      }
+
       try {
         res.writeHead(200, {
           "Content-Type": "application/x-ndjson; charset=utf-8",
@@ -1755,9 +1783,8 @@ export default async function handler(req, res) {
         });
         await pipeOpenAIStreamNdjson(
           res,
-          openai,
+          stream,
           userMessage,
-          messages,
           referencedPages,
           safeHistory,
           clientId
