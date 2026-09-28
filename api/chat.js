@@ -31,12 +31,13 @@ function getOpenAIClient() {
   return client;
 }
 
-// Chat Completions 用（未設定時は gpt-5-nano）
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5-nano";
+// Chat Completions 用（未設定時は gpt-4.1-mini）
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
 // 出力トークン上限（未設定時は 1200。GPT-5 系は reasoning 分も含まれるため既定を厚めに）
 const OPENAI_MAX_OUTPUT_TOKENS = (() => {
-  const isGpt5 = /^gpt-5/i.test(String(process.env.OPENAI_MODEL || "gpt-5-nano").trim());
+  const model = String(process.env.OPENAI_MODEL || "gpt-4.1-mini").trim();
+  const isGpt5 = /^gpt-5/i.test(model);
   const fallback = isGpt5 ? "2500" : "1200";
   const raw = (process.env.OPENAI_MAX_OUTPUT_TOKENS || fallback).trim();
   const n = parseInt(raw, 10);
@@ -1746,30 +1747,6 @@ export default async function handler(req, res) {
     ];
 
     if (wantStream) {
-      let stream;
-      try {
-        stream = await createOpenAIStream(openai, messages);
-      } catch (createErr) {
-        console.error("openai stream create error:", createErr?.message || createErr);
-        const status = createErr?.status || createErr?.statusCode || 500;
-        const msg = String(createErr?.message || "");
-        let answer = "サーバ側でエラーが発生しました。時間をおいて再度お試しください。";
-        if (status === 401 || /incorrect api key|invalid api key/i.test(msg)) {
-          answer =
-            "AIサービスの認証に失敗しました。本番環境の OPENAI_API_KEY をダッシュボードで確認してください。";
-        } else if (status === 404 || /model/i.test(msg)) {
-          answer = `AIモデル「${OPENAI_MODEL}」が利用できません。Vercel の OPENAI_MODEL を確認してください。`;
-        } else if (/max_tokens|max_completion_tokens|reasoning_effort|unsupported parameter/i.test(msg)) {
-          answer =
-            "AIへのリクエスト形式がモデルと合いません。管理者が OPENAI_MODEL / OPENAI_REASONING_EFFORT を確認してください。";
-        }
-        return res.status(status >= 400 && status < 600 ? status : 500).json({
-          answer,
-          emergency: false,
-          error: msg.slice(0, 200),
-        });
-      }
-
       try {
         res.writeHead(200, {
           "Content-Type": "application/x-ndjson; charset=utf-8",
@@ -1778,8 +1755,9 @@ export default async function handler(req, res) {
         });
         await pipeOpenAIStreamNdjson(
           res,
-          stream,
+          openai,
           userMessage,
+          messages,
           referencedPages,
           safeHistory,
           clientId
@@ -1796,9 +1774,7 @@ export default async function handler(req, res) {
         try {
           writeNdjsonLine(res, {
             type: "error",
-            message:
-              String(streamErr?.message || "").slice(0, 120) ||
-              "応答の送信が途中で止まりました。時間をおいて再度お試しください。",
+            message: "応答の送信が途中で止まりました。時間をおいて再度お試しください。",
           });
         } catch {
           /* ignore */
@@ -1877,7 +1853,7 @@ export default async function handler(req, res) {
 
     if (status === 404) {
       return res.status(500).json({
-        answer: `AIモデル「${OPENAI_MODEL}」が利用できません。Vercel の OPENAI_MODEL を gpt-5-nano などに設定し直してください。`,
+        answer: `AIモデル「${OPENAI_MODEL}」が利用できません。Vercel の OPENAI_MODEL を gpt-4.1-mini などに設定し直してください。`,
         emergency: false,
       });
     }
