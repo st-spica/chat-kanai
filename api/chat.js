@@ -123,8 +123,8 @@ const CHAT_INSTANT_GREETING = !["false", "0", "no"].includes(
 
 // 許可するフロントエンドのOrigin（環境変数 ALLOWED_ORIGINS にカンマ区切りで追加可能）
 const DEFAULT_ALLOWED_ORIGINS = [
-  "https://kanailc.xbiz.jp",
-  "https://www.kanailc.xbiz.jp",
+  "https://kanai.or.jp",
+  "https://www.kanai.or.jp",
 ];
 
 function loadAllowedOrigins() {

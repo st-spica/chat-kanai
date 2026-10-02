@@ -83,7 +83,7 @@ $upstreamHeaders = [
   'Accept: ' . $accept,
   'X-Chat-Secret: ' . $secret,
   // 上流が Origin を見る旧実装でも通るよう、公開サイトの Origin を明示
-  'Origin: https://kanailc.xbiz.jp',
+  'Origin: https://kanai.or.jp',
 ];
 if ($clientIp !== '') {
   // Upstash のレート制限を「利用者ごと」に効かせる
