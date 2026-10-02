@@ -5,247 +5,247 @@
       "category": "診療/受付",
       "question": "当日受診・本日の予約はできますか？",
       "answer": "当日のご予約はお取りしていません。直接来院してください。午前診と午後診は予約の方優先、夜診は受付順です。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/beginner/"
     },
     {
       "category": "診療/受付",
       "question": "何科がありますか？",
       "answer": "産科、婦人科がございます。",
-      "url": "https://www.kanai.or.jp/"
+      "url": "https://kanai.or.jp/"
     },
     {
       "category": "診療/受付",
       "question": "概算料金について",
       "answer": "予約金は10,000円（分娩予約時に納入、返金不可）で、うち5,000円は退院時に入院費として精算します。予納金は妊娠36週以降に現金で納入し、直接支払制度の利用あり100,000円／利用なし300,000円、分娩以外での入院は20,000円です（他院転院時は予納金全額返金）。入院費は正常分娩が初産婦約600,000〜650,000円（6日間）・経産婦約570,000〜620,000円（5日間）、異常分娩（帝王切開等）約600,000〜660,000円（7日間）です。分娩料・新生児管理保育料・入院基本料・室料・食事代・薬等・産科医療補償制度保険料・時間外休日深夜加算（15,000円）を含み、直接支払制度利用時は出産育児一時金500,000円を入院費に精算します。割引制度はきょうだい割引15,000円、パパママ割引10,000円（最大割引15,000円）です。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/obstetrics/childbirth/#price_birth"
     },
     {
       "category": "婦人科",
       "question": "子宮がん検診について教えてください。",
       "answer": "予約がなくても診療受付時間内であれば随時検査を行っています（出血のない時に受診）。ご希望の方は受付にお申し出ください。電話予約の運用あり（番号非通知は不可）。40歳以上で不正出血がある場合、検査されることをお勧めします。夜診は予約制ではないため直接来院してください。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/gynecology/#gyne_cancer"
     },
     {
       "category": "診療/受付",
       "question": "子宮がん検診の補助対象について",
       "answer": "今年度末(3月31日)までに20歳以上の誕生日を迎える大阪市民の女性が大阪市補助対象の方です。2年度中に1回の受診。詳しくは大阪市からのお知らせをご確認ください。",
-      "url": "https://www.kanai.or.jp/gynecology/"
+      "url": "https://kanai.or.jp/gynecology/#gyne_cancer"
     },
     {
       "category": "診療/受付",
       "question": "予約をキャンセルできますか？",
       "answer": "WEB予約の場合は、前日の8時まで可能。産前産後教室の予約の場合は、前日14時まで可能。それ以降のキャンセル・変更はお電話でご相談ください。",
-      "url": "https://www.kanai.or.jp/"
+      "url": "https://kanai.or.jp/"
     },
     {
       "category": "診療/受付",
       "question": "オンライン診療はありますか？",
       "answer": "ありません。",
-      "url": "https://www.kanai.or.jp/"
+      "url": "https://kanai.or.jp/"
     },
     {
       "category": "診療/受付",
       "question": "検査結果について教えてください。",
       "answer": "当日には出ない。検査により1〜2週間程度必要。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/"
     },
     {
       "category": "検査",
       "question": "乳がん検診はやっていますか？",
       "answer": "乳がん検診は現在行っていません。取扱については各医療機関にお問い合わせください。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/gynecology/"
     },
     {
       "category": "婦人科/緊急避妊",
       "question": "アフターピルは処方してもらえますか？",
       "answer": "診療時間内に随時対応可能です。低用量ピル・緊急避妊ピル（ノルレボ錠・プラノバール配合錠）などの詳細はピル処方の項目もご確認ください。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/gynecology/#pill"
     },
     {
       "category": "診療/受付",
       "question": "産科の初診・再診について教えてください。",
       "answer": "初診の方は午前診のみ電話で予約可能。再診はご自身でWEB予約・自動受付機・直接お電話にて妊娠健診枠でのご予約をお取り下さい。",
-      "url": "https://www.kanai.or.jp/visit"
+      "url": "https://kanai.or.jp/beginner/"
     },
     {
       "category": "診療/受付",
       "question": "婦人科の初診・再診について教えてください。",
       "answer": "初診の方は午前診のみ電話で予約可能。再診はご自身でWEB予約・自動受付機・直接お電話にて予約可能。夜診は予約を取っていないので、直接来院してください。",
-      "url": "https://www.kanai.or.jp/visit/"
+      "url": "https://kanai.or.jp/beginner/"
     },
     {
       "category": "会計",
       "question": "支払い方法・クレジットカードは使えますか？",
       "answer": "クレジットカードをご利用いただけます。ただし予納金・予約金は現金のみです。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/beginner/#check"
     },
     {
       "category": "アクセス/駐車場",
       "question": "駐車場はありますか？／駐車場について",
       "answer": "駐車場（5台）は8:30〜20:00の間ご利用いただけます。20:00を過ぎると翌朝8:30まで閉鎖されます。駐車場の出入りは今里筋側から行ってください。駐車場出入口より東側（奥側）は自転車歩行者専用道路で、居住者用車両を除く一般車両は通行禁止です。違反時は処罰対象となるためご注意ください。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/access/"
     },
     {
       "category": "院内施設",
       "question": "入院していなくてもレストランを利用できますか？",
       "answer": "入院中の患者さまとご家族さまのご利用となります。ご家族の利用はティータイム・夕食のみ。現在は患者さまの夕食のみレストランで提供しています。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/restaurant/"
     },
     {
       "category": "レストラン",
       "question": "当院レストラン・お祝いディナーについて",
       "answer": "火・金曜の夕食はフレンチシェフによる「シェフメニュー」をご提供。ご出産された患者さまへ、当院からのお祝いの気持ちを込めて「お祝いディナー」もご用意しています（出産後2日目・帝王切開の方は4日目）。夕食のみレストランでご提供、その他の食事は部屋食。入院中に1回、お菓子2種とドリンクを部屋にお持ちするティータイムサービスを実施。また「お祝いケーキ」とスティックドリンクセットをプレゼント。",
-      "url": "https://www.kanai.or.jp/restaurant/"
+      "url": "https://kanai.or.jp/restaurant/"
     },
     {
       "category": "レストラン",
       "question": "レストランの営業時間について",
       "answer": "ご利用時間：夕食18：00〜19：00",
-      "url": "https://www.kanai.or.jp/restaurant/"
+      "url": "https://kanai.or.jp/restaurant/"
     },
     {
       "category": "産科",
       "question": "里帰り出産で利用したい。分娩の予約手続きは？",
       "answer": "当院で出産を希望される場合は、ご本人またはご家族が窓口で分娩予約を行ってください。窓口対応時間は月〜金9:00〜16:00、土9:00〜12:00（第3土曜休診）です。窓口で里帰り分娩申込み用紙を記入し、手続き後に案内書類をお渡しします。予約金は10,000円です。33週6日までに紹介状を持参し受診してください（受診前に診察時間内の電話予約が必要）。分娩予約のためだけの受診は不要です。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/obstetrics/checkup/#homecoming"
     },
     {
       "category": "産科",
       "question": "一度帝王切開で出産しました。次も帝王切開になりますか？",
       "answer": "当院では一度帝王切開をされた方は、次回も帝王切開のみの対応となります。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/obstetrics/"
     },
     {
       "category": "産科",
       "question": "利用できる制度について",
       "answer": "産科医療補償制度、出産育児一時金直接支払制度、きょうだい割引制度、パパママ割引制度がございます。料金の詳細は概算料金の項目をご確認ください。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/obstetrics/childbirth/#price_birth"
     },
     {
       "category": "産科",
       "question": "入院時の連絡先について",
       "answer": "夜間・休日には専用の電話番号があります。当院で分娩予定の方にのみ案内しています。",
-      "url": "https://www.kanai.or.jp/"
+      "url": "https://kanai.or.jp/"
     },
     {
       "category": "産科",
       "question": "母乳が出ない",
       "answer": "産後のママを対象に母乳ケアを行っています。日時：水・木・金・第2・4土曜日。完全予約制。時間：約45分。料金：3000円。電話予約。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/#breast_care"
+      "url": "https://kanai.or.jp/aftersupport/#milkcare"
     },
     {
       "category": "産科",
       "question": "帝王切開を行うことがあるケース",
       "answer": "以前に帝王切開を受けている、以前に子宮の手術を受けたことがある、双胎、妊娠経過中の母体異常、分娩停止、胎盤の異常、胎児側の理由など",
-      "url": "https://www.kanai.or.jp/obstetrics/2/#caesarean"
+      "url": "https://kanai.or.jp/obstetrics/"
     },
     {
       "category": "産科/初診",
       "question": "妊娠かどうか診てほしい。受診はいつ頃がよい？",
       "answer": "生理予定日から7〜10日ほど遅れたら受診してください。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/beginner/"
     },
     {
       "category": "産科/初診",
       "question": "初診費用・受診料の目安はどれくらいですか？",
       "answer": "初診料・超音波検査料、尿検査を行う場合で約10,000円ほどが目安です（初診料＋超音波＋必要なら尿検査）。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/beginner/"
     },
     {
       "category": "産科/初診",
       "question": "市販の妊娠検査薬で陽性でも、病院で尿検査されますか？",
       "answer": "超音波で子宮内に胎嚢が確認できれば尿検査を行わないことがありますが、子宮外妊娠を疑う場合は検査を行います。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/beginner/"
     },
     {
       "category": "産科",
       "question": "立ち会い分娩について",
       "answer": "立ち会い分娩は、患者さまの陣痛中のサポートを優先に考えています。「しっかりと陣痛がきてお産の進行が見られるタイミング」から「分娩後のカンガルーケア終了」までをLDR室内で一緒に過ごしていただきます。感染症対策を実施しております。立ち会う方はご家族（成人1名、および患者さまのお子さま1名）です。事前に立ち会い分娩についての同意書を提出してください。",
-      "url": "https://www.kanai.or.jp/news/attend.php"
+      "url": "https://kanai.or.jp/obstetrics/childbirth/#assist_birth"
     },
     {
       "category": "産科",
       "question": "無痛分娩はできますか？",
       "answer": "当院では実施していません。",
-      "url": "https://www.kanai.or.jp/"
+      "url": "https://kanai.or.jp/obstetrics/"
     },
     {
       "category": "産科",
       "question": "キッズスペース・託児所はありますか？",
       "answer": "託児所はありませんが、1Fにキッズスペースがあります。保護者の見守りが必要です。",
-      "url": "https://www.kanai.or.jp/obstetrics/1/"
+      "url": "https://kanai.or.jp/facilities/"
     },
     {
       "category": "教室",
       "question": "戌の日の腹帯の巻き方を教えてもらえますか？",
       "answer": "教室参加時に助産師へ声をかけてください。教室終了後に指導します。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/lesson/"
     },
     {
       "category": "外来",
       "question": "診察・超音波検査に夫や小さい子どもも一緒に入れますか？",
       "answer": "一緒に入っていただけます。詳細は院内案内をご確認ください。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/obstetrics/"
     },
     {
       "category": "面会",
       "question": "面会に小さい子どもを連れて行っても大丈夫？",
       "answer": "15歳以下はNG。しかし、ベビーのごきょうだいに限り対応しています。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/obstetrics/hospitalization/#visit"
     },
     {
       "category": "婦人科",
       "question": "女性医師による診察を受けられますか？",
       "answer": "診療体制表でご確認ください。診察状況により担当医師が変更になる場合があります。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/beginner/"
     },
     {
       "category": "婦人科",
       "question": "先生は男性ですか？医師は男性のみですか？",
       "answer": "男性医師のみではありません。女性医師による診察も可能です。女性医師をご希望の場合は、診療体制表でご確認の上、時間を合わせて受診ください。診察状況により担当医師が変更になる場合があります。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/beginner/"
     },
     {
       "category": "婦人科",
       "question": "女性医師を指名できますか？",
       "answer": "診療体制表でご確認の上、時間を合わせて受診ください。診察状況により担当医師が変更になる場合があります。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/beginner/"
     },
     {
       "category": "婦人科",
       "question": "検査薬で陽性が出た",
       "answer": "生理予定日より7～10日遅れたら受診してください。出産予定日が決まるまでの妊娠初期の方は婦人科で予約をお取りください。",
-      "url": "https://www.kanai.or.jp/obstetrics/"
+      "url": "https://kanai.or.jp/beginner/"
     },
     {
       "category": "予約/電話",
       "question": "電話予約はできますか？",
       "answer": "予約はお電話で承ります。番号非通知のお電話には対応できません。電話受付時間：平日9:00〜16:00／土曜9:00〜12:00（※第3土曜日休診）。受診希望日の2日前までにご連絡ください。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/beginner/"
     },
     {
       "category": "婦人科",
       "question": "子宮がん検診（検査）の費用はいくら？",
       "answer": "費用は検査内容によって異なります。詳細は当院サイトでご確認ください。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/gynecology/#gyne_cancer"
     },
     {
       "category": "検査",
       "question": "性病検査について",
       "answer": "クラミジア・淋菌・トリコモナス・カンジタ・性器ヘルペス・HIV・梅毒・B型肝炎ウイルス・ヒトパピローマウイルス",
-      "url": "https://www.kanai.or.jp/gynecology/"
+      "url": "https://kanai.or.jp/gynecology/#sexually_disease"
     },
     {
       "category": "検査",
       "question": "ブライダルチェックについて",
       "answer": "健康診断になりますので、自費扱いになります。検査料とは別途で診察料として2880円をいただきます。検査料の詳細は当院サイトを確認",
-      "url": "https://www.kanai.or.jp/gynecology/"
+      "url": "https://kanai.or.jp/gynecology/#bridal_check"
     },
     {
       "category": "検査",
       "question": "子宮がん検査や性病検査の結果はいつ出ますか？",
       "answer": "当日に結果は出ません。検査により異なりますが、1〜2週間ほど必要です。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/gynecology"
     },
     {
       "category": "婦人科",
@@ -257,265 +257,265 @@
       "category": "婦人科/ピル",
       "question": "ピル処方について",
       "answer": "低用量ピル：アンジュ(28日型)・マーベロン(21日型)。緊急避妊ピル(アフターピル)：ノルレボ錠(1錠1回のみ内服)・プラノバール配合錠(12時間毎に2錠2回内服)、月経移動ピル：遅らせたい生理予定日より10日前頃の受診をお勧めしています。",
-      "url": "https://www.kanai.or.jp/gynecology/"
+      "url": "https://kanai.or.jp/gynecology"
     },
     {
       "category": "婦人科/ピル",
       "question": "避妊用ピルの料金はどれくらい？",
       "answer": "初回は初診料1,080円＋検査料。低用量ピル処方の場合は年1回、子宮頸がん検診・血液検査・超音波検査（約5,000円）を行います。処方は最長3か月分で、1回の処方は3,240円×月数分。来院時に血圧・体重測定があります。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/gynecology/#pill"
     },
     {
       "category": "婦人科/手術",
       "question": "中絶手術は可能？",
       "answer": "可能ですが、週数や手術日の関係などで対応できない場合があります。詳細は来院のうえ医師とご相談ください。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/gynecology"
     },
     {
       "category": "産後ケア",
       "question": "産後ケアのサービス内容",
       "answer": "ママの体調管理、おっぱい相談、育児相談、ママのこころの休養のためのお手伝い、沐浴方法、スキンケア、授乳方法の指導、発育発達に関するアドバイス",
-      "url": "https://www.kanai.or.jp/aftercare/"
+      "url": "https://kanai.or.jp/aftersupport/#aftercare"
     },
     {
       "category": "産後ケア",
       "question": "産後ケアの対象となる方",
       "answer": "出産後0か月から2か月未満のママと赤ちゃん",
-      "url": "https://www.kanai.or.jp/aftercare/"
+      "url": "https://kanai.or.jp/aftersupport/#aftercare"
     },
     {
       "category": "産後ケア",
       "question": "産後ケアのコース",
       "answer": "大阪市「産後ケア事業」ショートステイ（1泊2日）（大阪市への事前申請要）、オリジナル産後ケア（1泊2日～）、料金などの詳細は当院サイトを確認",
-      "url": "https://www.kanai.or.jp/aftercare/"
+      "url": "https://kanai.or.jp/aftersupport/#aftercare"
     },
     {
       "category": "産後ケア",
       "question": "産後ケアは、他院での出産でも利用可能ですか？",
       "answer": "他院でご出産された方もご利用可能です。大阪市の「産後ケア事業」を受託しております。ご利用希望の方は、妊娠8か月～利用の2週間前までに区役所の窓口への申請が必要になります。詳細は当院サイトを確認",
-      "url": "https://www.kanai.or.jp/aftercare/"
+      "url": "https://kanai.or.jp/aftersupport/#aftercare"
     },
     {
       "category": "教室",
       "question": "どんな教室がありますか？",
       "answer": "妊娠中・産後に受講できるクラスを開催しています。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/lesson/"
     },
     {
       "category": "教室",
       "question": "産前教室について",
       "answer": "後期クラス（当院で分娩予定の方は必ず受講）、マタニティビクス、マタニティヨーガ、開催スケジュールは当院サイトを確認",
-      "url": "https://www.kanai.or.jp/lesson/1/"
+      "url": "https://kanai.or.jp/lesson/"
     },
     {
       "category": "教室",
       "question": "産後教室について",
       "answer": "ママフィットwithベビー、ママヨガwithベビー、開催スケジュールは当院サイトを確認",
-      "url": "https://www.kanai.or.jp/lesson/2/"
+      "url": "https://kanai.or.jp/lesson/"
     },
     {
       "category": "教室",
       "question": "教室の予約方法は？",
       "answer": "WEB予約からご予約いただけます。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/lesson/"
     },
     {
       "category": "教室",
       "question": "他院通院中・他院分娩予定でも教室は受けられますか？",
       "answer": "現在、当院通院中の方を対象に開講しています。マタニティヨーガなど他院受診中の方のみの受講はできません。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/lesson/"
     },
     {
       "category": "教室",
       "question": "離乳食指導は予約が必要？",
       "answer": "現在、離乳食指導は休止しています。ご了承ください。",
-      "url": "https://www.kanai.or.jp/qa/"
+      "url": "https://kanai.or.jp/lesson/"
     },
     {
       "category": "基本情報",
       "question": "住所はどこですか？",
       "answer": "大阪府大阪市城東区今福西1-2-8 です。",
-      "url": "https://www.kanai.or.jp/"
+      "url": "https://kanai.or.jp/access/"
     },
     {
       "category": "基本情報",
       "question": "電話番号を教えてください。",
       "answer": "TEL：06-6931-2391（※番号非通知のお電話には対応できません）",
-      "url": "https://www.kanai.or.jp/"
+      "url": "https://kanai.or.jp/access/"
     },
     {
       "category": "アクセス",
       "question": "最寄り駅からのアクセスは？",
       "answer": "大阪メトロ長堀鶴見緑地線・今里筋線『蒲生四丁目』駅 3号出口より南へ徒歩3分。JR学研都市線・おおさか東線『鴫野』駅から徒歩10分。大阪シティバス21・35号系統『新喜多大橋』バス停（35号系統）下車すぐ。",
-      "url": "https://www.kanai.or.jp/"
+      "url": "https://kanai.or.jp/access/"
     },
     {
       "category": "診療時間",
       "question": "診療時間は？",
       "answer": "午前診 9:00〜11:30（月〜土）、午後診 13:00〜14:30（月・水〜金）、夜診 17:30〜19:00（月・水）です。火曜の午後診はなし。妊婦健診はできるだけ午前診・午後診でご予約ください。休診日は日曜・祝日・第3・5土曜日です。乳児健診は13:30〜15:00（月・水）、産後相談の母乳ケアは水・木・金・第2・4土曜日に実施しています。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/"
     },
     {
       "category": "予約",
       "question": "再診のWEB予約はできますか？",
       "answer": "再診はWEB予約ページから予約できます。妊婦健診はできるだけ午前診・午後診に予約を取るよう案内されています。",
-      "url": "https://www.kanai.or.jp/"
+      "url": "https://kanai.or.jp/"
     },
     {
       "category": "面会",
       "question": "面会の時間を教えてください。",
       "answer": "全日 14:00〜20:00（土・日・祝も同じ）です。",
-      "url": "https://www.kanai.or.jp/news/meeting.php"
+      "url": "https://kanai.or.jp/obstetrics/hospitalization/#visit"
     },
     {
       "category": "面会",
       "question": "面会について教えてください。",
       "answer": "面会ができるのは、患者さまのご親族（例：夫・子・父母・兄弟姉妹など）です。患者さまにご負担のない人数・時間でお願いいたします。",
-      "url": "https://www.kanai.or.jp/news/meeting.php"
+      "url": "https://kanai.or.jp/obstetrics/hospitalization/#visit"
     },
     {
       "category": "面会",
       "question": "面会の注意事項",
       "answer": "感染症流行により15歳以下のお子さまの面会を制限させていただきます。ただし患者さま自身のお子さま（ベビーのきょうだい）は面会可能です。感染症の流行などによっては内容を変更することがあります。LDR内でのご面会は、別途スタッフよりご案内いたします。",
-      "url": "https://www.kanai.or.jp/news/meeting.php"
+      "url": "https://kanai.or.jp/obstetrics/hospitalization/#visit"
     },
     {
       "category": "入院",
       "question": "入院時の持ち物・必要なものは？",
       "answer": "ご用意いただく物は、母子健康手帳・健康保険証・診察券・予納金仮領収証・筆記用具・新生児聴覚検査受検票（大阪市ほか対象市町村の方は必須）・分娩セット（詳細は当院サイトへ）・産褥用ショーツ・乳帯（授乳ブラ）・母乳パッド・赤ちゃん用ガーゼハンカチ・赤ちゃんの退院時の衣服・マスク・歯みがきセット・コップ・服用している薬・間食、詳細は参照ページを確認",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/obstetrics/childbirth/#hos_bring"
     },
     {
       "category": "入院",
       "question": "入院時に当院で用意しているもの",
       "answer": "入院セット・お産セット・スリッパ・入院中の衣服・バスタオル・新生児用オムツ・おしりふき、他有料レンタルもあり、詳細は参照ページを確認",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/obstetrics/childbirth/#hos_bring"
     },
     {
       "category": "入院",
       "question": "個室はありますか？",
       "answer": "ママと赤ちゃんがゆったり過ごせるように個室中心です。4Fカトレア（個室7室）、5Fひまわり（個室4室）、4Fすみれ・さくら（各1室の2床室）をご用意しています。母乳哺育の環境づくりとして母子同室をおすすめしています。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/facilities/"
     },
     {
       "category": "入院",
       "question": "退院プレゼントについて",
       "answer": "当院オリジナルBébéグッズ（臍帯箱・フード付バスタオル・トートバッグ）と、生後1日目の赤ちゃんのお写真をお渡ししています。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/obstetrics/hospitalization/"
     },
     {
       "category": "ワクチン",
       "question": "妊婦さま向けRSウイルスワクチン接種について",
       "answer": "このワクチン（アブリスボ®筋注用）は、24～36週の妊婦さんに接種することで、出生された赤ちゃんの生後6ヶ月までのRSウイルス感染症に対する予防効果が期待されます。対象者は妊娠24週～36週の妊婦さま。接種回数は1回。料金は大阪市・守口市・東大阪市の方は無料。それ以外の方は30800円（税込） 保険適用外。妊婦健診時にスタッフへお申し込みください。予約制。他院受診中の方でワクチン接種をご希望の方も予約可能です、その場合、＋診察料（1100円）が必要。診療時間内にお電話にてお申し込みください。",
-      "url": "https://www.kanai.or.jp/news/rs_virus.php"
+      "url": "https://kanai.or.jp/obstetrics/vaccine/"
     },
     {
       "category": "ワクチン",
       "question": "インフレンザワクチンについて",
       "answer": "接種実施期間に当院に通院中で、接種当日に妊婦健診の予約をしている方が対象です。接種期間の詳細はご相談ください。",
-      "url": "https://www.kanai.or.jp/"
+      "url": "https://kanai.or.jp/obstetrics/vaccine/"
     },
     {
       "category": "文書",
       "question": "診断書の発行について",
       "answer": "文書の受付窓口は1階受付です。診断書は1通3300円で発行できます。詳細は当院サイトを確認。",
-      "url": "https://www.kanai.or.jp/documents/"
+      "url": "https://kanai.or.jp/documents/"
     },
     {
       "category": "文書",
       "question": "保険外（実費負担）で発行する文書",
       "answer": "診断書、母性健康管理カード、予定日証明書、診療情報提供書（紹介状）、領収証明書、入院証明書（生命保険）、出産手当金支給申請書、出産証明書、出産育児一時金支給申請書、出生届、死産届、再発行手数料",
-      "url": "https://www.kanai.or.jp/documents/"
+      "url": "https://kanai.or.jp/documents/"
     },
     {
       "category": "文書",
       "question": "保険対象で発行する文書",
       "answer": "診療情報提供書（紹介状）、傷病手当金支給申請書（健康保険）",
-      "url": "https://www.kanai.or.jp/documents/"
+      "url": "https://kanai.or.jp/documents/"
     },
     {
       "category": "その他",
       "question": "Wi-Fiはありますか？",
       "answer": "全館で無料Wi-Fiをご利用いただけます。接続に必要なネットワーク名（SSID）とパスワードは院内掲示をご確認ください。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/wifi/"
     },
     {
       "category": "産科",
       "question": "分娩予約について",
       "answer": "分娩数の制限を行っています。出産予定日が決まり当院での分娩を希望される方は、できるだけ早く1F受付で分娩予約をお取りください。予約時は予約金10,000円（母子手帳カバー・基本コース受講料含む）が必要です。予約金のうち5,000円は入院費へ充当して精算します。前回当院で出産された方は、きょうだい割引として出産費用から15,000円を割引します。ご夫婦どちらかが当院でお生まれになった方は、パパママ割引として出産費用から10,000円を割引します。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/obstetrics/childbirth/"
     },
     {
       "category": "産科",
       "question": "当院で健診を受けて他院で出産できますか？",
       "answer": "他院で出産される方の妊婦健診にも対応しています。分娩先の分娩予約は先にお取りください。他院受診時に当院の紹介状を作成します。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/obstetrics/childbirth/#homecoming"
     },
     {
       "category": "院内施設",
       "question": "入院設備について教えてください。",
       "answer": "LDRは陣痛・分娩・回復を同じ部屋で過ごせるシステムです。ご家族の立ち会い出産やカンガルーケアにも対応し、家庭的な雰囲気と緊急時対応の医療設備を備えています。院内には3F新生児室、3Fナースステーション、3F回復室（ゆり）、4F指導室、4Fシャワールーム、4F座シャワールーム、4Fランドリー（洗濯・乾燥）があります。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/facilities/"
     },
     {
       "category": "入院",
       "question": "入院中の食事について",
       "answer": "入院期間を満足してお過ごしいただけるよう、管理栄養士の監修のもとで調理師が食事を提供しています。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/restaurant/"
     },
     {
       "category": "入院",
       "question": "入院スケジュールについて",
       "answer": "出産当日は安静にお過ごしいただき、産後1日目から体調に合わせて母子同室となります（帝王切開の方は3日目〜）。診察後にシャワー浴、授乳指導、産後2〜4日目は体調に合わせて夜間母子同室を開始します。退院前日に退院指導と請求書のお渡し、退院日にママと赤ちゃんの診察があります。正常分娩の退院目安は初産婦5日目・経産婦4日目、帝王切開は7日目です。個人差があるため詳細スケジュールは出産後にご案内します。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/obstetrics/hospitalization/"
     },
     {
       "category": "産後",
       "question": "退院後のスケジュールについて",
       "answer": "退院後2週間目は産婦2週間健診・育児相談（予約制）、出産後1ヵ月目は1ヵ月健診（ママは産婦1ヵ月健診、赤ちゃんは小児科医師による健診）、出産後4ヵ月目は離乳食指導を実施します（1ヵ月健診時に日程をお知らせします）。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/obstetrics/hospitalization/"
     },
     {
       "category": "面会",
       "question": "面会時の手続きと注意事項",
       "answer": "面会の方は3Fナースステーションで面会カードに記入し、面会札を受け取ってください。面会・入室時は手洗い、うがい、手指消毒をお願いします。ママと赤ちゃんの安静のため、多人数や長時間の面会はご遠慮ください。発熱・発疹・下痢・嘔吐・咳・鼻水など体調不良の方、感染性疾患が疑われる方、最近そのような方と接触した方の面会はご遠慮ください。",
-      "url": "https://www.kanai.or.jp/obstetrics/2/"
+      "url": "https://kanai.or.jp/obstetrics/hospitalization/#visit"
     },
     {
       "category": "その他",
       "question": "診察中・診療中の撮影や録音はできますか？",
       "answer": "患者さまやご家族・職員のプライバシーおよび個人情報を保護するため、診療中の無許可での写真・動画撮影、録音、SNS等への投稿は禁止です。撮影や録音を希望される場合は、あらかじめスタッフにご相談ください。",
-      "url": "https://www.kanai.or.jp/notes/"
+      "url": "https://kanai.or.jp/notpermit/"
     },
     {
       "category": "お知らせ",
       "question": "最新の情報は何を見たらいい？",
       "answer": "診療体制の最新情報は公式SNS（特にLINE）で発信している。その他の面会情報や施設情報についてはホームページをご確認ください。",
-      "url": "https://www.kanai.or.jp/"
+      "url": "https://kanai.or.jp/news/"
     },
     {
       "category": "SNS",
       "question": "公式SNS",
       "answer": "Instagram：https://www.instagram.com/kanai_bebe/、LINE：https://line.me/R/ti/p/%40140agqmm、Facebook：https://www.facebook.com/KanaiLC/",
-      "url": "https://www.kanai.or.jp/"
+      "url": "https://kanai.or.jp/"
     },
     {
       "category": "基本情報",
       "question": "当院の理念",
       "answer": "1.広く社会のため、信頼され満足される医療サービスを提供し、健康で文化的な生活の増進に貢献する。2.医療活動の成果は、法人の発展と医療技術の向上に活用する。3.医療人としての自覚を持ち、学識・技術の研鑽はいうまでもなく、人間性の向上に努める",
-      "url": "https://www.kanai.or.jp/about/"
+      "url": "https://kanai.or.jp/about/"
     },
     {
       "category": "基本情報",
       "question": "院是",
       "answer": "「いのちへの愛」患者さんの話に耳を傾け、いつも優しい笑顔で接します。患者さんから信頼される、心のこもった医療を提供します。常に向上心を持って研鑽を重ね、質の高い医療を目指します。医師による十分な説明と、患者さんの選択に基づく医療を行います。産科医療施設として母と子の絆を築き、新しい家族の誕生を援助します。",
-      "url": "https://www.kanai.or.jp/about/"
+      "url": "https://kanai.or.jp/about/"
     },
     {
       "category": "基本情報",
       "question": "安心安全のためのシステム",
       "answer": "高次医療が必要と判断した場合、母体搬送としてOGCS、新生児搬送としてNMCSの受入れ施設と連携して、救急搬送に対応しています。病床数は19床の有床診療所です。施設基準は「有床診療所 Ⅰ群-1」を取得しています。正看護師が10名以上勤務し、夜間の緊急時には当院の医師が対応いたします。夜間当直は、助産師1名以上を含む3名と医師が対応します。産科医療補償制度の登録医療機関です。赤ちゃんの安全のため新生児室は、オートロックとなっています。赤ちゃんのベビーベッドに、SIDS（乳幼児突然死症候群）早期発見のためにベビーセンス（呼吸モニター）を装着しています。",
-      "url": "https://www.kanai.or.jp/about/"
+      "url": "https://kanai.or.jp/about/feature/"
     }
   ]
 }
