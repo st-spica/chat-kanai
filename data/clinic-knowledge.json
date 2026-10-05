@@ -11,7 +11,7 @@
       "category": "診療/受付",
       "question": "何科がありますか？",
       "answer": "産科、婦人科がございます。",
-      "url": "https://kanai.or.jp/"
+      "url": "https://kanai.or.jp/about/"
     },
     {
       "category": "診療/受付",
@@ -35,19 +35,19 @@
       "category": "診療/受付",
       "question": "予約をキャンセルできますか？",
       "answer": "WEB予約の場合は、前日の8時まで可能。産前産後教室の予約の場合は、前日14時まで可能。それ以降のキャンセル・変更はお電話でご相談ください。",
-      "url": "https://kanai.or.jp/"
+      "url": "https://kanai.or.jp/beginner/"
     },
     {
       "category": "診療/受付",
       "question": "オンライン診療はありますか？",
       "answer": "ありません。",
-      "url": "https://kanai.or.jp/"
+      "url": "https://kanai.or.jp/beginner/"
     },
     {
       "category": "診療/受付",
       "question": "検査結果について教えてください。",
       "answer": "当日には出ない。検査により1〜2週間程度必要。",
-      "url": "https://kanai.or.jp/"
+      "url": "https://kanai.or.jp/gynecology/"
     },
     {
       "category": "検査",
@@ -125,7 +125,7 @@
       "category": "産科",
       "question": "入院時の連絡先について",
       "answer": "夜間・休日には専用の電話番号があります。当院で分娩予定の方にのみ案内しています。",
-      "url": "https://kanai.or.jp/"
+      "url": "https://kanai.or.jp/obstetrics/hospitalization/"
     },
     {
       "category": "産科",
@@ -353,13 +353,13 @@
       "category": "診療時間",
       "question": "診療時間は？",
       "answer": "午前診 9:00〜11:30（月〜土）、午後診 13:00〜14:30（月・水〜金）、夜診 17:30〜19:00（月・水）です。火曜の午後診はなし。妊婦健診はできるだけ午前診・午後診でご予約ください。休診日は日曜・祝日・第3・5土曜日です。乳児健診は13:30〜15:00（月・水）、産後相談の母乳ケアは水・木・金・第2・4土曜日に実施しています。",
-      "url": "https://kanai.or.jp/"
+      "url": "https://kanai.or.jp/beginner/"
     },
     {
       "category": "予約",
       "question": "再診のWEB予約はできますか？",
       "answer": "再診はWEB予約ページから予約できます。妊婦健診はできるだけ午前診・午後診に予約を取るよう案内されています。",
-      "url": "https://kanai.or.jp/"
+      "url": "https://kanai.or.jp/beginner/"
     },
     {
       "category": "面会",
@@ -497,7 +497,7 @@
       "category": "SNS",
       "question": "公式SNS",
       "answer": "Instagram：https://www.instagram.com/kanai_bebe/、LINE：https://line.me/R/ti/p/%40140agqmm、Facebook：https://www.facebook.com/KanaiLC/",
-      "url": "https://kanai.or.jp/"
+      "url": "https://kanai.or.jp/news/"
     },
     {
       "category": "基本情報",

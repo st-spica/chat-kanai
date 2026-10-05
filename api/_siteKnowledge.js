@@ -98,13 +98,15 @@ function allowedHost(hostname) {
 }
 
 function isSkippableUrl(u) {
-  return /\.(xml|jpg|jpeg|png|gif|webp|svg|ico|pdf|zip|css|js|woff2?|ttf|eot)(\?|$)/i.test(u);
+  const s = String(u || "");
+  // 新サイトに FAQ ページは存在しない
+  if (/\/qa(?:\/|$|[?#])/i.test(s)) return true;
+  return /\.(xml|jpg|jpeg|png|gif|webp|svg|ico|pdf|zip|css|js|woff2?|ttf|eot)(\?|$)/i.test(s);
 }
 
 function urlPriority(u) {
   let s = 0;
-  if (/\/qa\//i.test(u)) s += 15;
-  if (/\/visit|\/lesson|\/obstetrics|\/gynecology|\/restaurant|\/about/i.test(u)) s += 8;
+  if (/\/beginner|\/lesson|\/obstetrics|\/gynecology|\/restaurant|\/about|\/aftersupport/i.test(u)) s += 8;
   if (/\/news|\/info|\/column/i.test(u)) s += 3;
   return s;
 }
@@ -276,7 +278,8 @@ export function rewriteLegacyKanaiUrl(url) {
   if (/\/obstetrics\/1\/?/i.test(u)) return "https://kanai.or.jp/obstetrics/checkup/";
   if (/\/lesson\/[12]\/?/i.test(u)) return "https://kanai.or.jp/lesson/";
   if (/\/news\/rs_virus\.php/i.test(u)) return "https://kanai.or.jp/news/";
-  if (/\/qa\/?($|[?#])/i.test(u)) return "https://kanai.or.jp/";
+  // 新サイトに FAQ（/qa/）ページは存在しない → 参照リンクに使わない
+  if (/\/qa(?:\/|$|[?#])/i.test(u)) return "";
   return u;
 }
 

@@ -12,10 +12,10 @@ const JSON_TOP_ITEMS = Math.min(
   10,
   Math.max(1, parseInt(process.env.CSV_SNIPPET_TOP_ITEMS || process.env.JSON_SNIPPET_TOP_ITEMS || "5", 10))
 );
-/** 参照チップに載せる FAQ 項目の最低スコア（抜粋に含まれる項目と揃える） */
+/** 参照チップに載せる FAQ 項目の最低スコア（抜粋より厳しめ） */
 const REFERENCE_CHIP_MIN_FAQ_SCORE = Math.max(
   1,
-  parseInt(process.env.REFERENCE_CHIP_MIN_FAQ_SCORE || "3", 10)
+  parseInt(process.env.REFERENCE_CHIP_MIN_FAQ_SCORE || "8", 10)
 );
 /** このスコア未満なら Web 補完を検討 */
 const JSON_WEB_SUPPLEMENT_MIN_SCORE = Math.max(
@@ -256,26 +256,68 @@ export function buildClinicKnowledgeSnippet(userMessage) {
   return `【金井産婦人科（院内FAQ 抜粋・関連が高そうな項目のみ）】\n\n${parts.join("\n\n")}`;
 }
 
+/** サイトTOPなど、チップとして出しても案内にならない汎用URLか */
+export function isGenericKanaiHomeUrl(url) {
+  try {
+    const u = new URL(String(url || "").trim());
+    if (!/(?:^|\.)kanai\.or\.jp$/i.test(u.hostname)) return true;
+    const path = (u.pathname || "/").replace(/\/+$/, "") || "/";
+    return path === "/" && !u.hash && !u.search;
+  } catch {
+    return true;
+  }
+}
+
+/** URLの具体性（深いパス・アンカーほど高い） */
+function urlSpecificityScore(url) {
+  try {
+    const u = new URL(String(url || "").trim());
+    const path = (u.pathname || "/").replace(/\/+$/, "") || "/";
+    const segments = path.split("/").filter(Boolean);
+    let s = segments.length * 12;
+    if (u.hash) s += 18;
+    if (u.search) s += 4;
+    if (isGenericKanaiHomeUrl(url)) s -= 100;
+    return s;
+  } catch {
+    return 0;
+  }
+}
+
 /**
- * 参照チップ用（関連 FAQ 項目の URL）
+ * 参照チップ用（関連 FAQ のうち、最も具体的な URL を1件）
+ * TOP（サイトルート）は出さない。該当がTOPのみなら空配列。
  * @returns {Array<{ url: string, title: string }>}
  */
 export function selectReferencedPagesFromCsv(userMessage) {
   const { scored, topScore } = rankClinicKnowledgeScored(userMessage);
-  if (topScore <= 0) return [];
+  if (topScore < REFERENCE_CHIP_MIN_FAQ_SCORE) return [];
 
-  const seen = new Set();
-  const out = [];
-  for (const { item, score } of scored) {
-    if (score < REFERENCE_CHIP_MIN_FAQ_SCORE) continue;
-    if (!item.url || !/^https?:\/\//i.test(item.url) || seen.has(item.url)) continue;
-    seen.add(item.url);
-    const title =
-      (item.question || item.category || item.url).replace(/\s+/g, " ").trim().slice(0, 80) ||
-      item.url;
-    out.push({ url: item.url, title });
-  }
-  return out.slice(0, JSON_TOP_ITEMS);
+  const candidates = scored
+    .filter(({ score, item }) => {
+      if (score < REFERENCE_CHIP_MIN_FAQ_SCORE) return false;
+      // トップ付近の候補に限定（弱い関連の別ページを拾わない）
+      if (score < topScore - 10 && score < topScore * 0.8) return false;
+      if (!item.url || !/^https?:\/\//i.test(item.url)) return false;
+      if (isGenericKanaiHomeUrl(item.url)) return false;
+      return true;
+    })
+    .map(({ item, score }) => ({
+      item,
+      score,
+      specificity: urlSpecificityScore(item.url),
+    }))
+    .sort((a, b) => b.score - a.score || b.specificity - a.specificity);
+
+  if (!candidates.length) return [];
+
+  const best = candidates[0];
+  const title =
+    (best.item.question || best.item.category || best.item.url)
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80) || best.item.url;
+  return [{ url: best.item.url, title }];
 }
 
 /** JSON だけでは不足と判断するか（Web 補完のトリガー） */

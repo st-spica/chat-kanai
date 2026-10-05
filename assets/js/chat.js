@@ -455,8 +455,8 @@ function appendReferenceChips(bubble, pages) {
   for (const p of pages) {
     const u = String((p && p.url) || "").trim();
     if (!isAllowedRefUrl(u)) continue;
-    // 旧パス（サイトリニューアル前）は出さない
-    if (/\/news\/(?:meeting|attend)\.php|\/qa\/?($|[?#])|\/visit\/?($|[?#])|\/aftercare\/?/i.test(u)) {
+    // 旧パス・廃止ページ（FAQ=/qa/ など）は出さない
+    if (/\/news\/(?:meeting|attend)\.php|\/qa(?:\/|$|[?#])|\/visit\/?($|[?#])|\/aftercare\/?/i.test(u)) {
       continue;
     }
     const a = document.createElement("a");

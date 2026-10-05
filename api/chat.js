@@ -5,6 +5,7 @@ import {
   buildClinicKnowledgeSnippet,
   peekClinicKnowledgeStatus,
   rankClinicKnowledge,
+  isGenericKanaiHomeUrl,
   selectReferencedPagesFromCsv,
   shouldSupplementWithWeb,
 } from "./_clinicKnowledge.js";
@@ -646,7 +647,6 @@ function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
     /教室|産前教室|産後|面会|立ち会い分娩|立ち会い|入院|個室|レストラン/i,
     /母乳ケア|妊婦健診|乳児健診|健診枠|検診|スケジュール|時間割|枠|空き状況/,
     /里帰り|分娩|出産|産科|婦人科|産後ケア/,
-    /Q&A|よくある質問|クイック/,
     /オンライン診療|オンライン|遠隔診療|テレビ電話/i,
     /電話|番号|06[-‐]?6931/i,
   ];
@@ -1063,8 +1063,8 @@ function stripPromptingClosings(text) {
 
 function defaultRefPageTitle(url) {
   const u = String(url || "").toLowerCase();
-  if (/\/qa\/?/i.test(u)) return "よくある質問（Q&A）";
   if (/\/about\/?/i.test(u)) return "当院について";
+  if (/\/beginner\/?/i.test(u)) return "初めての方へ";
   if (/\/visit|\/gai/i.test(u)) return "外来のご案内";
   return "当院サイト";
 }
@@ -1077,7 +1077,7 @@ function enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages) {
   let m;
   while ((m = re.exec(String(clinicSnippet || "")))) {
     const url = rewriteLegacyKanaiUrl(m[1].replace(/[).、]+$/, "").trim());
-    if (!url || seen.has(url)) continue;
+    if (!url || seen.has(url) || isGenericKanaiHomeUrl(url)) continue;
     seen.add(url);
     out.push({ url, title: defaultRefPageTitle(url) });
   }
@@ -1085,7 +1085,8 @@ function enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages) {
 }
 
 /**
- * 参照チップ用ページを正規化（旧URL置換・重複除去・最大1件）
+ * 参照チップ用ページを正規化（旧URL置換・TOP除外・最大1件）
+ * 並びは関連度順（先頭優先）を維持する。
  * @param {Array<{ url?: string, title?: string }>} pages
  * @param {string} userMessage
  */
@@ -1095,6 +1096,7 @@ function finalizeReferencedPages(pages, userMessage) {
   for (const p of pages || []) {
     const url = rewriteLegacyKanaiUrl(p?.url);
     if (!url || !/^https?:\/\/(?:www\.)?kanai\.or\.jp\//i.test(url)) continue;
+    if (isGenericKanaiHomeUrl(url)) continue;
     if (seen.has(url)) continue;
     seen.add(url);
     rewritten.push({
@@ -1685,10 +1687,12 @@ export default async function handler(req, res) {
       const seenUrl = new Set();
       for (const page of selectReferencedPagesFromCsv(userMessage)) {
         const url = rewriteLegacyKanaiUrl(page?.url);
-        if (!url || seenUrl.has(url)) continue;
+        if (!url || seenUrl.has(url) || isGenericKanaiHomeUrl(url)) continue;
         seenUrl.add(url);
         referencedPages.push({ ...page, url });
       }
+      // FAQで十分な参照が取れたときは Web/抜粋由来のチップを足さない（ズレ防止）
+      const hasStrongFaqChip = referencedPages.length > 0 && csvTopScore >= 8;
 
       if (CLINIC_WEB_SUPPLEMENT && shouldFetchWebKnowledge && shouldSupplementWithWeb(userMessage, csvTopScore)) {
         const { snippet: webSnippet, state } = await getSiteKnowledgeSnippetSupplement(userMessage);
@@ -1698,33 +1702,41 @@ export default async function handler(req, res) {
             : webSnippet;
         }
 
-        let chunks = selectReferencedPagesForChips(userMessage, state);
-        if (
-          !chunks.length &&
-          webSnippet &&
-          ((state?.singlePageOnly ?? state?.meetingOnly) || shouldFetchWebKnowledge)
-        ) {
-          chunks = selectReferencedChunks(userMessage, state);
-        }
-        for (const c of chunks) {
-          const url = rewriteLegacyKanaiUrl(c?.url);
-          if (!url || seenUrl.has(url)) continue;
-          seenUrl.add(url);
-          referencedPages.push({
-            url,
-            title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || url,
-          });
-        }
-        if (state?.attendOnly && !referencedPages.some((p) => p.url === ATTEND_INFO_PAGE_URL)) {
-          referencedPages.push({
-            url: ATTEND_INFO_PAGE_URL,
-            title: "立ち会い分娩について",
-          });
-        } else if (state?.meetingOnly && !referencedPages.some((p) => p.url === MEETING_INFO_PAGE_URL)) {
-          referencedPages.push({
-            url: MEETING_INFO_PAGE_URL,
-            title: "面会について",
-          });
+        const allowWebChips =
+          !hasStrongFaqChip ||
+          Boolean(state?.attendOnly || state?.meetingOnly) ||
+          isAttendFocusedQuery(userMessage) ||
+          isMeetingFocusedQuery(userMessage);
+
+        if (allowWebChips) {
+          let chunks = selectReferencedPagesForChips(userMessage, state);
+          if (
+            !chunks.length &&
+            webSnippet &&
+            ((state?.singlePageOnly ?? state?.meetingOnly) || shouldFetchWebKnowledge)
+          ) {
+            chunks = selectReferencedChunks(userMessage, state);
+          }
+          for (const c of chunks) {
+            const url = rewriteLegacyKanaiUrl(c?.url);
+            if (!url || seenUrl.has(url) || isGenericKanaiHomeUrl(url)) continue;
+            seenUrl.add(url);
+            referencedPages.push({
+              url,
+              title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || url,
+            });
+          }
+          if (state?.attendOnly && !referencedPages.some((p) => p.url === ATTEND_INFO_PAGE_URL)) {
+            referencedPages.push({
+              url: ATTEND_INFO_PAGE_URL,
+              title: "立ち会い分娩について",
+            });
+          } else if (state?.meetingOnly && !referencedPages.some((p) => p.url === MEETING_INFO_PAGE_URL)) {
+            referencedPages.push({
+              url: MEETING_INFO_PAGE_URL,
+              title: "面会について",
+            });
+          }
         }
       } else if (isAttendFocusedQuery(userMessage) && !referencedPages.length) {
         referencedPages.push({ url: ATTEND_INFO_PAGE_URL, title: "立ち会い分娩について" });
@@ -1738,7 +1750,10 @@ export default async function handler(req, res) {
           "\n\n（以降、文字数制限のため省略しました）";
       }
 
-      referencedPages = enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages);
+      // FAQチップが既にあるときは抜粋内の別URLで上書き・紛れ込ませない
+      if (!hasStrongFaqChip) {
+        referencedPages = enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages);
+      }
     }
 
     if (shouldSuppressReferencePages(userMessage, safeHistory, csvTopScore)) {
