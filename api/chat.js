@@ -746,16 +746,52 @@ function isOtherHospitalExperienceMessage(userMessage, safeHistory) {
   return false;
 }
 
+/** 症状の程度としての「ひどい」（クレームではない） */
+function looksLikeSymptomSeverityNotComplaint(text) {
+  const t = String(text || "");
+  // 「つわりがひどい」「痛みがひどい」など身体症状の程度
+  if (
+    /(?:つわり|悪阻|吐き気|嘔吐|吐|腹痛|痛み|痛|出血|熱|発熱|痒|かゆ|頭痛|腰痛|むくみ|疲労|だる|眠気|体調|症状|陣痛|胎動).{0,6}ひど/.test(
+      t
+    ) ||
+    /ひど.{0,6}(?:つわり|悪阻|吐き気|嘔吐|腹痛|痛み|出血|熱|痒|頭痛|腰痛|症状)/.test(t)
+  ) {
+    // 院内スタッフ・対応への非難が同時にある場合はクレーム側へ
+    if (
+      /(?:態度|対応|スタッフ|看護師|ナース|医師|先生|受付|窓口|当院|病院).{0,12}(?:ひど|悪|最悪|不快)/.test(
+        t
+      ) ||
+      /(?:ひど|悪|最悪|不快).{0,12}(?:態度|対応|スタッフ|看護師|ナース|医師|先生|受付|窓口)/.test(t)
+    ) {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
 function shouldAddComplaintPrompt(userMessage, safeHistory) {
   if (isOtherHospitalExperienceMessage(userMessage, safeHistory)) return false;
   const text = recentUserText(userMessage, safeHistory);
   const current = String(userMessage || "").trim();
+
+  // 「つわりがひどい」など症状の程度はクレームにしない
+  if (looksLikeSymptomSeverityNotComplaint(current) || looksLikeSymptomSeverityNotComplaint(text)) {
+    // 履歴全体に明確なクレーム語がある場合のみ続行判定へ
+    if (!/クレーム|苦情|許せない|ありえない|ふざけ|訴えたい|文句|態度が悪|対応が悪/.test(text)) {
+      return false;
+    }
+  }
+
   if (looksLikeWantToLeaveKanai(current) && /不快|ひど|最悪|態度|冷たい|威圧|怖|怒|クレーム|苦情|文句|許せ|ありえない|不信/.test(text)) {
     return true;
   }
-  return /クレーム|苦情|不快|ひどい|最悪|ありえない|許せない|不信|ふざけ|態度が悪|態度.*悪|無愛想|冷たい|窓口.*悪|受付.*悪|スタッフ.*悪|看護師.*悪|看護師.*ひど|看護師.*態度|ナース.*悪|対応が悪|威圧|怖かった|怖く|怒鳴|叱咤|先生.*怖|医師.*怖|当院.*(ひど|悪|最悪|不快)|他院.*(良|いい)|他の病院.*(良|いい)|訴えたい|文句|ひどかった|最悪だった|怒られ|怒った/.test(
-    text
-  );
+
+  // 「ひどい」単体は不可。院・対応・スタッフへの非難と結びつくときだけクレーム
+  const complaintRe =
+    /クレーム|苦情|不快|最悪|ありえない|許せない|不信|ふざけ|態度が悪|態度.*悪|無愛想|冷たい|窓口.*悪|受付.*悪|スタッフ.*悪|看護師.*悪|看護師.*ひど|看護師.*態度|ナース.*悪|対応が悪|対応がひど|対応.*ひど|威圧|怖かった|怒鳴|叱咤|先生.*怖|医師.*怖|当院.*(ひど|悪|最悪|不快)|他院.*(良|いい)|他の病院.*(良|いい)|訴えたい|文句|ひどかった|最悪だった|怒られ|怒った|(?:態度|対応|スタッフ|看護師|ナース|医師|先生|受付|窓口|サービス).{0,8}ひど|ひど.{0,8}(?:態度|対応|スタッフ|看護師|ナース|医師|先生|受付|窓口)/;
+
+  return complaintRe.test(text);
 }
 
 function shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory) {
@@ -1312,6 +1348,15 @@ function stripMisplacedThanksApologyOnNormalQuestions(text, userMessage, safeHis
   let s = String(text || "");
   if (!s.trim() || s.trimStart().startsWith(RICH_HTML_PREFIX)) return s;
 
+  // クレーム用の定型お礼・謝罪が通常質問に混入した場合は除去
+  s = s.replace(/状況についてご教示くださりありがとうございます。?/g, "");
+  s = s.replace(
+    /この度は、?ご不快な思いをおかけすることとなり、?改めてお詫び申し上げます。?/g,
+    ""
+  );
+  s = s.replace(/ご指摘の点は真摯に受け止め[^。\n]*。?/g, "");
+  s = s.replace(/今後の対応についても、?より安心していただけるよう努めてまいります。?/g, "");
+
   // 「お問い合わせありがとう。大変申し訳ございませんが、〜。」
   s = s.replace(
     /お問い合わせありがとうございます。\s*大変申し訳ございませんが、([^。\n]*)。/g,
@@ -1337,7 +1382,7 @@ function stripMisplacedThanksApologyOnNormalQuestions(text, userMessage, safeHis
     }
   );
 
-  return s.replace(/\n{3,}/g, "\n\n").trim();
+  return s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function stripBannedEmpathyPhrases(text) {
