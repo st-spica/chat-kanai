@@ -254,8 +254,31 @@ function buildFullKnowledgeText(chunks) {
 }
 
 /** 「面会」「立ち会い」など特定ワード含む発話では、対応ページだけを取得して回答する */
-export const MEETING_INFO_PAGE_URL = "https://www.kanai.or.jp/news/meeting.php";
-export const ATTEND_INFO_PAGE_URL = "https://www.kanai.or.jp/news/attend.php";
+export const MEETING_INFO_PAGE_URL =
+  "https://kanai.or.jp/obstetrics/hospitalization/#visit";
+export const ATTEND_INFO_PAGE_URL =
+  "https://kanai.or.jp/obstetrics/childbirth/#assist_birth";
+
+/**
+ * 旧サイトURLを現行URLへ置換（404チップ防止）
+ * @param {string} url
+ * @returns {string}
+ */
+export function rewriteLegacyKanaiUrl(url) {
+  let u = String(url || "").trim();
+  if (!u) return "";
+  u = u.replace(/^https?:\/\/www\.kanai\.or\.jp/i, "https://kanai.or.jp");
+  if (/\/news\/meeting\.php/i.test(u)) return MEETING_INFO_PAGE_URL;
+  if (/\/news\/attend\.php/i.test(u)) return ATTEND_INFO_PAGE_URL;
+  if (/\/aftercare\/?/i.test(u)) return "https://kanai.or.jp/aftersupport/#aftercare";
+  if (/\/visit\/?/i.test(u)) return "https://kanai.or.jp/beginner/";
+  if (/\/obstetrics\/2\/?/i.test(u)) return "https://kanai.or.jp/obstetrics/childbirth/";
+  if (/\/obstetrics\/1\/?/i.test(u)) return "https://kanai.or.jp/obstetrics/checkup/";
+  if (/\/lesson\/[12]\/?/i.test(u)) return "https://kanai.or.jp/lesson/";
+  if (/\/news\/rs_virus\.php/i.test(u)) return "https://kanai.or.jp/news/";
+  if (/\/qa\/?($|[?#])/i.test(u)) return "https://kanai.or.jp/";
+  return u;
+}
 
 export function isMeetingFocusedQuery(userMessage) {
   return /面会/.test(String(userMessage || "").trim());
@@ -550,7 +573,9 @@ function topicUrlBoost(userMessage, c) {
   const pairs = [
     [/レストラン|レスト|食堂|食事|ランチ|ディナー|beb|béb|ベベ/i, /restaurant|bebe|bebé|dining|lunch|dinner|meal|cafe|レストラン/],
     [/駐車|パーキング|駐車場|車でお越し/, /parking|park|駐車場|\/access\/.*parking/],
-    [/外来|受診|初診|予約|診察|アクセス|行き方|地図/, /\/visit\/|outpatient|appointment|gai|\/access\//],
+    [/外来|受診|初診|予約|診察|アクセス|行き方|地図/, /\/visit\/|\/beginner\/|outpatient|appointment|gai|\/access\//],
+    [/面会/, /\/hospitalization\/|#visit|面会/],
+    [/立ち会い/, /\/childbirth\/|#assist_birth|立ち会い/],
     [/産婦人科|分娩|出産|妊娠|帝王切開/, /obstetrics|gynecology|delivery|pregnancy|産科|婦人/],
     [/お知らせ|ニュース/, /\/news\/|\/info\/|column|notice/],
     [/料金|費用|支払|予納/, /fee|price|cost|payment/],

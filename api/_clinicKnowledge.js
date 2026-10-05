@@ -6,6 +6,7 @@
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { rewriteLegacyKanaiUrl } from "./_siteKnowledge.js";
 
 const JSON_TOP_ITEMS = Math.min(
   10,
@@ -31,7 +32,7 @@ function normalizeFaqItem(raw) {
   const category = String(raw.category ?? "").trim();
   const question = String(raw.question ?? "").trim();
   const answer = String(raw.answer ?? "").trim();
-  const url = String(raw.url ?? "").trim();
+  const url = rewriteLegacyKanaiUrl(String(raw.url ?? "").trim());
   if (!question && !answer) return null;
   return { category, question, answer, url };
 }

@@ -444,7 +444,7 @@ function truncateRefLabel(s, maxLen) {
   return t.slice(0, maxLen - 1) + "…";
 }
 
-/** 院内サイト参照ページをピル型リンクで吹き出し下部に表示 */
+/** 院内サイト参照ページをピル型リンクで吹き出し下部に表示（最大1件） */
 function appendReferenceChips(bubble, pages) {
   if (!bubble || !pages || !pages.length) return;
   const prev = bubble.querySelector(".assistant-ref-chips");
@@ -455,6 +455,10 @@ function appendReferenceChips(bubble, pages) {
   for (const p of pages) {
     const u = String((p && p.url) || "").trim();
     if (!isAllowedRefUrl(u)) continue;
+    // 旧パス（サイトリニューアル前）は出さない
+    if (/\/news\/(?:meeting|attend)\.php|\/qa\/?($|[?#])|\/visit\/?($|[?#])|\/aftercare\/?/i.test(u)) {
+      continue;
+    }
     const a = document.createElement("a");
     a.className = "chat-pill chat-ref-chip";
     a.href = u;
@@ -465,6 +469,7 @@ function appendReferenceChips(bubble, pages) {
     a.textContent = `${icon} ${label}`;
     row.appendChild(a);
     any = true;
+    break; // 表示は1件まで
   }
   if (!any) return;
   bubble.appendChild(row);

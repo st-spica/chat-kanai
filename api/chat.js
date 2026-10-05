@@ -16,9 +16,13 @@ import {
   labelForKnowledgeChunk,
   MEETING_INFO_PAGE_URL,
   peekSiteKnowledgeStatus,
+  rewriteLegacyKanaiUrl,
   selectReferencedChunks,
   selectReferencedPagesForChips,
 } from "./_siteKnowledge.js";
+
+/** 参照チップは最大1件 */
+const MAX_REFERENCE_CHIPS = 1;
 
 let client = null;
 function getOpenAIClient() {
@@ -1072,12 +1076,48 @@ function enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages) {
   const re = /参考ページ:\s*(https?:\/\/\S+)/g;
   let m;
   while ((m = re.exec(String(clinicSnippet || "")))) {
-    const url = m[1].replace(/[).、]+$/, "").trim();
+    const url = rewriteLegacyKanaiUrl(m[1].replace(/[).、]+$/, "").trim());
     if (!url || seen.has(url)) continue;
     seen.add(url);
     out.push({ url, title: defaultRefPageTitle(url) });
   }
   return out;
+}
+
+/**
+ * 参照チップ用ページを正規化（旧URL置換・重複除去・最大1件）
+ * @param {Array<{ url?: string, title?: string }>} pages
+ * @param {string} userMessage
+ */
+function finalizeReferencedPages(pages, userMessage) {
+  const rewritten = [];
+  const seen = new Set();
+  for (const p of pages || []) {
+    const url = rewriteLegacyKanaiUrl(p?.url);
+    if (!url || !/^https?:\/\/(?:www\.)?kanai\.or\.jp\//i.test(url)) continue;
+    if (seen.has(url)) continue;
+    seen.add(url);
+    rewritten.push({
+      url,
+      title: String(p?.title || defaultRefPageTitle(url)).replace(/\s+/g, " ").trim() || url,
+    });
+  }
+  if (!rewritten.length) return [];
+
+  // 面会・立ち会い質問では該当ページを優先
+  let ordered = rewritten;
+  if (isAttendFocusedQuery(userMessage)) {
+    ordered = [
+      ...rewritten.filter((p) => p.url === ATTEND_INFO_PAGE_URL),
+      ...rewritten.filter((p) => p.url !== ATTEND_INFO_PAGE_URL),
+    ];
+  } else if (isMeetingFocusedQuery(userMessage)) {
+    ordered = [
+      ...rewritten.filter((p) => p.url === MEETING_INFO_PAGE_URL),
+      ...rewritten.filter((p) => p.url !== MEETING_INFO_PAGE_URL),
+    ];
+  }
+  return ordered.slice(0, MAX_REFERENCE_CHIPS);
 }
 
 /** モデルに参照チップの有無を明示（架空のリンク案内を防ぐ） */
@@ -1644,9 +1684,10 @@ export default async function handler(req, res) {
 
       const seenUrl = new Set();
       for (const page of selectReferencedPagesFromCsv(userMessage)) {
-        if (!page?.url || seenUrl.has(page.url)) continue;
-        seenUrl.add(page.url);
-        referencedPages.push(page);
+        const url = rewriteLegacyKanaiUrl(page?.url);
+        if (!url || seenUrl.has(url)) continue;
+        seenUrl.add(url);
+        referencedPages.push({ ...page, url });
       }
 
       if (CLINIC_WEB_SUPPLEMENT && shouldFetchWebKnowledge && shouldSupplementWithWeb(userMessage, csvTopScore)) {
@@ -1666,11 +1707,12 @@ export default async function handler(req, res) {
           chunks = selectReferencedChunks(userMessage, state);
         }
         for (const c of chunks) {
-          if (!c?.url || seenUrl.has(c.url)) continue;
-          seenUrl.add(c.url);
+          const url = rewriteLegacyKanaiUrl(c?.url);
+          if (!url || seenUrl.has(url)) continue;
+          seenUrl.add(url);
           referencedPages.push({
-            url: c.url,
-            title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || c.url,
+            url,
+            title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || url,
           });
         }
         if (state?.attendOnly && !referencedPages.some((p) => p.url === ATTEND_INFO_PAGE_URL)) {
@@ -1701,6 +1743,8 @@ export default async function handler(req, res) {
 
     if (shouldSuppressReferencePages(userMessage, safeHistory, csvTopScore)) {
       referencedPages = [];
+    } else {
+      referencedPages = finalizeReferencedPages(referencedPages, userMessage);
     }
 
     const messages = [
