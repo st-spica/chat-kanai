@@ -294,16 +294,17 @@ function normalizeLegacyTwoLayerAnswerCore(text) {
   return stripKnownMarkers(t);
 }
 
-/** チップが無いのに「画面下の参照リンク」と書いた文を落とす */
-function stripFalseReferenceLinkMention(text, hasReferenceChips) {
-  if (hasReferenceChips) return String(text || "");
+/** 「画面下の参照リンク」系はチップの有無に関わらず除去（文言だけ残る不整合を防ぐ） */
+function stripFalseReferenceLinkMention(text) {
   let s = String(text || "");
+  if (!s.trim()) return s;
   const patterns = [
     /[^。．\n]*画面下の参照リンク[^。．\n]*[。．]?/g,
     /[^。．\n]*参照リンクからご確認ください[。．]?/g,
     /[^。．\n]*参照リンク[^。．\n]*ご確認ください[。．]?/g,
-    /詳細については[、,]?画面下の参照リンク[^。．\n]*[。．]?/g,
-    /詳しくは[、,]?画面下の参照リンク[^。．\n]*[。．]?/g,
+    /詳しい内容は[、,]?[^。．\n]*参照リンク[^。．\n]*[。．]?/g,
+    /詳細については[、,]?[^。．\n]*参照リンク[^。．\n]*[。．]?/g,
+    /詳しくは[、,]?[^。．\n]*参照リンク[^。．\n]*[。．]?/g,
   ];
   for (const re of patterns) {
     s = s.replace(re, "");
@@ -461,9 +462,19 @@ function truncateRefLabel(s, maxLen) {
   return t.slice(0, maxLen - 1) + "…";
 }
 
-/** 院内サイト参照ページをピル型リンクで吹き出し下部に表示（最大1件） */
+/** 表示可能な参照URLか（チップ描画と同じ条件） */
+function isDisplayableRefUrl(href) {
+  const u = String(href || "").trim();
+  if (!isAllowedRefUrl(u)) return false;
+  if (/\/news\/(?:meeting|attend)\.php|\/qa(?:\/|$|[?#])|\/visit\/?($|[?#])|\/aftercare\/?/i.test(u)) {
+    return false;
+  }
+  return true;
+}
+
+/** 院内サイト参照ページをピル型リンクで吹き出し下部に表示（最大1件）。表示できたら true */
 function appendReferenceChips(bubble, pages) {
-  if (!bubble || !pages || !pages.length) return;
+  if (!bubble || !pages || !pages.length) return false;
   const prev = bubble.querySelector(".assistant-ref-chips");
   if (prev) prev.remove();
   const row = document.createElement("div");
@@ -471,11 +482,7 @@ function appendReferenceChips(bubble, pages) {
   let any = false;
   for (const p of pages) {
     const u = String((p && p.url) || "").trim();
-    if (!isAllowedRefUrl(u)) continue;
-    // 旧パス・廃止ページ（FAQ=/qa/ など）は出さない
-    if (/\/news\/(?:meeting|attend)\.php|\/qa(?:\/|$|[?#])|\/visit\/?($|[?#])|\/aftercare\/?/i.test(u)) {
-      continue;
-    }
+    if (!isDisplayableRefUrl(u)) continue;
     const a = document.createElement("a");
     a.className = "chat-pill chat-ref-chip";
     a.href = u;
@@ -488,9 +495,10 @@ function appendReferenceChips(bubble, pages) {
     any = true;
     break; // 表示は1件まで
   }
-  if (!any) return;
+  if (!any) return false;
   bubble.appendChild(row);
   msgsEl.scrollTop = msgsEl.scrollHeight;
+  return true;
 }
 
 function sanitizeRichHtml(html) {
@@ -596,7 +604,9 @@ function addMessage(role, content, opts) {
     inner.style.lineHeight = "1.6";
     bubble.appendChild(inner);
 
-    const original = normalizeLegacyTwoLayerAnswer(content || "");
+    const original = stripFalseReferenceLinkMention(
+      normalizeLegacyTwoLayerAnswer(content || "")
+    );
     const richBody = stripRichHtmlPrefix(original);
     const refs = opts.referencedPages;
 
@@ -782,10 +792,8 @@ try {
 
     hideTyping();
     if (!shell) shell = addStreamingAssistantShell();
-    const hasChips = Array.isArray(refPages) && refPages.some((p) => isAllowedRefUrl(p?.url));
     const finalText = stripFalseReferenceLinkMention(
-      normalizeLegacyTwoLayerAnswer((finalFromServer || accum).trim()),
-      hasChips
+      normalizeLegacyTwoLayerAnswer((finalFromServer || accum).trim())
     );
     if (!streamHadError) {
       updateStreamingAssistantUI(finalText, shell.contentEl, true);
@@ -828,10 +836,8 @@ try {
   }
 
   const refs = data.referencedPages || [];
-  const hasChips = Array.isArray(refs) && refs.some((p) => isAllowedRefUrl(p?.url));
   const ansNorm = stripFalseReferenceLinkMention(
-    normalizeLegacyTwoLayerAnswer(data.answer || ""),
-    hasChips
+    normalizeLegacyTwoLayerAnswer(data.answer || "")
   );
   addMessage("assistant", ansNorm, { referencedPages: refs });
   pushHistory("assistant", ansNorm);
