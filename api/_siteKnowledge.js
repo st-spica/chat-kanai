@@ -1,13 +1,13 @@
 /**
  * 当院サイトの HTML を取得してテキスト化する。
- * - 優先: 環境変数 SITE_URL_LIST（改行・カンマ・| 区切り）で URL を直接指定 → sitemap を読まず高速
- * - 未指定時: sitemap から URL を収集
+ * - 既定: 最新 sitemap（Yoast の sitemap_index.xml）から URL を収集
+ * - SITE_PREFER_URL_LIST=true のときのみ SITE_URL_LIST を優先（旧URL固定を避けるため既定オフ）
  * - メモリキャッシュ + 任意で Upstash Redis（既存の UPSTASH_* があれば利用）
  */
 
 import { Redis } from "@upstash/redis";
 
-const REDIS_KEY = "chat:site-knowledge:v2";
+const REDIS_KEY = "chat:site-knowledge:v3";
 
 const DEFAULT_MAX_PAGES = parseInt(process.env.SITE_FETCH_MAX_PAGES || "6", 10);
 const DEFAULT_MAX_CHARS = parseInt(process.env.SITE_MAX_CHARS_PER_PAGE || "3000", 10);
@@ -69,6 +69,16 @@ const FACILITY_2CHAR = new Set([
 const DEFAULT_TTL_MS = parseInt(process.env.SITE_KNOWLEDGE_TTL_MS || String(24 * 60 * 60 * 1000), 10);
 const FETCH_TIMEOUT_MS = parseInt(process.env.SITE_FETCH_TIMEOUT_MS || "8000", 10);
 const MAX_SITEMAP_URLS = parseInt(process.env.SITE_SITEMAP_MAX_URLS || "300", 10);
+
+/** sitemap 由来の許可パス（ハッシュ除く）。チップURL検証用 */
+let sitemapAllowCache = {
+  at: 0,
+  /** @type {Set<string>|null} */
+  paths: null,
+  entryUrl: "",
+  error: null,
+};
+let sitemapAllowInflight = null;
 
 let memoryCache = {
   at: 0,
@@ -355,15 +365,20 @@ async function resolveEntrySitemapUrl() {
   const custom = (process.env.SITE_SITEMAP_URL || "").trim();
   if (custom) return custom;
 
+  // 新サイト（Yoast）: sitemap.xml → sitemap_index.xml
   const candidates = [
-    "https://www.kanai.or.jp/wp-sitemap.xml",
+    "https://kanai.or.jp/sitemap_index.xml",
+    "https://kanai.or.jp/sitemap.xml",
+    "https://www.kanai.or.jp/sitemap_index.xml",
     "https://www.kanai.or.jp/sitemap.xml",
+    "https://kanai.or.jp/wp-sitemap.xml",
+    "https://www.kanai.or.jp/wp-sitemap.xml",
   ];
 
   for (const u of candidates) {
     try {
       const xml = await fetchText(u);
-      if (xml && xml.includes("<loc>")) return u;
+      if (xml && /<loc>/i.test(xml)) return u;
     } catch {
       /* try next */
     }
@@ -371,20 +386,160 @@ async function resolveEntrySitemapUrl() {
   throw new Error("sitemap が取得できませんでした（SITE_SITEMAP_URL を指定してください）");
 }
 
+/** パスを比較用に正規化（ホスト統一・末尾スラッシュ除去・ハッシュ除去） */
+export function normalizeKanaiPathKey(url) {
+  try {
+    const u = new URL(String(url || "").trim().replace(/^https?:\/\/www\.kanai\.or\.jp/i, "https://kanai.or.jp"));
+    if (!allowedHost(u.hostname)) return "";
+    let path = u.pathname || "/";
+    if (path.length > 1) path = path.replace(/\/+$/, "");
+    return `https://kanai.or.jp${path === "" ? "/" : path}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * 最新 sitemap の URL 一覧を取得してキャッシュ（チップ検証・知識取得の共通基盤）
+ * @returns {Promise<{ paths: Set<string>, entryUrl: string, error: string|null }>}
+ */
+export async function ensureSitemapAllowlist() {
+  const now = Date.now();
+  if (sitemapAllowCache.paths && now - sitemapAllowCache.at < DEFAULT_TTL_MS) {
+    return {
+      paths: sitemapAllowCache.paths,
+      entryUrl: sitemapAllowCache.entryUrl,
+      error: sitemapAllowCache.error,
+    };
+  }
+  if (sitemapAllowInflight) return sitemapAllowInflight;
+
+  sitemapAllowInflight = (async () => {
+    try {
+      const entry = await resolveEntrySitemapUrl();
+      const allUrls = await collectAllPageUrls(entry);
+      const paths = new Set();
+      for (const u of allUrls) {
+        const key = normalizeKanaiPathKey(u);
+        if (key) paths.add(key);
+      }
+      // ルートは常に許可
+      paths.add("https://kanai.or.jp");
+      paths.add("https://kanai.or.jp/");
+      sitemapAllowCache = {
+        at: Date.now(),
+        paths,
+        entryUrl: entry,
+        error: paths.size ? null : "empty_sitemap",
+      };
+      return {
+        paths: sitemapAllowCache.paths,
+        entryUrl: sitemapAllowCache.entryUrl,
+        error: sitemapAllowCache.error,
+      };
+    } catch (e) {
+      const msg = e?.message || String(e);
+      console.error("ensureSitemapAllowlist error:", msg);
+      // 失敗時は前回キャッシュがあれば継続利用
+      if (sitemapAllowCache.paths?.size) {
+        return {
+          paths: sitemapAllowCache.paths,
+          entryUrl: sitemapAllowCache.entryUrl,
+          error: msg,
+        };
+      }
+      sitemapAllowCache = { at: Date.now(), paths: new Set(), entryUrl: "", error: msg };
+      return { paths: sitemapAllowCache.paths, entryUrl: "", error: msg };
+    } finally {
+      sitemapAllowInflight = null;
+    }
+  })();
+
+  return sitemapAllowInflight;
+}
+
+/** sitemap に載っているページか（#fragment は無視してパスで判定） */
+export async function isUrlInSitemap(url) {
+  const key = normalizeKanaiPathKey(url);
+  if (!key) return false;
+  const { paths } = await ensureSitemapAllowlist();
+  if (!paths?.size) return true; // sitemap取得失敗時はブロックしない（可用性優先）
+  const noSlash = key.replace(/\/$/, "") || "https://kanai.or.jp";
+  return paths.has(key) || paths.has(noSlash) || paths.has(`${noSlash}/`);
+}
+
+/**
+ * 参照チップ候補を sitemap にあるURLだけに絞る
+ * @param {Array<{ url?: string, title?: string }>} pages
+ */
+export async function filterPagesBySitemap(pages) {
+  const list = Array.isArray(pages) ? pages : [];
+  if (!list.length) return [];
+  const { paths, error } = await ensureSitemapAllowlist();
+  if (!paths?.size) {
+    if (error) console.warn("filterPagesBySitemap: sitemap empty, keep pages:", error);
+    return list;
+  }
+  const out = [];
+  for (const p of list) {
+    const url = String(p?.url || "").trim();
+    if (!url) continue;
+    const key = normalizeKanaiPathKey(url);
+    const noSlash = key.replace(/\/$/, "") || "https://kanai.or.jp";
+    const ok =
+      paths.has(key) ||
+      paths.has(noSlash) ||
+      paths.has(`${noSlash}/`);
+    if (ok) out.push(p);
+    else console.warn("drop chip not in sitemap:", url);
+  }
+  return out;
+}
+
 async function buildFreshKnowledge(maxPages, maxChars) {
   const registered = parseRegisteredUrlList();
+  const preferList =
+    registered.length > 0 &&
+    ["true", "1", "yes"].includes(
+      String(process.env.SITE_PREFER_URL_LIST || "").toLowerCase().trim()
+    );
+
   let picked;
   /** @type {"url_list"|"sitemap"} */
   let fetchMode;
 
-  if (registered.length > 0) {
+  if (preferList) {
     fetchMode = "url_list";
     picked = registered.slice(0, maxPages);
   } else {
     fetchMode = "sitemap";
-    const entry = await resolveEntrySitemapUrl();
-    const allUrls = await collectAllPageUrls(entry);
-    picked = filterAndRankUrls(allUrls, maxPages);
+    try {
+      const entry = await resolveEntrySitemapUrl();
+      const allUrls = await collectAllPageUrls(entry);
+      // allowlist も同時更新
+      const paths = new Set();
+      for (const u of allUrls) {
+        const key = normalizeKanaiPathKey(u);
+        if (key) paths.add(key);
+      }
+      paths.add("https://kanai.or.jp");
+      sitemapAllowCache = {
+        at: Date.now(),
+        paths,
+        entryUrl: entry,
+        error: null,
+      };
+      picked = filterAndRankUrls(allUrls, maxPages);
+    } catch (e) {
+      // sitemap 失敗時のみ SITE_URL_LIST へフォールバック
+      if (registered.length > 0) {
+        console.warn("sitemap failed, fallback to SITE_URL_LIST:", e?.message || e);
+        fetchMode = "url_list";
+        picked = registered.slice(0, maxPages);
+      } else {
+        throw e;
+      }
+    }
   }
 
   const chunks = (await Promise.all(picked.map((u) => fetchPageChunk(u, maxChars)))).filter(Boolean);
@@ -765,12 +920,19 @@ export function peekSiteKnowledgeStatus() {
   const now = Date.now();
   const fresh = memoryCache.chunks.length > 0 && now - memoryCache.at < DEFAULT_TTL_MS;
   const registeredCount = parseRegisteredUrlList().length;
+  const preferUrlList = ["true", "1", "yes"].includes(
+    String(process.env.SITE_PREFER_URL_LIST || "").toLowerCase().trim()
+  );
   return {
     memoryCached: fresh,
     chunkCount: fresh ? memoryCache.chunks.length : 0,
     lastError: memoryCache.error,
     fetchMode: memoryCache.fetchMode,
     registeredUrlCount: registeredCount,
+    preferUrlList,
+    sitemapEntryUrl: sitemapAllowCache.entryUrl || null,
+    sitemapPathCount: sitemapAllowCache.paths?.size || 0,
+    sitemapError: sitemapAllowCache.error,
     ttlMs: DEFAULT_TTL_MS,
     maxPages: DEFAULT_MAX_PAGES,
     maxCharsPerPage: DEFAULT_MAX_CHARS,

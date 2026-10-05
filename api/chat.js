@@ -17,6 +17,7 @@ import {
   labelForKnowledgeChunk,
   MEETING_INFO_PAGE_URL,
   peekSiteKnowledgeStatus,
+  filterPagesBySitemap,
   rewriteLegacyKanaiUrl,
   selectReferencedChunks,
   selectReferencedPagesForChips,
@@ -1771,6 +1772,8 @@ export default async function handler(req, res) {
     } else {
       referencedPages = finalizeReferencedPages(referencedPages, userMessage);
     }
+    // 最新 sitemap に無い URL はチップに出さない
+    referencedPages = await filterPagesBySitemap(referencedPages);
 
     const messages = [
       { role: "system", content: SYSTEM },
