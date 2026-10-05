@@ -191,6 +191,14 @@ function scoreFaqItem(userMessage, item) {
     score += 15;
   }
 
+  // トピック語が質問・回答に含まれるときは強く加点（短い質問でも正しいFAQを拾う）
+  if (/立ち会い/.test(`${text}\n${normalizedText}`) && /立ち会い/.test(hayFull)) {
+    score += 40;
+  }
+  if (/面会/.test(`${text}\n${normalizedText}`) && /面会/.test(hayFull)) {
+    score += 40;
+  }
+
   return score;
 }
 

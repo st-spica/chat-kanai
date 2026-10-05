@@ -1144,9 +1144,17 @@ function buildReferenceLinksSystemPrompt(referencedPages) {
 function stripFalseReferenceLinkMention(text, referencedPages) {
   if (referencedPages && referencedPages.length > 0) return String(text || "");
   let s = String(text || "");
-  s = s.replace(/[^。\n]*画面下の参照リンク[^。\n]*。/g, "");
-  s = s.replace(/[^。\n]*参照リンク[^。\n]*ご確認ください。/g, "");
-  return s.replace(/\n{3,}/g, "\n\n").trim();
+  const patterns = [
+    /[^。．\n]*画面下の参照リンク[^。．\n]*[。．]?/g,
+    /[^。．\n]*参照リンクからご確認ください[。．]?/g,
+    /[^。．\n]*参照リンク[^。．\n]*ご確認ください[。．]?/g,
+    /詳細については[、,]?画面下の参照リンク[^。．\n]*[。．]?/g,
+    /詳しくは[、,]?画面下の参照リンク[^。．\n]*[。．]?/g,
+  ];
+  for (const re of patterns) {
+    s = s.replace(re, "");
+  }
+  return s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function stripNextActionLeadIn(text) {
@@ -1685,6 +1693,9 @@ export default async function handler(req, res) {
       clinicSnippet = buildClinicKnowledgeSnippet(userMessage);
 
       const seenUrl = new Set();
+      const attendFocused = isAttendFocusedQuery(userMessage);
+      const meetingFocused = isMeetingFocusedQuery(userMessage);
+
       for (const page of selectReferencedPagesFromCsv(userMessage)) {
         const url = rewriteLegacyKanaiUrl(page?.url);
         if (!url || seenUrl.has(url) || isGenericKanaiHomeUrl(url)) continue;
@@ -1702,11 +1713,9 @@ export default async function handler(req, res) {
             : webSnippet;
         }
 
+        // 面会・立ち会いは専用URLを後で強制するため、Webチップは混ぜない
         const allowWebChips =
-          !hasStrongFaqChip ||
-          Boolean(state?.attendOnly || state?.meetingOnly) ||
-          isAttendFocusedQuery(userMessage) ||
-          isMeetingFocusedQuery(userMessage);
+          !hasStrongFaqChip && !attendFocused && !meetingFocused;
 
         if (allowWebChips) {
           let chunks = selectReferencedPagesForChips(userMessage, state);
@@ -1726,22 +1735,7 @@ export default async function handler(req, res) {
               title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || url,
             });
           }
-          if (state?.attendOnly && !referencedPages.some((p) => p.url === ATTEND_INFO_PAGE_URL)) {
-            referencedPages.push({
-              url: ATTEND_INFO_PAGE_URL,
-              title: "立ち会い分娩について",
-            });
-          } else if (state?.meetingOnly && !referencedPages.some((p) => p.url === MEETING_INFO_PAGE_URL)) {
-            referencedPages.push({
-              url: MEETING_INFO_PAGE_URL,
-              title: "面会について",
-            });
-          }
         }
-      } else if (isAttendFocusedQuery(userMessage) && !referencedPages.length) {
-        referencedPages.push({ url: ATTEND_INFO_PAGE_URL, title: "立ち会い分娩について" });
-      } else if (isMeetingFocusedQuery(userMessage) && !referencedPages.length) {
-        referencedPages.push({ url: MEETING_INFO_PAGE_URL, title: "面会について" });
       }
 
       if (clinicSnippet.length > SITE_SNIPPET_MAX_CHARS) {
@@ -1751,13 +1745,29 @@ export default async function handler(req, res) {
       }
 
       // FAQチップが既にあるときは抜粋内の別URLで上書き・紛れ込ませない
-      if (!hasStrongFaqChip) {
+      if (!hasStrongFaqChip && !attendFocused && !meetingFocused) {
         referencedPages = enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages);
+      }
+
+      // 面会・立ち会いは JSON / 専用ページURLを必ず1件にする（TOPや他ページにしない）
+      if (attendFocused) {
+        referencedPages = [
+          { url: ATTEND_INFO_PAGE_URL, title: "立ち会い分娩について" },
+        ];
+      } else if (meetingFocused) {
+        referencedPages = [
+          { url: MEETING_INFO_PAGE_URL, title: "面会について" },
+        ];
       }
     }
 
     if (shouldSuppressReferencePages(userMessage, safeHistory, csvTopScore)) {
-      referencedPages = [];
+      // 面会・立ち会いの事実案内は抑制しない
+      if (!isAttendFocusedQuery(userMessage) && !isMeetingFocusedQuery(userMessage)) {
+        referencedPages = [];
+      } else {
+        referencedPages = finalizeReferencedPages(referencedPages, userMessage);
+      }
     } else {
       referencedPages = finalizeReferencedPages(referencedPages, userMessage);
     }

@@ -294,6 +294,23 @@ function normalizeLegacyTwoLayerAnswerCore(text) {
   return stripKnownMarkers(t);
 }
 
+/** チップが無いのに「画面下の参照リンク」と書いた文を落とす */
+function stripFalseReferenceLinkMention(text, hasReferenceChips) {
+  if (hasReferenceChips) return String(text || "");
+  let s = String(text || "");
+  const patterns = [
+    /[^。．\n]*画面下の参照リンク[^。．\n]*[。．]?/g,
+    /[^。．\n]*参照リンクからご確認ください[。．]?/g,
+    /[^。．\n]*参照リンク[^。．\n]*ご確認ください[。．]?/g,
+    /詳細については[、,]?画面下の参照リンク[^。．\n]*[。．]?/g,
+    /詳しくは[、,]?画面下の参照リンク[^。．\n]*[。．]?/g,
+  ];
+  for (const re of patterns) {
+    s = s.replace(re, "");
+  }
+  return s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function normalizeLegacyTwoLayerAnswer(text) {
   const raw = String(text || "").trim();
   const out = stripPromptingClosings(
@@ -765,8 +782,10 @@ try {
 
     hideTyping();
     if (!shell) shell = addStreamingAssistantShell();
-    const finalText = normalizeLegacyTwoLayerAnswer(
-      (finalFromServer || accum).trim()
+    const hasChips = Array.isArray(refPages) && refPages.some((p) => isAllowedRefUrl(p?.url));
+    const finalText = stripFalseReferenceLinkMention(
+      normalizeLegacyTwoLayerAnswer((finalFromServer || accum).trim()),
+      hasChips
     );
     if (!streamHadError) {
       updateStreamingAssistantUI(finalText, shell.contentEl, true);
@@ -808,8 +827,13 @@ try {
     return;
   }
 
-  const ansNorm = normalizeLegacyTwoLayerAnswer(data.answer || "");
-  addMessage("assistant", ansNorm, { referencedPages: data.referencedPages || [] });
+  const refs = data.referencedPages || [];
+  const hasChips = Array.isArray(refs) && refs.some((p) => isAllowedRefUrl(p?.url));
+  const ansNorm = stripFalseReferenceLinkMention(
+    normalizeLegacyTwoLayerAnswer(data.answer || ""),
+    hasChips
+  );
+  addMessage("assistant", ansNorm, { referencedPages: refs });
   pushHistory("assistant", ansNorm);
 } catch {
   hideTyping();
