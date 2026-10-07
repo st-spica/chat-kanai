@@ -7,10 +7,11 @@
 
 import { Redis } from "@upstash/redis";
 
-const REDIS_KEY = "chat:site-knowledge:v3";
+// v4: ワクチン等の優先取得・TTL短縮。旧キャッシュを破棄する
+const REDIS_KEY = "chat:site-knowledge:v4";
 
-// JSON廃止後はサイトページを厚めに取る（未設定時 12）
-const DEFAULT_MAX_PAGES = parseInt(process.env.SITE_FETCH_MAX_PAGES || "12", 10);
+// JSON廃止後はサイトページを厚めに取る（未設定時 16）
+const DEFAULT_MAX_PAGES = parseInt(process.env.SITE_FETCH_MAX_PAGES || "16", 10);
 const DEFAULT_MAX_CHARS = parseInt(process.env.SITE_MAX_CHARS_PER_PAGE || "3000", 10);
 /** 1リクエストあたりプロンプトに載せる関連チャンク数（小さいほど入力が軽く速い） */
 const SNIPPET_TOP_CHUNKS = Math.min(
@@ -67,9 +68,22 @@ const FACILITY_2CHAR = new Set([
   "土曜",
   "面談",
 ]);
-const DEFAULT_TTL_MS = parseInt(process.env.SITE_KNOWLEDGE_TTL_MS || String(24 * 60 * 60 * 1000), 10);
+// 既定6時間（季節案内・ワクチン情報の鮮度を確保）。SITE_KNOWLEDGE_TTL_MS で上書き可
+const DEFAULT_TTL_MS = parseInt(
+  process.env.SITE_KNOWLEDGE_TTL_MS || String(6 * 60 * 60 * 1000),
+  10
+);
 const FETCH_TIMEOUT_MS = parseInt(process.env.SITE_FETCH_TIMEOUT_MS || "8000", 10);
 const MAX_SITEMAP_URLS = parseInt(process.env.SITE_SITEMAP_MAX_URLS || "300", 10);
+
+/** 質問トピックに応じて必ず最新取得するページ（sitemap上位に入りにくい重要ページ用） */
+const TOPIC_MUST_FETCH_PAGES = [
+  {
+    test: /インフルエンザ|インフル|ワクチン|予防接種|アブリスボ|RSウイルス|RS\s*ウイルス|百日咳|帯状疱疹/i,
+    urls: ["https://kanai.or.jp/obstetrics/vaccine/"],
+    titles: ["ワクチン"],
+  },
+];
 
 /** sitemap 由来の許可パス（ハッシュ除く）。チップURL検証用 */
 let sitemapAllowCache = {
@@ -117,6 +131,8 @@ function isSkippableUrl(u) {
 
 function urlPriority(u) {
   let s = 0;
+  // 季節・予防系は sitemap の辞書順で落ちやすいので最優先
+  if (/\/obstetrics\/vaccine|\/prevention\b/i.test(u)) s += 20;
   if (/\/beginner|\/lesson|\/obstetrics|\/gynecology|\/restaurant|\/about|\/aftersupport/i.test(u)) s += 8;
   if (/\/news|\/info|\/column/i.test(u)) s += 3;
   return s;
@@ -156,9 +172,12 @@ async function fetchText(url) {
   try {
     const r = await fetch(url, {
       signal: ctrl.signal,
+      cache: "no-store",
       headers: {
         "User-Agent": "KanaiHospitalChat/1.0 (+https://www.kanai.or.jp/)",
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
       },
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -360,6 +379,46 @@ const loadAttendPageOnlyState = buildSinglePageState(
 
 function isSinglePageOnlyState(state) {
   return Boolean(state && state.singlePageOnly === true);
+}
+
+/**
+ * 質問トピックに合わせて必須ページをその場で最新取得し、抜粋候補の先頭に足す。
+ * （sitemap 上位に入らず知識から欠落するのを防ぐ）
+ */
+async function enrichStateWithTopicPages(userMessage, state) {
+  const msg = String(userMessage || "");
+  if (!msg.trim() || !state || isSinglePageOnlyState(state)) return state;
+
+  const mustUrls = [];
+  for (const hint of TOPIC_MUST_FETCH_PAGES) {
+    if (hint.test.test(msg)) {
+      for (const u of hint.urls || []) {
+        if (u && !mustUrls.includes(u)) mustUrls.push(u);
+      }
+    }
+  }
+  if (!mustUrls.length) return state;
+
+  const fetched = [];
+  for (const url of mustUrls) {
+    // トピック質問ではキャッシュを使わず毎回取り直す（実施可否の鮮度優先）
+    singlePageCache.delete(url);
+    const chunk = await fetchPageChunk(url, DEFAULT_MAX_CHARS);
+    if (chunk) {
+      singlePageCache.set(url, { at: Date.now(), chunk });
+      fetched.push(chunk);
+    }
+  }
+  if (!fetched.length) return state;
+
+  const rest = (state.chunks || []).filter(
+    (c) => !mustUrls.includes(rewriteLegacyKanaiUrl(c?.url))
+  );
+  return {
+    ...state,
+    chunks: [...fetched, ...rest],
+    referenceUrls: [...mustUrls, ...(state.referenceUrls || []).filter((u) => !mustUrls.includes(u))],
+  };
 }
 
 async function resolveEntrySitemapUrl() {
@@ -735,6 +794,10 @@ function topicUrlBoost(userMessage, c) {
     [/外来|受診|初診|予約|診察|アクセス|行き方|地図/, /\/visit\/|\/beginner\/|outpatient|appointment|gai|\/access\//],
     [/面会/, /\/hospitalization\/|#visit|面会/],
     [/立ち会い/, /\/childbirth\/|#assist_birth|立ち会い/],
+    [
+      /インフルエンザ|インフル|ワクチン|予防接種|アブリスボ|RSウイルス|RS\s*ウイルス/,
+      /\/vaccine|\/prevention|ワクチン|インフルエンザ|アブリスボ|RSウイルス/,
+    ],
     [/産婦人科|分娩|出産|妊娠|帝王切開/, /obstetrics|gynecology|delivery|pregnancy|産科|婦人/],
     [/お知らせ|ニュース/, /\/news\/|\/info\/|column|notice/],
     [/料金|費用|支払|予納/, /fee|price|cost|payment/],
@@ -743,7 +806,7 @@ function topicUrlBoost(userMessage, c) {
       /schedule|hours|time|休診|診療|calendar|枠/,
     ],
     [
-      /検診|健診|妊婦検|乳児検|検査予約|予防接種|母子手帳/,
+      /検診|健診|妊婦検|乳児検|検査予約|母子手帳/,
       /健診|kenshin|screening|乳児|妊婦|検診|checkup|exam|母子/,
     ],
   ];
@@ -948,7 +1011,8 @@ export async function getSiteKnowledgeSnippetSupplement(userMessage) {
     );
     return { snippet, state, sourceChunks };
   }
-  const state = await ensureSiteKnowledgeLoaded();
+  const baseState = await ensureSiteKnowledgeLoaded();
+  const state = await enrichStateWithTopicPages(userMessage, baseState);
   const { snippet, sourceChunks } = buildSiteKnowledgeSnippet(userMessage, state, {
     includeReferenceUrlList: false,
   });
