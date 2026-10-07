@@ -2,21 +2,13 @@ import OpenAI, { APIConnectionError, APIError } from "openai";
 import { ratelimit, hasUpstashConfig } from "./_ratelimit.js";
 import { appendChatLog } from "./_chatLog.js";
 import {
-  buildClinicKnowledgeSnippet,
-  peekClinicKnowledgeStatus,
-  rankClinicKnowledge,
-  isGenericKanaiHomeUrl,
-  selectReferencedPagesFromCsv,
-  shouldSupplementWithWeb,
-} from "./_clinicKnowledge.js";
-import {
   ATTEND_INFO_PAGE_URL,
   getSiteKnowledgeSnippetSupplement,
   isAttendFocusedQuery,
+  isGenericKanaiHomeUrl,
   isMeetingFocusedQuery,
   labelForKnowledgeChunk,
   MEETING_INFO_PAGE_URL,
-  peekSiteKnowledgeStatus,
   filterPagesBySitemap,
   rewriteLegacyKanaiUrl,
   selectReferencedChunks,
@@ -111,13 +103,8 @@ function sanitizeHistory(history) {
   return out.slice(-MAX_HISTORY_ITEMS);
 }
 
-// false のとき JSON のみ（Web 補完なし）。未設定時は true＝ハイブリッド
-const CLINIC_WEB_SUPPLEMENT = !["false", "0", "no"].includes(
-  (process.env.CLINIC_WEB_SUPPLEMENT || "true").toLowerCase().trim()
-);
-
-// true のとき、サイト抜粋は「当院・手続きっぽい質問」のときだけ読む（未設定時は true＝挨拶だけで全ページ取得しない）。
-// 従来どおり毎ターン必ず読む場合は SITE_KNOWLEDGE_GATED=false
+// true のとき、サイト抜粋は「当院・手続きっぽい質問」のときだけ読む（未設定時は true）。
+// 毎ターン読む場合は SITE_KNOWLEDGE_GATED=false
 const SITE_KNOWLEDGE_GATED = !["false", "0", "no"].includes(
   (process.env.SITE_KNOWLEDGE_GATED || "true").toLowerCase().trim()
 );
@@ -186,11 +173,11 @@ const SYSTEM = `
 - 相談に答えるような、寄り添った文章で話す。
 - 危険サインが疑われる場合は、一般説明を最小限にして「至急受診／救急」誘導を最優先する。
 - 個人情報（氏名、住所、電話番号、保険番号など）を求めない。入力されたら控えるよう促す。
-- 院内情報は、別メッセージで与えられる院内FAQ（JSON）および必要時の公式サイト抜粋に基づいて回答し、根拠がないことは断言しない。
-- ユーザーの質問は短い1文が多い。院内FAQが渡されているときは、その Q&A の内容を最優先で使い、一般論で薄めない。
+- 院内情報は、別メッセージで与えられる**当院公式サイトのページ本文の抜粋（URL付き）**に基づいて回答し、根拠がないことは断言しない。
+- ユーザーの質問は短い1文が多い。サイト抜粋が渡されているときは、その内容を最優先で使い、一般論で薄めない。
 - 【お礼→謝罪は例外のみ】「お問い合わせありがとうございます。大変申し訳ございませんが、…」は、(A) 当院へのクレーム・不満、または (B) 実施していない／お客様の要望に応えられない内容（例：無痛分娩、日曜診療、乳がん検診）のときだけ使う。分娩予約・利用できる制度・診療時間・料金などの通常の案内では謝罪文を書かない（お礼だけ、またはいきなり案内してよい）。「利用可能です」「できます」など案内できる内容の前に謝罪を置かない。
-- FAQ・院内情報で「実施していない／行っていない／休診」と分かっている内容を聞かれたときだけ、冒頭を「お問い合わせありがとうございます。大変申し訳ございませんが、◯◯は実施しておりません。」にする。曖昧にしない。
-- 公式サイトの抜粋や当院サイトに明確な情報がないテーマについては、情報がないと断定せず、「当院サイトに記載がないため、詳細は電話で相談してほしい」ことを丁寧に伝える（必要に応じて一般的な背景説明を短く添える程度にとどめる）。
+- サイト抜粋で「実施していない／行っていない／休診」と分かる内容を聞かれたときだけ、冒頭を「お問い合わせありがとうございます。大変申し訳ございませんが、◯◯は実施しておりません。」にする。曖昧にしない。
+- 公式サイトの抜粋に明確な情報がないテーマについては、情報がないと断定せず、「当院サイトに記載がないため、詳細は電話で相談してほしい」ことを丁寧に伝える（必要に応じて一般的な背景説明を短く添える程度にとどめる）。
 - 回答内では「院内サイト抜粋」「KNOWLEDGE」などの内部用語は一切出さない。
 - 回答内で「チャットボット」「AI」などと自称しない。必要な場合も「相談窓口としてご案内します」と表現する。
 - 相手が感情を示したときは短く受け止め、不安を言語化・整理する手助けをする。推測で感情を代弁しない。次の行動を「患者主体」で返す。
@@ -395,10 +382,9 @@ script, style, iframe, onclick、data-*、id は使わない。
 カード内の a.chat-pill 等で当院ページへ誘導してよい。**本文末に URL の箇条書きは書かない**（チップに任せる）。
 
 【院内情報（システム専用。ユーザー向けの回答テキストには、この名称を出さない）】
-このあと別の system メッセージとして与えられる「院内FAQ（JSON）」および必要時の「当院公式サイトのページ本文の抜粋（URL付き）」を主な根拠として回答を作成すること。両方ある場合は FAQ を最優先し、サイト抜粋は FAQ に無い補足だけに使う。短い質問でも FAQ の該当項目があれば、その回答を核にして簡潔に伝える。
-- ユーザー発話に「面会」が含まれるときは、そのターンの抜粋は**面会のお知らせページ（${MEETING_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
+このあと別の system メッセージとして与えられる「当院公式サイトのページ本文の抜粋（URL付き）」を主な根拠として回答を作成すること。短い質問でも、抜粋にあればその内容を核にして簡潔に伝える。抜粋にないことは推測で断言しない。
+- ユーザー発話に「面会」が含まれるときは、そのターンの抜粋は**面会ページ（${MEETING_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
 - ユーザー発話に「立ち会い」が含まれるときは、そのターンの抜粋は**立ち会い分娩ページ（${ATTEND_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
-- ユーザー発話に「面会」が含まれるときは、そのターンの抜粋は**面会のお知らせページ（${MEETING_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
 `.trim();
 
 /** このターンだけリッチHTMLを強く指示（モデルがプレーン文に逃げるのを防ぐ） */
@@ -813,17 +799,18 @@ function looksLikeConsultWithoutReferencePages(userMessage, safeHistory) {
 }
 
 /** 画面下の参照リンク（チップ）を出さないターンか */
-function shouldSuppressReferencePages(userMessage, safeHistory, faqTopScore = 0) {
+function shouldSuppressReferencePages(userMessage, safeHistory, knowledgeHitScore = 0) {
   if (shouldAddComplaintPrompt(userMessage, safeHistory)) return true;
 
   if (looksLikeConsultWithoutReferencePages(userMessage, safeHistory)) {
-    if (shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) && faqTopScore >= 10) {
+    // サイト抜粋が当たっているときはチップを出してよい
+    if (shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) && knowledgeHitScore >= 10) {
       return false;
     }
     return true;
   }
 
-  if (!shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) && faqTopScore < 8) {
+  if (!shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) && knowledgeHitScore < 8) {
     return true;
   }
 
@@ -1107,11 +1094,11 @@ function defaultRefPageTitle(url) {
   return "当院サイト";
 }
 
-/** FAQ 抜粋内の「参考ページ: URL」からチップを補完（スコア閾値で漏れた場合の保険） */
+/** サイト抜粋内の URL 行からチップを補完 */
 function enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages) {
   const out = [...(referencedPages || [])];
   const seen = new Set(out.map((p) => p.url));
-  const re = /参考ページ:\s*(https?:\/\/\S+)/g;
+  const re = /(?:URL|参考ページ):\s*(https?:\/\/\S+)/gi;
   let m;
   while ((m = re.exec(String(clinicSnippet || "")))) {
     const url = rewriteLegacyKanaiUrl(m[1].replace(/[).、]+$/, "").trim());
@@ -1730,61 +1717,40 @@ export default async function handler(req, res) {
 
     let clinicSnippet = "";
     let referencedPages = [];
-    let csvTopScore = 0;
-    const needsClinicKnowledgeJson = !casualGreetingOnly;
     const shouldFetchWebKnowledge =
-      needsClinicKnowledgeJson &&
+      !casualGreetingOnly &&
       (!SITE_KNOWLEDGE_GATED || shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory));
 
-    if (needsClinicKnowledgeJson) {
-      const ranked = rankClinicKnowledge(userMessage);
-      csvTopScore = ranked.topScore;
-      clinicSnippet = buildClinicKnowledgeSnippet(userMessage);
-
-      const seenUrl = new Set();
+    if (shouldFetchWebKnowledge) {
       const attendFocused = isAttendFocusedQuery(userMessage);
       const meetingFocused = isMeetingFocusedQuery(userMessage);
+      const seenUrl = new Set();
 
-      for (const page of selectReferencedPagesFromCsv(userMessage)) {
-        const url = rewriteLegacyKanaiUrl(page?.url);
-        if (!url || seenUrl.has(url) || isGenericKanaiHomeUrl(url)) continue;
-        seenUrl.add(url);
-        referencedPages.push({ ...page, url });
+      const { snippet: webSnippet, state } = await getSiteKnowledgeSnippetSupplement(userMessage);
+      if (webSnippet) {
+        clinicSnippet = webSnippet;
       }
-      // FAQで十分な参照が取れたときは Web/抜粋由来のチップを足さない（ズレ防止）
-      const hasStrongFaqChip = referencedPages.length > 0 && csvTopScore >= 8;
 
-      if (CLINIC_WEB_SUPPLEMENT && shouldFetchWebKnowledge && shouldSupplementWithWeb(userMessage, csvTopScore)) {
-        const { snippet: webSnippet, state } = await getSiteKnowledgeSnippetSupplement(userMessage);
-        if (webSnippet) {
-          clinicSnippet = clinicSnippet
-            ? `${clinicSnippet}\n\n---\n\n${webSnippet}`
-            : webSnippet;
+      // 面会・立ち会いは専用URLを強制するため、通常チップ選定はスキップ
+      if (!attendFocused && !meetingFocused) {
+        let chunks = selectReferencedPagesForChips(userMessage, state);
+        if (
+          !chunks.length &&
+          webSnippet &&
+          ((state?.singlePageOnly ?? state?.meetingOnly) || shouldFetchWebKnowledge)
+        ) {
+          chunks = selectReferencedChunks(userMessage, state);
         }
-
-        // 面会・立ち会いは専用URLを後で強制するため、Webチップは混ぜない
-        const allowWebChips =
-          !hasStrongFaqChip && !attendFocused && !meetingFocused;
-
-        if (allowWebChips) {
-          let chunks = selectReferencedPagesForChips(userMessage, state);
-          if (
-            !chunks.length &&
-            webSnippet &&
-            ((state?.singlePageOnly ?? state?.meetingOnly) || shouldFetchWebKnowledge)
-          ) {
-            chunks = selectReferencedChunks(userMessage, state);
-          }
-          for (const c of chunks) {
-            const url = rewriteLegacyKanaiUrl(c?.url);
-            if (!url || seenUrl.has(url) || isGenericKanaiHomeUrl(url)) continue;
-            seenUrl.add(url);
-            referencedPages.push({
-              url,
-              title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || url,
-            });
-          }
+        for (const c of chunks) {
+          const url = rewriteLegacyKanaiUrl(c?.url);
+          if (!url || seenUrl.has(url) || isGenericKanaiHomeUrl(url)) continue;
+          seenUrl.add(url);
+          referencedPages.push({
+            url,
+            title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || url,
+          });
         }
+        referencedPages = enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages);
       }
 
       if (clinicSnippet.length > SITE_SNIPPET_MAX_CHARS) {
@@ -1793,12 +1759,6 @@ export default async function handler(req, res) {
           "\n\n（以降、文字数制限のため省略しました）";
       }
 
-      // FAQチップが既にあるときは抜粋内の別URLで上書き・紛れ込ませない
-      if (!hasStrongFaqChip && !attendFocused && !meetingFocused) {
-        referencedPages = enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages);
-      }
-
-      // 面会・立ち会いは JSON / 専用ページURLを必ず1件にする（TOPや他ページにしない）
       if (attendFocused) {
         referencedPages = [
           { url: ATTEND_INFO_PAGE_URL, title: "立ち会い分娩について" },
@@ -1810,7 +1770,8 @@ export default async function handler(req, res) {
       }
     }
 
-    if (shouldSuppressReferencePages(userMessage, safeHistory, csvTopScore)) {
+    const knowledgeHitScore = clinicSnippet || referencedPages.length > 0 ? 20 : 0; // 抜粋 or チップあり
+    if (shouldSuppressReferencePages(userMessage, safeHistory, knowledgeHitScore)) {
       // 面会・立ち会いの事実案内は抑制しない
       if (!isAttendFocusedQuery(userMessage) && !isMeetingFocusedQuery(userMessage)) {
         referencedPages = [];
@@ -1825,7 +1786,7 @@ export default async function handler(req, res) {
 
     const messages = [
       { role: "system", content: SYSTEM },
-      // 院内情報（JSON 優先。不足時のみ Web 抜粋を付加）
+      // 院内情報（公式サイトURL抜粋）
       ...(clinicSnippet
         ? [
             {

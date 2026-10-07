@@ -9,7 +9,8 @@ import { Redis } from "@upstash/redis";
 
 const REDIS_KEY = "chat:site-knowledge:v3";
 
-const DEFAULT_MAX_PAGES = parseInt(process.env.SITE_FETCH_MAX_PAGES || "6", 10);
+// JSON廃止後はサイトページを厚めに取る（未設定時 12）
+const DEFAULT_MAX_PAGES = parseInt(process.env.SITE_FETCH_MAX_PAGES || "12", 10);
 const DEFAULT_MAX_CHARS = parseInt(process.env.SITE_MAX_CHARS_PER_PAGE || "3000", 10);
 /** 1リクエストあたりプロンプトに載せる関連チャンク数（小さいほど入力が軽く速い） */
 const SNIPPET_TOP_CHUNKS = Math.min(
@@ -885,8 +886,20 @@ function buildSinglePageSnippet(state, fallbackTitle, fallbackUrl) {
   return `【${fallbackTitle}】\n${fallbackUrl} の本文を取得できませんでした。お手数ですがブラウザで直接ご確認ください。`;
 }
 
+/** サイトルートなどチップに不向きなURLか */
+export function isGenericKanaiHomeUrl(url) {
+  try {
+    const u = new URL(String(url || "").trim());
+    if (!/(?:^|\.)kanai\.or\.jp$/i.test(u.hostname)) return true;
+    const path = (u.pathname || "/").replace(/\/+$/, "") || "/";
+    return path === "/" && !u.hash && !u.search;
+  } catch {
+    return true;
+  }
+}
+
 /**
- * ハイブリッド運用時の Web 補完（CSV で不足するときのみ呼ぶ想定）
+ * 公式サイトURLからの知識抜粋（主データソース）
  */
 export async function getSiteKnowledgeSnippetSupplement(userMessage) {
   if (isAttendFocusedQuery(userMessage)) {
