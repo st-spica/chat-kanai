@@ -2,15 +2,16 @@
  * 当院サイトの HTML を取得してテキスト化する。
  * - 既定: 最新 sitemap（Yoast の sitemap_index.xml）から URL を収集
  * - SITE_PREFER_URL_LIST=true のときのみ SITE_URL_LIST を優先（旧URL固定を避けるため既定オフ）
- * - メモリキャッシュ + 任意で Upstash Redis（既存の UPSTASH_* があれば利用）
+ * - 本文は既定で毎回最新取得（SITE_KNOWLEDGE_CACHE_BODIES=true のときだけ短時間キャッシュ）
+ * - sitemap の URL 一覧だけ短時間キャッシュ（SITE_URL_LIST_TTL_MS）
  */
 
 import { Redis } from "@upstash/redis";
 
-// v4: ワクチン等の優先取得・TTL短縮。旧キャッシュを破棄する
-const REDIS_KEY = "chat:site-knowledge:v4";
+// v5: 本文は毎リクエスト最新取得が既定。旧 Redis 本文キャッシュは使わない
+const REDIS_KEY = "chat:site-knowledge:v5";
 
-// JSON廃止後はサイトページを厚めに取る（未設定時 16）
+// 質問ごとに関連度の高いページを最新取得する件数（未設定時 16）
 const DEFAULT_MAX_PAGES = parseInt(process.env.SITE_FETCH_MAX_PAGES || "16", 10);
 const DEFAULT_MAX_CHARS = parseInt(process.env.SITE_MAX_CHARS_PER_PAGE || "3000", 10);
 /** 1リクエストあたりプロンプトに載せる関連チャンク数（小さいほど入力が軽く速い） */
@@ -68,22 +69,22 @@ const FACILITY_2CHAR = new Set([
   "土曜",
   "面談",
 ]);
-// 既定6時間（季節案内・ワクチン情報の鮮度を確保）。SITE_KNOWLEDGE_TTL_MS で上書き可
+// 本文キャッシュを使うときのみ有効（既定オフ＝毎回最新HTML）
+const CACHE_BODIES = ["true", "1", "yes"].includes(
+  String(process.env.SITE_KNOWLEDGE_CACHE_BODIES || "false").toLowerCase().trim()
+);
+// 本文キャッシュ利用時の TTL（既定15分）。SITE_KNOWLEDGE_TTL_MS で上書き可
 const DEFAULT_TTL_MS = parseInt(
-  process.env.SITE_KNOWLEDGE_TTL_MS || String(6 * 60 * 60 * 1000),
+  process.env.SITE_KNOWLEDGE_TTL_MS || String(15 * 60 * 1000),
+  10
+);
+// sitemap URL一覧の TTL（本文とは別。既定30分）
+const URL_LIST_TTL_MS = parseInt(
+  process.env.SITE_URL_LIST_TTL_MS || String(30 * 60 * 1000),
   10
 );
 const FETCH_TIMEOUT_MS = parseInt(process.env.SITE_FETCH_TIMEOUT_MS || "8000", 10);
 const MAX_SITEMAP_URLS = parseInt(process.env.SITE_SITEMAP_MAX_URLS || "300", 10);
-
-/** 質問トピックに応じて必ず最新取得するページ（sitemap上位に入りにくい重要ページ用） */
-const TOPIC_MUST_FETCH_PAGES = [
-  {
-    test: /インフルエンザ|インフル|ワクチン|予防接種|アブリスボ|RSウイルス|RS\s*ウイルス|百日咳|帯状疱疹/i,
-    urls: ["https://kanai.or.jp/obstetrics/vaccine/"],
-    titles: ["ワクチン"],
-  },
-];
 
 /** sitemap 由来の許可パス（ハッシュ除く）。チップURL検証用 */
 let sitemapAllowCache = {
@@ -107,7 +108,17 @@ let memoryCache = {
 
 let inflight = null;
 
-/** 面会・立ち会いなど単一ページのメモリキャッシュ（URL → { at, chunk }） */
+/** sitemap 等の URL 一覧キャッシュ（本文は含めない） */
+let urlListCache = {
+  at: 0,
+  urls: /** @type {string[]} */ ([]),
+  /** @type {"url_list"|"sitemap"|null} */
+  fetchMode: null,
+  error: null,
+};
+let urlListInflight = null;
+
+/** 面会・立ち会いなど単一ページのメモリキャッシュ（URL → { at, chunk }）※CACHE_BODIES時のみ） */
 const singlePageCache = new Map();
 let singlePageInflight = new Map();
 
@@ -322,6 +333,9 @@ export function isAttendFocusedQuery(userMessage) {
 }
 
 async function ensureCachedSinglePage(url) {
+  if (!CACHE_BODIES) {
+    return fetchPageChunk(url, DEFAULT_MAX_CHARS);
+  }
   const now = Date.now();
   const cached = singlePageCache.get(url);
   if (cached && now - cached.at < DEFAULT_TTL_MS) {
@@ -379,46 +393,6 @@ const loadAttendPageOnlyState = buildSinglePageState(
 
 function isSinglePageOnlyState(state) {
   return Boolean(state && state.singlePageOnly === true);
-}
-
-/**
- * 質問トピックに合わせて必須ページをその場で最新取得し、抜粋候補の先頭に足す。
- * （sitemap 上位に入らず知識から欠落するのを防ぐ）
- */
-async function enrichStateWithTopicPages(userMessage, state) {
-  const msg = String(userMessage || "");
-  if (!msg.trim() || !state || isSinglePageOnlyState(state)) return state;
-
-  const mustUrls = [];
-  for (const hint of TOPIC_MUST_FETCH_PAGES) {
-    if (hint.test.test(msg)) {
-      for (const u of hint.urls || []) {
-        if (u && !mustUrls.includes(u)) mustUrls.push(u);
-      }
-    }
-  }
-  if (!mustUrls.length) return state;
-
-  const fetched = [];
-  for (const url of mustUrls) {
-    // トピック質問ではキャッシュを使わず毎回取り直す（実施可否の鮮度優先）
-    singlePageCache.delete(url);
-    const chunk = await fetchPageChunk(url, DEFAULT_MAX_CHARS);
-    if (chunk) {
-      singlePageCache.set(url, { at: Date.now(), chunk });
-      fetched.push(chunk);
-    }
-  }
-  if (!fetched.length) return state;
-
-  const rest = (state.chunks || []).filter(
-    (c) => !mustUrls.includes(rewriteLegacyKanaiUrl(c?.url))
-  );
-  return {
-    ...state,
-    chunks: [...fetched, ...rest],
-    referenceUrls: [...mustUrls, ...(state.referenceUrls || []).filter((u) => !mustUrls.includes(u))],
-  };
 }
 
 async function resolveEntrySitemapUrl() {
@@ -556,64 +530,142 @@ export async function filterPagesBySitemap(pages) {
   return out;
 }
 
-async function buildFreshKnowledge(maxPages, maxChars) {
-  const registered = parseRegisteredUrlList();
-  const preferList =
-    registered.length > 0 &&
-    ["true", "1", "yes"].includes(
-      String(process.env.SITE_PREFER_URL_LIST || "").toLowerCase().trim()
-    );
+/**
+ * sitemap / SITE_URL_LIST から候補 URL 一覧を取得（本文は取らない）
+ */
+async function loadCandidateUrlList() {
+  const now = Date.now();
+  if (urlListCache.urls.length && now - urlListCache.at < URL_LIST_TTL_MS) {
+    return {
+      urls: urlListCache.urls,
+      fetchMode: urlListCache.fetchMode,
+      error: urlListCache.error,
+      fromCache: true,
+    };
+  }
+  if (urlListInflight) return urlListInflight;
 
-  let picked;
-  /** @type {"url_list"|"sitemap"} */
-  let fetchMode;
+  urlListInflight = (async () => {
+    const registered = parseRegisteredUrlList();
+    const preferList =
+      registered.length > 0 &&
+      ["true", "1", "yes"].includes(
+        String(process.env.SITE_PREFER_URL_LIST || "").toLowerCase().trim()
+      );
 
-  if (preferList) {
-    fetchMode = "url_list";
-    picked = registered.slice(0, maxPages);
-  } else {
-    fetchMode = "sitemap";
     try {
-      const entry = await resolveEntrySitemapUrl();
-      const allUrls = await collectAllPageUrls(entry);
-      // allowlist も同時更新
-      const paths = new Set();
-      for (const u of allUrls) {
-        const key = normalizeKanaiPathKey(u);
-        if (key) paths.add(key);
+      /** @type {string[]} */
+      let urls;
+      /** @type {"url_list"|"sitemap"} */
+      let fetchMode;
+
+      if (preferList) {
+        fetchMode = "url_list";
+        urls = registered;
+      } else {
+        fetchMode = "sitemap";
+        try {
+          const entry = await resolveEntrySitemapUrl();
+          const allUrls = await collectAllPageUrls(entry);
+          const paths = new Set();
+          for (const u of allUrls) {
+            const key = normalizeKanaiPathKey(u);
+            if (key) paths.add(key);
+          }
+          paths.add("https://kanai.or.jp");
+          sitemapAllowCache = {
+            at: Date.now(),
+            paths,
+            entryUrl: entry,
+            error: null,
+          };
+          // ランク前の全候補（上限あり）。質問ごとにここから関連ページを選んで最新取得する
+          urls = filterAndRankUrls(allUrls, MAX_SITEMAP_URLS);
+        } catch (e) {
+          if (registered.length > 0) {
+            console.warn("sitemap failed, fallback to SITE_URL_LIST:", e?.message || e);
+            fetchMode = "url_list";
+            urls = registered;
+          } else {
+            throw e;
+          }
+        }
       }
-      paths.add("https://kanai.or.jp");
-      sitemapAllowCache = {
+
+      urlListCache = {
         at: Date.now(),
-        paths,
-        entryUrl: entry,
+        urls,
+        fetchMode,
         error: null,
       };
-      picked = filterAndRankUrls(allUrls, maxPages);
+      return { urls, fetchMode, error: null, fromCache: false };
     } catch (e) {
-      // sitemap 失敗時のみ SITE_URL_LIST へフォールバック
-      if (registered.length > 0) {
-        console.warn("sitemap failed, fallback to SITE_URL_LIST:", e?.message || e);
-        fetchMode = "url_list";
-        picked = registered.slice(0, maxPages);
-      } else {
-        throw e;
-      }
+      const msg = e?.message || String(e);
+      urlListCache = { at: Date.now(), urls: [], fetchMode: null, error: msg };
+      return { urls: [], fetchMode: null, error: msg, fromCache: false };
+    } finally {
+      urlListInflight = null;
     }
+  })();
+
+  return urlListInflight;
+}
+
+/** URLパスと質問の簡易スコア（本文取得前の候補選定） */
+function scoreUrlForQuery(userMessage, url) {
+  const stub = { url, title: "", text: "" };
+  let score = urlPriority(url) * 10 + topicUrlBoost(userMessage, stub);
+  try {
+    const path = decodeURIComponent(new URL(url).pathname).toLowerCase();
+    for (const tok of tokenizeUserMessageForScoring(userMessage)) {
+      const t = tok.toLowerCase();
+      if (t.length >= 2 && path.includes(t)) score += t.length * 8;
+    }
+  } catch {
+    /* ignore */
+  }
+  return score;
+}
+
+/**
+ * 質問に関連する URL を選び、各ページ本文を毎回最新取得する
+ */
+async function loadFreshKnowledgeForQuery(userMessage, maxPages = DEFAULT_MAX_PAGES, maxChars = DEFAULT_MAX_CHARS) {
+  const list = await loadCandidateUrlList();
+  if (!list.urls?.length) {
+    return {
+      chunks: [],
+      referenceUrls: [],
+      knowledgeText: "",
+      error: list.error || "no_urls",
+      fetchMode: list.fetchMode,
+    };
   }
 
-  const chunks = (await Promise.all(picked.map((u) => fetchPageChunk(u, maxChars)))).filter(Boolean);
+  const scored = list.urls
+    .map((url) => ({ url, score: scoreUrlForQuery(userMessage, url) }))
+    .sort((a, b) => b.score - a.score || a.url.localeCompare(b.url));
 
-  const referenceUrls = picked.slice(0, 40);
-  const knowledgeText = buildFullKnowledgeText(chunks);
+  const positive = scored.filter((s) => s.score > 0).map((s) => s.url);
+  // 関連スコアが付いたページを優先。無いときだけ優先度順の先頭を使う
+  const picked = (positive.length ? positive : scored.map((s) => s.url)).slice(0, maxPages);
+
+  const chunks = (
+    await Promise.all(picked.map((u) => fetchPageChunk(u, maxChars)))
+  ).filter(Boolean);
 
   return {
     chunks,
-    referenceUrls,
-    knowledgeText,
+    referenceUrls: picked.slice(0, 40),
+    knowledgeText: buildFullKnowledgeText(chunks),
     error: chunks.length ? null : "no_chunks",
-    fetchMode,
+    fetchMode: list.fetchMode,
   };
+}
+
+/** @deprecated 互換。本文キャッシュ利用時のみ */
+async function buildFreshKnowledge(maxPages, maxChars) {
+  return loadFreshKnowledgeForQuery("", maxPages, maxChars);
 }
 
 async function readFromRedis() {
@@ -657,9 +709,41 @@ async function writeToRedis(payload) {
 }
 
 /**
- * サイト知識をロード（Redis / メモリTTL / 再取得）
+ * サイト知識をロード。
+ * 既定は本文キャッシュなし（呼び出し側で質問ごとに最新取得）。
+ * SITE_KNOWLEDGE_CACHE_BODIES=true のときだけメモリ/Redis を使う。
  */
-export async function ensureSiteKnowledgeLoaded() {
+export async function ensureSiteKnowledgeLoaded(userMessage = "") {
+  if (!CACHE_BODIES) {
+    try {
+      const built = await loadFreshKnowledgeForQuery(
+        userMessage,
+        DEFAULT_MAX_PAGES,
+        DEFAULT_MAX_CHARS
+      );
+      memoryCache = {
+        at: Date.now(),
+        chunks: built.chunks,
+        referenceUrls: built.referenceUrls,
+        knowledgeText: built.knowledgeText,
+        error: built.error,
+        fetchMode: built.fetchMode ?? null,
+      };
+      return { ...memoryCache, fromCache: "fresh" };
+    } catch (e) {
+      console.error("ensureSiteKnowledgeLoaded error:", e?.message || e);
+      return {
+        at: Date.now(),
+        chunks: [],
+        referenceUrls: [],
+        knowledgeText: "",
+        error: e?.message || String(e),
+        fetchMode: null,
+        fromCache: "error",
+      };
+    }
+  }
+
   const now = Date.now();
   if (memoryCache.chunks.length && now - memoryCache.at < DEFAULT_TTL_MS) {
     return { ...memoryCache, fromCache: "memory", fetchMode: memoryCache.fetchMode };
@@ -682,9 +766,11 @@ export async function ensureSiteKnowledgeLoaded() {
 
   inflight = (async () => {
     try {
-      const maxPages = DEFAULT_MAX_PAGES;
-      const maxChars = DEFAULT_MAX_CHARS;
-      const built = await buildFreshKnowledge(maxPages, maxChars);
+      const built = await loadFreshKnowledgeForQuery(
+        userMessage,
+        DEFAULT_MAX_PAGES,
+        DEFAULT_MAX_CHARS
+      );
       memoryCache = {
         at: Date.now(),
         chunks: built.chunks,
@@ -990,7 +1076,8 @@ export function isGenericKanaiHomeUrl(url) {
 
 /**
  * 公式サイトURLからの知識抜粋（主データソース）
- * sourceChunks = プロンプトに載せた情報源（参照チップもこれと同一）
+ * - 関連ページを選び、本文は毎回最新取得（既定）
+ * - sourceChunks = プロンプトに載せた情報源（参照チップもこれと同一）
  */
 export async function getSiteKnowledgeSnippetSupplement(userMessage) {
   if (isAttendFocusedQuery(userMessage)) {
@@ -1011,8 +1098,7 @@ export async function getSiteKnowledgeSnippetSupplement(userMessage) {
     );
     return { snippet, state, sourceChunks };
   }
-  const baseState = await ensureSiteKnowledgeLoaded();
-  const state = await enrichStateWithTopicPages(userMessage, baseState);
+  const state = await ensureSiteKnowledgeLoaded(userMessage);
   const { snippet, sourceChunks } = buildSiteKnowledgeSnippet(userMessage, state, {
     includeReferenceUrlList: false,
   });
@@ -1024,7 +1110,7 @@ export async function getSiteKnowledgeSnippet(userMessage) {
   return getSiteKnowledgeSnippetSupplement(userMessage);
 }
 
-/** GET ヘルス用。ネットワーク取得は行わず、メモリ上のキャッシュ状況だけ返す */
+/** GET ヘルス用。ネットワーク取得は行わず、メモリ上の状況だけ返す */
 export function peekSiteKnowledgeStatus() {
   const now = Date.now();
   const fresh = memoryCache.chunks.length > 0 && now - memoryCache.at < DEFAULT_TTL_MS;
@@ -1033,16 +1119,20 @@ export function peekSiteKnowledgeStatus() {
     String(process.env.SITE_PREFER_URL_LIST || "").toLowerCase().trim()
   );
   return {
-    memoryCached: fresh,
-    chunkCount: fresh ? memoryCache.chunks.length : 0,
+    cacheBodies: CACHE_BODIES,
+    memoryCached: CACHE_BODIES && fresh,
+    chunkCount: memoryCache.chunks.length,
     lastError: memoryCache.error,
     fetchMode: memoryCache.fetchMode,
     registeredUrlCount: registeredCount,
     preferUrlList,
+    urlListCached: urlListCache.urls.length > 0 && now - urlListCache.at < URL_LIST_TTL_MS,
+    urlListCount: urlListCache.urls.length,
     sitemapEntryUrl: sitemapAllowCache.entryUrl || null,
     sitemapPathCount: sitemapAllowCache.paths?.size || 0,
     sitemapError: sitemapAllowCache.error,
     ttlMs: DEFAULT_TTL_MS,
+    urlListTtlMs: URL_LIST_TTL_MS,
     maxPages: DEFAULT_MAX_PAGES,
     maxCharsPerPage: DEFAULT_MAX_CHARS,
     snippetTopChunks: SNIPPET_TOP_CHUNKS,
