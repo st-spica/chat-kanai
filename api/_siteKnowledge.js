@@ -806,7 +806,8 @@ export function selectReferencedPagesForChips(userMessage, state) {
 }
 
 /**
- * ユーザーメッセージに関連しそうなチャンク（抜粋に使うものと同じ集合）
+ * ユーザーメッセージに関連しそうなチャンク（抜粋に載せる集合＝情報源）
+ * スコア0のページは載せない（無関係な先頭ページへのフォールバックはしない）
  * @returns {Array<{ url: string, title: string, text: string }>}
  */
 export function selectReferencedChunks(userMessage, state) {
@@ -833,33 +834,53 @@ export function selectReferencedChunks(userMessage, state) {
     return { c, score };
   });
 
-  const top = scored
+  return scored
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, SNIPPET_TOP_CHUNKS)
     .map((s) => s.c);
+}
 
-  const use = top.length > 0 ? top : chunks.slice(0, SNIPPET_TOP_CHUNKS);
-  return use;
+/**
+ * 抜粋に載せたチャンクから参照ページ一覧を作る（チップ＝情報源）
+ * @returns {Array<{ url: string, title: string }>}
+ */
+export function sourcePagesFromChunks(chunks) {
+  const seen = new Set();
+  const out = [];
+  for (const c of chunks || []) {
+    const url = rewriteLegacyKanaiUrl(c?.url);
+    if (!url || seen.has(url) || isGenericKanaiHomeUrl(url)) continue;
+    seen.add(url);
+    out.push({
+      url,
+      title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || url,
+    });
+  }
+  return out;
 }
 
 /**
  * ユーザーメッセージに関連しそうなチャンクだけを system 用にまとめる
+ * @returns {{ snippet: string, sourceChunks: Array<{ url: string, title: string, text: string }> }}
  */
 export function buildSiteKnowledgeSnippet(userMessage, state, { includeReferenceUrlList = true } = {}) {
   if (isSinglePageOnlyState(state) && (state.chunks || []).length) {
     const use = state.chunks;
     const parts = use.map((c) => `【${labelForKnowledgeChunk(c)}】\nURL: ${c.url}\n${c.text}`);
     const label = String(state.singlePageTitle || "指定ページ");
-    return `【当院公式サイトからの抜粋（${label}のページのみ。他ページの情報は含みません）】\n\n${parts.join(
-      "\n\n---\n\n"
-    )}`;
+    return {
+      snippet: `【当院公式サイトからの抜粋（${label}のページのみ。他ページの情報は含みません）】\n\n${parts.join(
+        "\n\n---\n\n"
+      )}`,
+      sourceChunks: use,
+    };
   }
   const referenceUrls = state?.referenceUrls || [];
   const use = selectReferencedChunks(userMessage, state);
 
   if (!use.length) {
-    return state?.knowledgeText || "";
+    return { snippet: "", sourceChunks: [] };
   }
 
   const parts = use.map((c) => `【${labelForKnowledgeChunk(c)}】\nURL: ${c.url}\n${c.text}`);
@@ -873,17 +894,23 @@ export function buildSiteKnowledgeSnippet(userMessage, state, { includeReference
       .join("\n")}`;
   }
 
-  return snippet;
+  return { snippet, sourceChunks: use };
 }
 
 function buildSinglePageSnippet(state, fallbackTitle, fallbackUrl) {
   const c = state.chunks?.[0];
   if (c) {
-    return `【当院公式サイトからの抜粋（${state.singlePageTitle || fallbackTitle}のページのみ。他ページの情報は含みません）】\n\n【${labelForKnowledgeChunk(
-      c
-    )}】\nURL: ${c.url}\n${c.text}`;
+    return {
+      snippet: `【当院公式サイトからの抜粋（${state.singlePageTitle || fallbackTitle}のページのみ。他ページの情報は含みません）】\n\n【${labelForKnowledgeChunk(
+        c
+      )}】\nURL: ${c.url}\n${c.text}`,
+      sourceChunks: [c],
+    };
   }
-  return `【${fallbackTitle}】\n${fallbackUrl} の本文を取得できませんでした。お手数ですがブラウザで直接ご確認ください。`;
+  return {
+    snippet: `【${fallbackTitle}】\n${fallbackUrl} の本文を取得できませんでした。お手数ですがブラウザで直接ご確認ください。`,
+    sourceChunks: [{ url: fallbackUrl, title: fallbackTitle, text: "" }],
+  };
 }
 
 /** サイトルートなどチップに不向きなURLか */
@@ -900,27 +927,32 @@ export function isGenericKanaiHomeUrl(url) {
 
 /**
  * 公式サイトURLからの知識抜粋（主データソース）
+ * sourceChunks = プロンプトに載せた情報源（参照チップもこれと同一）
  */
 export async function getSiteKnowledgeSnippetSupplement(userMessage) {
   if (isAttendFocusedQuery(userMessage)) {
     const state = await loadAttendPageOnlyState();
-    return {
-      snippet: buildSinglePageSnippet(state, "立ち会い分娩について", ATTEND_INFO_PAGE_URL),
+    const { snippet, sourceChunks } = buildSinglePageSnippet(
       state,
-    };
+      "立ち会い分娩について",
+      ATTEND_INFO_PAGE_URL
+    );
+    return { snippet, state, sourceChunks };
   }
   if (isMeetingFocusedQuery(userMessage)) {
     const state = await loadMeetingPageOnlyState();
-    return {
-      snippet: buildSinglePageSnippet(state, "面会について", MEETING_INFO_PAGE_URL),
+    const { snippet, sourceChunks } = buildSinglePageSnippet(
       state,
-    };
+      "面会について",
+      MEETING_INFO_PAGE_URL
+    );
+    return { snippet, state, sourceChunks };
   }
   const state = await ensureSiteKnowledgeLoaded();
-  return {
-    snippet: buildSiteKnowledgeSnippet(userMessage, state, { includeReferenceUrlList: false }),
-    state,
-  };
+  const { snippet, sourceChunks } = buildSiteKnowledgeSnippet(userMessage, state, {
+    includeReferenceUrlList: false,
+  });
+  return { snippet, state, sourceChunks };
 }
 
 /** @deprecated 互換用。新規は getSiteKnowledgeSnippetSupplement を利用 */

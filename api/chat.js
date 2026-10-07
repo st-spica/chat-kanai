@@ -7,12 +7,10 @@ import {
   isAttendFocusedQuery,
   isGenericKanaiHomeUrl,
   isMeetingFocusedQuery,
-  labelForKnowledgeChunk,
   MEETING_INFO_PAGE_URL,
   filterPagesBySitemap,
   rewriteLegacyKanaiUrl,
-  selectReferencedChunks,
-  selectReferencedPagesForChips,
+  sourcePagesFromChunks,
 } from "./_siteKnowledge.js";
 
 /** 参照チップは最大1件 */
@@ -1094,24 +1092,9 @@ function defaultRefPageTitle(url) {
   return "当院サイト";
 }
 
-/** サイト抜粋内の URL 行からチップを補完 */
-function enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages) {
-  const out = [...(referencedPages || [])];
-  const seen = new Set(out.map((p) => p.url));
-  const re = /(?:URL|参考ページ):\s*(https?:\/\/\S+)/gi;
-  let m;
-  while ((m = re.exec(String(clinicSnippet || "")))) {
-    const url = rewriteLegacyKanaiUrl(m[1].replace(/[).、]+$/, "").trim());
-    if (!url || seen.has(url) || isGenericKanaiHomeUrl(url)) continue;
-    seen.add(url);
-    out.push({ url, title: defaultRefPageTitle(url) });
-  }
-  return out;
-}
-
 /**
  * 参照チップ用ページを正規化（旧URL置換・TOP除外・最大1件）
- * 並びは関連度順（先頭優先）を維持する。
+ * 並びは情報源の関連度順（先頭優先）を維持する。
  * @param {Array<{ url?: string, title?: string }>} pages
  * @param {string} userMessage
  */
@@ -1724,39 +1707,13 @@ export default async function handler(req, res) {
     if (shouldFetchWebKnowledge) {
       const attendFocused = isAttendFocusedQuery(userMessage);
       const meetingFocused = isMeetingFocusedQuery(userMessage);
-      const seenUrl = new Set();
 
-      const { snippet: webSnippet, state } = await getSiteKnowledgeSnippetSupplement(userMessage);
+      // 抜粋に載せたチャンク＝返答の情報源。チップも同一URLにする
+      const { snippet: webSnippet, sourceChunks } = await getSiteKnowledgeSnippetSupplement(
+        userMessage
+      );
       if (webSnippet) {
         clinicSnippet = webSnippet;
-      }
-
-      // 面会・立ち会いは専用URLを強制するため、通常チップ選定はスキップ
-      if (!attendFocused && !meetingFocused) {
-        let chunks = selectReferencedPagesForChips(userMessage, state);
-        if (
-          !chunks.length &&
-          webSnippet &&
-          ((state?.singlePageOnly ?? state?.meetingOnly) || shouldFetchWebKnowledge)
-        ) {
-          chunks = selectReferencedChunks(userMessage, state);
-        }
-        for (const c of chunks) {
-          const url = rewriteLegacyKanaiUrl(c?.url);
-          if (!url || seenUrl.has(url) || isGenericKanaiHomeUrl(url)) continue;
-          seenUrl.add(url);
-          referencedPages.push({
-            url,
-            title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || url,
-          });
-        }
-        referencedPages = enrichReferencedPagesFromSnippet(clinicSnippet, referencedPages);
-      }
-
-      if (clinicSnippet.length > SITE_SNIPPET_MAX_CHARS) {
-        clinicSnippet =
-          clinicSnippet.slice(0, SITE_SNIPPET_MAX_CHARS) +
-          "\n\n（以降、文字数制限のため省略しました）";
       }
 
       if (attendFocused) {
@@ -1767,6 +1724,14 @@ export default async function handler(req, res) {
         referencedPages = [
           { url: MEETING_INFO_PAGE_URL, title: "面会について" },
         ];
+      } else {
+        referencedPages = sourcePagesFromChunks(sourceChunks);
+      }
+
+      if (clinicSnippet.length > SITE_SNIPPET_MAX_CHARS) {
+        clinicSnippet =
+          clinicSnippet.slice(0, SITE_SNIPPET_MAX_CHARS) +
+          "\n\n（以降、文字数制限のため省略しました）";
       }
     }
 
