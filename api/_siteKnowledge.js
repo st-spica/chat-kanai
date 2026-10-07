@@ -140,13 +140,66 @@ function isSkippableUrl(u) {
   return /\.(xml|jpg|jpeg|png|gif|webp|svg|ico|pdf|zip|css|js|woff2?|ttf|eot)(\?|$)/i.test(s);
 }
 
+/** 質問に依存しないベース優先度（取得候補の並び用） */
 function urlPriority(u) {
   let s = 0;
-  // 季節・予防系は sitemap の辞書順で落ちやすいので最優先
-  if (/\/obstetrics\/vaccine|\/prevention\b/i.test(u)) s += 20;
   if (/\/beginner|\/lesson|\/obstetrics|\/gynecology|\/restaurant|\/about|\/aftersupport/i.test(u)) s += 8;
+  if (/\/obstetrics\/vaccine|\/prevention\b/i.test(u)) s += 4;
   if (/\/news|\/info|\/column/i.test(u)) s += 3;
   return s;
+}
+
+/**
+ * 質問と URL の対応付けボーナス／ペナルティ。
+ * 共通ナビに「子宮がん検診」「ワクチン」と書いてある他ページへの誤ヒットを抑える。
+ */
+function queryPathBoost(userMessage, url) {
+  const msg = String(userMessage || "");
+  const u = String(url || "");
+  let b = 0;
+  if (/子宮頸がん|子宮がん検診|婦人科検診|婦人科疾患|コルポ/i.test(msg) && /\/gynecology/i.test(u)) b += 240;
+  if (
+    /インフルエンザ|インフル|ワクチン|予防接種|アブリスボ|RSウイルス|RS\s*ウイルス/i.test(msg) &&
+    /\/obstetrics\/vaccine|\/prevention\b/i.test(u)
+  ) {
+    b += 240;
+  }
+  if (/産後ケア|産後サポート|母乳ケア|アフター/i.test(msg) && /\/aftersupport/i.test(u)) b += 240;
+  if (/産後ケア|産後サポート|母乳ケア/i.test(msg) && /\/vaccine|\/prevention\b/i.test(u)) b -= 200;
+  if (/妊婦健診|妊婦検/i.test(msg) && /\/obstetrics\/checkup/i.test(u)) b += 240;
+  if (/子宮頸がん|子宮がん検診|婦人科検診/i.test(msg) && /\/obstetrics\//i.test(u)) b -= 120;
+  // 具体トピックなのに about / トップ寄りのページが勝たないように
+  if (
+    /子宮頸|子宮がん|ワクチン|インフルエンザ|検診|健診|分娩|面会|産後|立ち会い/i.test(msg) &&
+    /\/about(\/|$)/i.test(u)
+  ) {
+    b -= 100;
+  }
+  // 「検診」質問でワクチンページを出さない（ナビに検診リンクがあるだけ）
+  if (/検診|健診/i.test(msg) && !/ワクチン|予防接種|インフルエンザ|アブリスボ|RS/i.test(msg) && /\/vaccine/i.test(u)) {
+    b -= 200;
+  }
+  // 「ワクチン」質問で婦人科検診本文ページを優先しすぎない（必要ならワクチンURLが勝つ）
+  if (/ワクチン|予防接種|インフルエンザ/i.test(msg) && !/検診|健診/i.test(msg) && /\/gynecology/i.test(u)) {
+    b -= 80;
+  }
+  return b;
+}
+
+/** 共通ヘッダー／グローバルナビを除いた本文寄りのテキスト（スコア用） */
+function contentBodyForScoring(c) {
+  const text = String(c?.text || "");
+  if (!text) return "";
+  const label = String(labelForKnowledgeChunk(c) || "").trim();
+  if (label.length >= 2) {
+    const first = text.indexOf(label);
+    if (first >= 0) {
+      const second = text.indexOf(label, first + label.length);
+      if (second >= 0 && second < text.length - 80) return text.slice(second);
+    }
+  }
+  // 先頭の共通ナビ想定領域を落とす
+  return text.length > 1100 ? text.slice(1000) : text;
 }
 
 /**
@@ -614,6 +667,7 @@ async function loadCandidateUrlList() {
 /** URLパスと質問の簡易スコア（本文取得前の候補選定） */
 function scoreUrlForQuery(userMessage, url) {
   const stub = { url, title: "", text: "" };
+  // topicUrlBoost 内で queryPathBoost 済み
   let score = urlPriority(url) * 10 + topicUrlBoost(userMessage, stub);
   try {
     const path = decodeURIComponent(new URL(url).pathname).toLowerCase();
@@ -861,8 +915,9 @@ function tokenizeUserMessageForScoring(text) {
 function topicUrlBoost(userMessage, c) {
   const msg = String(userMessage || "");
   const msgL = msg.toLowerCase();
-  const urlAndHead = `${c.url}\n${c.title}\n${(c.text || "").slice(0, 1500)}`.toLowerCase();
-  let bonus = 0;
+  const body = contentBodyForScoring(c);
+  const urlAndHead = `${c.url}\n${c.title}\n${body.slice(0, 1800)}`.toLowerCase();
+  let bonus = queryPathBoost(msg, c.url);
   try {
     const path = decodeURIComponent(new URL(c.url).pathname.toLowerCase());
     for (const seg of path.split("/").filter((x) => x.length >= 2)) {
@@ -874,6 +929,11 @@ function topicUrlBoost(userMessage, c) {
     /* ignore */
   }
 
+  const isCervicalScreening = /子宮頸がん|子宮がん検診|婦人科検診/.test(msg);
+  const isVaccineQuery =
+    /インフルエンザ|インフル|ワクチン|予防接種|アブリスボ|RSウイルス|RS\s*ウイルス/.test(msg) &&
+    !isCervicalScreening;
+
   const pairs = [
     [/レストラン|レスト|食堂|食事|ランチ|ディナー|beb|béb|ベベ/i, /restaurant|bebe|bebé|dining|lunch|dinner|meal|cafe|レストラン/],
     [/駐車|パーキング|駐車場|車でお越し/, /parking|park|駐車場|\/access\/.*parking/],
@@ -881,8 +941,12 @@ function topicUrlBoost(userMessage, c) {
     [/面会/, /\/hospitalization\/|#visit|面会/],
     [/立ち会い/, /\/childbirth\/|#assist_birth|立ち会い/],
     [
+      /子宮頸がん|子宮がん検診|婦人科検診|婦人科疾患/,
+      /\/gynecology|子宮頸がん|子宮がん検診|婦人科/,
+    ],
+    [
       /インフルエンザ|インフル|ワクチン|予防接種|アブリスボ|RSウイルス|RS\s*ウイルス/,
-      /\/vaccine|\/prevention|ワクチン|インフルエンザ|アブリスボ|RSウイルス/,
+      /\/vaccine|\/prevention|インフルエンザ|アブリスボ|RSウイルス|ワクチン接種/,
     ],
     [/産婦人科|分娩|出産|妊娠|帝王切開/, /obstetrics|gynecology|delivery|pregnancy|産科|婦人/],
     [/お知らせ|ニュース/, /\/news\/|\/info\/|column|notice/],
@@ -891,11 +955,14 @@ function topicUrlBoost(userMessage, c) {
       /診療時間|受付時間|休診|曜日|スケジュール|診療枠|時間割/,
       /schedule|hours|time|休診|診療|calendar|枠/,
     ],
-    [
+  ];
+  // 一般の健診語は、子宮頸がん検診・ワクチン専用質問では使わない（誤ページ誘発防止）
+  if (!isCervicalScreening && !isVaccineQuery) {
+    pairs.push([
       /検診|健診|妊婦検|乳児検|検査予約|母子手帳/,
       /健診|kenshin|screening|乳児|妊婦|検診|checkup|exam|母子/,
-    ],
-  ];
+    ]);
+  }
   for (const [msgRe, hayRe] of pairs) {
     if (msgRe.test(msg) && hayRe.test(urlAndHead)) bonus += 140;
   }
@@ -907,7 +974,8 @@ function topicUrlBoost(userMessage, c) {
  */
 function chunkScoreForChips(userMessage, c) {
   const text = (userMessage || "").trim();
-  const hay = `${c.title}\n${c.url}\n${c.text}`.toLowerCase();
+  const body = contentBodyForScoring(c);
+  const hay = `${c.title}\n${c.url}\n${body}`.toLowerCase();
   let score = topicUrlBoost(userMessage, c);
   const userTokens = tokenizeUserMessageForScoring(text);
   const userLower = text.toLowerCase();
@@ -973,7 +1041,8 @@ export function selectReferencedChunks(userMessage, state) {
   const userLower = text.toLowerCase();
 
   const scored = chunks.map((c) => {
-    const hay = `${c.title}\n${c.url}\n${c.text}`.toLowerCase();
+    const body = contentBodyForScoring(c);
+    const hay = `${c.title}\n${c.url}\n${body}`.toLowerCase();
     let score = topicUrlBoost(userMessage, c);
     for (const tok of userTokens) {
       const t = tok.toLowerCase();
