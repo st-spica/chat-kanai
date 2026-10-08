@@ -29,6 +29,7 @@ import {
 } from "./birth-pricing.js";
 import { isHomecomingDeliveryQuery } from "./homecoming-delivery.js";
 import { isFirstVisitFeeQuery } from "./first-visit-fee.js";
+import { isFourDUltrasoundQuery } from "./four-d-ultrasound.js";
 import { isKidsRoomQuery } from "./site-route-map.js";
 
 /** @typedef {string|null} TopicIntent */
@@ -89,6 +90,9 @@ export function detectStandaloneIntent(userMessage) {
 
   // 初診料（他料金より先）
   if (isFirstVisitFeeQuery(msg)) return "first_visit_fee";
+
+  // 4D超音波撮影（通常エコーより先）
+  if (isFourDUltrasoundQuery(msg)) return "four_d_ultrasound";
 
   // 分娩費用
   if (isBirthPricingQuery(msg)) {
@@ -398,6 +402,7 @@ export function clinicKnowledgeIdForIntent(intent) {
     pregnancy_folic_acid: "pregnancy-folic-acid",
     homecoming_delivery: "obstetrics-homecoming-delivery",
     first_visit_fee: "clinic-first-visit-fee",
+    four_d_ultrasound: "obstetrics-4d-ultrasound",
     birth_reservation_deposit: "birth-reservation-deposit",
     kids_room: null,
   };

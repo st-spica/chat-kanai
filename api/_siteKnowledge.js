@@ -2004,6 +2004,9 @@ export function labelForKnowledgeChunk(c) {
   if (/#homecoming/i.test(url)) {
     return "里帰り出産について";
   }
+  if (/#ultraimaging/i.test(url)) {
+    return "4D超音波撮影について";
+  }
   if (/#doctor_schedule/i.test(url)) {
     return "診療体制表はこちら";
   }

@@ -64,6 +64,7 @@ import { isPregnancyWeightQuery } from "../data/pregnancy-weight.js";
 import { isLaborHospitalContactQuery } from "../data/labor-contact.js";
 import { isHomecomingDeliveryQuery } from "../data/homecoming-delivery.js";
 import { isFirstVisitFeeQuery } from "../data/first-visit-fee.js";
+import { isFourDUltrasoundQuery } from "../data/four-d-ultrasound.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -166,6 +167,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "labor_hospital_contact",
   "homecoming_delivery",
   "first_visit_fee",
+  "four_d_ultrasound",
   "birth_reservation_deposit",
   "birth_advance_payment",
   "birth_hospitalization_cost",
@@ -605,6 +607,11 @@ export function detectClinicIntent(userMessage) {
     return "first_visit_fee";
   }
 
+  // 4D超音波撮影（通常エコー・未実施推測と混同しない）
+  if (isFourDUltrasoundQuery(msg)) {
+    return "four_d_ultrasound";
+  }
+
   // 葉酸 / 妊娠中の服薬 / 授乳中の服薬（混同禁止）
   if (isPregnancyFolicAcidQuery(msg)) {
     return "pregnancy_folic_acid";
@@ -995,6 +1002,20 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["初診料:対象外質問のため除外"],
         rejected: true,
         rejectReason: "first_visit_feeは初診料関連のみ",
+      };
+    }
+  }
+  // 4D超音波は対象外（通常エコー等）に流用しない
+  if (
+    item.id === "obstetrics-4d-ultrasound" ||
+    itemIntent === "four_d_ultrasound"
+  ) {
+    if (!isFourDUltrasoundQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["4D超音波:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "four_d_ultrasoundは4D超音波撮影関連のみ",
       };
     }
   }

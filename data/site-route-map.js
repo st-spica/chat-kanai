@@ -1164,6 +1164,16 @@ export const SITE_ROUTE_MAP = [
     boost: 180,
   },
   {
+    id: "four_d_ultrasound",
+    label: "4D超音波撮影",
+    patterns: [
+      /4\s*[DdＤｄ]|４\s*[DdＤｄ]|4次元|４次元|四次元|立体エコー|4D超音波|4Dエコー|4D撮影/,
+    ],
+    // 公式アンカー。#ultraimaging を削除・置換しない
+    urls: ["https://kanai.or.jp/obstetrics/checkup/#ultraimaging"],
+    boost: 280,
+  },
+  {
     id: "checkup",
     label: "妊婦健診",
     patterns: [
@@ -1285,6 +1295,10 @@ export function matchSiteRoutes(userMessage) {
     // 里帰り出産は checkup/#homecoming 専用。妊婦健診先頭・分娩予約一般に置換しない
     if (/里帰り/.test(msg)) {
       if (rule.id === "checkup" || rule.id === "delivery_booking") continue;
+    }
+    // 4D超音波は #ultraimaging 専用。妊婦健診先頭・院内撮影禁止ページに置換しない
+    if (/4\s*[DdＤｄ]|４\s*[DdＤｄ]|4次元|四次元|立体エコー|4D超音波|4Dエコー|4D撮影/.test(msg)) {
+      if (rule.id === "checkup" || rule.id === "photo_recording") continue;
     }
     if (rule.id === "hospital_bag" && isNonChildbirthBelongingsQuery(msg)) {
       continue;

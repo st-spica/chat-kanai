@@ -1393,6 +1393,74 @@
       "priority": 200,
       "updatedAt": "2026-10-08",
       "enabled": true
+    },
+    {
+      "id": "obstetrics-4d-ultrasound",
+      "category": "産科/超音波検査",
+      "intent": "four_d_ultrasound",
+      "service": "obstetrics",
+      "target": "pregnant_patient",
+      "availability": "available",
+      "questionPatterns": [
+        "4D超音波撮影について知りたい",
+        "4Dエコーについて教えて",
+        "4Dエコーはできますか",
+        "4D超音波はやっていますか",
+        "4D撮影はできますか",
+        "4Dエコーを受けたい",
+        "4Dエコーは何週からできますか",
+        "4Dエコーの料金はいくらですか",
+        "4Dエコーは予約が必要ですか",
+        "赤ちゃんの4Dエコーを撮りたい",
+        "赤ちゃんを立体的に見られますか",
+        "4次元エコーはありますか",
+        "4D ultrasoundはできますか"
+      ],
+      "keywords": [
+        "4D",
+        "４Ｄ",
+        "4d",
+        "4Dエコー",
+        "4D超音波",
+        "4D超音波撮影",
+        "4D撮影",
+        "4次元エコー",
+        "四次元エコー",
+        "立体エコー",
+        "立体超音波"
+      ],
+      "summary": "当院では4D超音波撮影（4Dエコー）を実施しています。妊娠20〜30週の通院中の方向け・完全予約制。初回5,000円／2回目以降3,000円。",
+      "answer": "当院では、4D超音波撮影（4Dエコー）を実施しています。4D超音波撮影では、お腹の赤ちゃんの様子を立体的な動画で見ることができます。撮影についての詳しいご案内は、下記のページをご確認ください。",
+      "careSource": "data/four-d-ultrasound.js",
+      "clinicInformation": {
+        "available": true,
+        "serviceName": "4D超音波撮影",
+        "aliases": [
+          "4Dエコー",
+          "4D超音波",
+          "4D撮影",
+          "4次元エコー",
+          "四次元エコー"
+        ],
+        "description": "お腹の赤ちゃんの様子を立体的な動画で確認できる超音波撮影です。",
+        "target": "当院通院中の方",
+        "availableGestationalWeeks": { "min": 20, "max": 30 },
+        "priceYen": { "first": 5000, "subsequent": 3000 },
+        "reservationRequired": true
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/obstetrics/checkup/#ultraimaging",
+      "relatedSiteLabel": "4D超音波撮影について",
+      "responseRules": {
+        "useConfirmedAvailability": true,
+        "avoidFalseUnavailability": true,
+        "avoidUnsupportedDetails": true,
+        "preferOfficialPage": true,
+        "preserveUrlFragment": true,
+        "avoidUnnecessaryPhoneReferral": true
+      },
+      "priority": 200,
+      "updatedAt": "2026-10-08",
+      "enabled": true
     }
   ]
 }
