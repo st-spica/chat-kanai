@@ -45,6 +45,168 @@ const POSTPARTUM_VISITATION_NO_INFO_ANSWER =
 const CHILD_VACCINATION_NOT_OFFERED_ANSWER =
   "申し訳ありませんが、当院ではお子さまの予防接種は行っておりません。お子さまの予防接種については、小児科などの医療機関へご相談ください。";
 
+/**
+ * 院内サービス対応可否の話題ルール（質問語 → 根拠に必要な本文語）
+ * availability 未登録かつサイトに該当記載が無いときは unknown
+ */
+const SERVICE_AVAILABILITY_TOPICS = [
+  {
+    id: "sex_selection",
+    label: "産み分け",
+    query: /産み分け|性別を選|赤ちゃんの性別|子供の性別|子どもの性別/,
+    evidence: /産み分け|性別を選|希望.*性別/,
+  },
+  {
+    id: "birth_style",
+    label: "分娩スタイルのご指定",
+    query:
+      /分娩スタイル|出産方法を選|希望する出産|好きな体勢|好きな姿勢|フリースタイル分娩|出産スタイル|体勢で出産|姿勢で出産/,
+    evidence:
+      /分娩スタイル|フリースタイル|好きな体勢|好きな姿勢|出産方法を選|希望する出産方法/,
+  },
+  {
+    id: "water_birth",
+    label: "水中出産",
+    query: /水中出産|水中分娩/,
+    evidence: /水中出産|水中分娩/,
+  },
+];
+
+/** 院内サービスの対応可否を尋ねる質問か */
+function isServiceAvailabilityQuestion(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  // 予約・変更など別処理の可否は除外
+  if (
+    /予約|キャンセル|WEB予約|ウェブ予約|変更したい|今日の予約|当日の予約/i.test(msg) &&
+    !/予防接種|ワクチン|処方|検査|分娩|出産|立ち会|面会|ピル/.test(msg)
+  ) {
+    return false;
+  }
+  if (SERVICE_AVAILABILITY_TOPICS.some((t) => t.query.test(msg))) return true;
+  return /(?:できますか|対応していますか|お願いできますか|指定できますか|選べますか|選択できますか|処方してもらえますか|検査はできますか|やってますか|していますか|受けられますか|実施していますか)/.test(
+    msg
+  );
+}
+
+function matchServiceAvailabilityTopic(userMessage) {
+  const msg = String(userMessage || "");
+  return SERVICE_AVAILABILITY_TOPICS.find((t) => t.query.test(msg)) || null;
+}
+
+/** 未確認時の簡潔案内 */
+function buildServiceAvailabilityUnknownAnswer(userMessage) {
+  const topic = matchServiceAvailabilityTopic(userMessage);
+  const label = topic?.label || "";
+  if (label) {
+    return `${label}については、現在確認できる情報がありません。詳しくは当院まで直接お問い合わせください。`;
+  }
+  // ラベル不明でも断定しない
+  const m = String(userMessage || "").match(
+    /(.+?)(?:はできますか|に対応|をお願い|を指定|を選|を処方|の検査は|もやって|を実施)/
+  );
+  const guessed = m ? String(m[1]).replace(/[？?！!\s　]+$/g, "").trim() : "";
+  if (guessed && guessed.length >= 2 && guessed.length <= 20) {
+    return `${guessed}については、現在確認できる情報がありません。詳しくは当院まで直接お問い合わせください。`;
+  }
+  return "現在確認できる情報がありません。詳しくは当院まで直接お問い合わせください。";
+}
+
+/**
+ * 公式抜粋が「そのサービス自体」の対応可否を裏付けているか
+ */
+function siteEvidenceSupportsServiceAvailability(userMessage, sourceChunks) {
+  const topic = matchServiceAvailabilityTopic(userMessage);
+  const chunks = sourceChunks || [];
+  if (!chunks.length) return false;
+  const hayAll = chunks
+    .map((c) => `${c.title || ""}\n${(c.h1 || []).join(" ")}\n${c.text || ""}`)
+    .join("\n");
+  if (topic) {
+    return topic.evidence.test(hayAll);
+  }
+  // 汎用: 質問から主要語を取り、本文に十分な一致があるか
+  const msg = String(userMessage || "")
+    .replace(
+      /(?:は)?(?:でき|対応|お願い|指定|選べ|選択|処方|検査|やって|してい|受けられ|実施してい)ますか[？?]?/g,
+      " "
+    )
+    .replace(/[？?！!。．、,…]/g, " ")
+    .trim();
+  const tokens = msg
+    .split(/[\s\u3000のをにはがとでもからまでへやなど]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2 && !/^(当院|病院|ください)$/.test(t));
+  if (!tokens.length) return false;
+  const specific = tokens.filter(
+    (t) => !/^(でき|対応|お願い|処方|検査|出産|分娩)$/.test(t)
+  );
+  const use = specific.length ? specific : tokens;
+  const hits = use.filter((t) => hayAll.includes(t));
+  // サービス固有語が本文にあること（関連ページがあるだけでは不可）
+  return hits.length >= 1 && hits.some((t) => t.length >= 3 || /ピル|検診|ワクチン|立ち会|面会|無痛/.test(t));
+}
+
+/**
+ * @returns {"available"|"unavailable"|"unknown"}
+ */
+function resolveServiceAvailabilityStatus(opts) {
+  const {
+    userMessage,
+    notOfferedHit,
+    clinicHits,
+    sourceChunks,
+    attendFocused,
+    meetingFocused,
+    photoFocused,
+  } = opts;
+
+  if (notOfferedHit || isChildVaccinationQuery(userMessage)) {
+    return "unavailable";
+  }
+  // 専用ルートで公式ページが確定しているもの
+  if (attendFocused || meetingFocused || photoFocused) {
+    return "available";
+  }
+  // clinic-knowledge は高スコアのみ採用（弱いキーワード一致で availability を誤用しない）
+  const relevantClinic = (clinicHits || []).filter((h) => {
+    const score = Number(h.score) || 0;
+    if (score < 80) return false;
+    if (attendFocused && h.item?.intent === "photo_recording_policy") return false;
+    if (
+      isServiceAvailabilityQuestion(userMessage) &&
+      h.item?.intent === "childbirth_bonus_dinner" &&
+      !/ディナー|招待|家族/.test(userMessage)
+    ) {
+      return false;
+    }
+    return true;
+  });
+  for (const h of relevantClinic) {
+    const a = h.item?.availability;
+    if (a === "available" || a === "unavailable" || a === "unknown") return a;
+  }
+  if (relevantClinic.length) {
+    return "available";
+  }
+  if (siteEvidenceSupportsServiceAvailability(userMessage, sourceChunks)) {
+    return "available";
+  }
+  // 婦人科トピック（アフターピル等）は本文裏付けがあれば available
+  if (
+    isGynecologyTopicMessage(userMessage) &&
+    (sourceChunks || []).some((c) =>
+      gynecologyPageSupportsQuery(
+        userMessage,
+        `${c.title || ""}\n${c.text || ""}`
+      )
+    )
+  ) {
+    return "available";
+  }
+  return "unknown";
+}
+
 /** サイト抜粋に WEB予約の可否が明示されているか */
 function siteMentionsWebReservationAvailability(snippet) {
   const s = String(snippet || "");
@@ -213,7 +375,7 @@ const SYSTEM = `
 ・医療上の注意喚起・緊急時の案内など安全に必要な情報は省略しない（その場合は文数制限より安全を優先）。
 ・共感は必要なときだけ、相手の言葉に寄せて自然に。毎回の共感は不要。
 ・日常的な赤ちゃんの育児相談（夜泣き・睡眠・生活リズム等）では、「いつでも／お気軽にご相談ください」「具体的な状況を教えてください」「当院でサポートします」など、常時相談窓口と誤認される表現は使わない。1ヶ月健診・2ヶ月健診での相談案内を基本とする（体調不良・母親の限界・緊急は除く）。
-・【診療サービスの対応可否を推測しない（最重要）】「婦人科だからできるはず」「ワクチンページがあるから子供も接種できるはず」「産婦人科だから小児も診られるはず」「近い診療項目があるから対応しているはず」などの推測は禁止。「実施している」と答えるには、対象サービスと対象者（妊婦／子供／成人など）が一致する明確な院内情報（院内登録情報または公式サイトの該当記述）が必要。情報が確認できないときは可否を断定せず、当院へお電話で確認するよう案内する。妊婦向けワクチンの記載を、お子さま本人への予防接種の根拠にしない。
+・【診療サービスの対応可否を推測しない（最重要）】「婦人科だからできるはず」「ワクチンページがあるから子供も接種できるはず」「産婦人科だから小児も診られるはず」「分娩を扱うから分娩スタイルも選べるはず」「関連ページがあるから対応しているはず」「一般的な産婦人科では対応している」などの推測は禁止。「できます／対応しています」と答えるには、対象サービスと対象者が一致する明確な院内情報（院内登録情報または公式サイトの該当記述）が必要。情報が確認できないときは「できる／できない」を断定せず、確認できる情報がない旨を伝え当院へ直接問い合わせるよう案内する。妊婦向けワクチンの記載を、お子さま本人への予防接種の根拠にしない。
 
 【絶対に守る基本原則】
 以下を 必ず守ってください。
@@ -974,7 +1136,8 @@ function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
   return (
     triggers.some((re) => re.test(text)) ||
     isMeetingFocusedQuery(text) ||
-    isAttendFocusedQuery(text)
+    isAttendFocusedQuery(text) ||
+    isServiceAvailabilityQuestion(text)
   );
 }
 
@@ -2706,12 +2869,92 @@ export default async function handler(req, res) {
     });
     referencedPages = chipGuard.pages;
 
+    // 院内サービス対応可否: 根拠が無いときは GPT に渡さず未確認案内（推測禁止）
+    const serviceAvailQuestion =
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      !notOfferedHit &&
+      isServiceAvailabilityQuestion(userMessage);
+    const serviceAvailability = serviceAvailQuestion
+      ? resolveServiceAvailabilityStatus({
+          userMessage,
+          notOfferedHit,
+          clinicHits: clinicKnowledgeHits,
+          sourceChunks: fetchedSourceChunks,
+          attendFocused: isAttendFocusedQuery(userMessage),
+          meetingFocused: isMeetingFocusedQuery(userMessage),
+          photoFocused: isPhotoRecordingFocusedQuery(userMessage),
+        })
+      : null;
+
+    if (serviceAvailQuestion && serviceAvailability === "unknown") {
+      const answer = buildServiceAvailabilityUnknownAnswer(userMessage);
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: clinicDetectedIntent,
+          detectedService: clinicDetectedService,
+          availability: "unknown",
+          serviceAvailability: {
+            status: "unknown",
+            topic: matchServiceAvailabilityTopic(userMessage)?.id || null,
+            action: "fixed_unknown",
+          },
+          matchedClinicKnowledge: clinicKnowledgeHits.map((h) => ({
+            id: h.item.id,
+            score: h.score,
+            availability: h.item.availability || null,
+          })),
+          note: "サービス対応可否の明確根拠なし→未確認案内（チップなし）",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: clinicDetectedIntent,
+          service: clinicDetectedService,
+          availability: "unknown",
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = clinicDetectedIntent;
+        payload.detectedService = clinicDetectedService;
+        payload.availability = "unknown";
+        payload.matchedClinicKnowledge = siteKnowledgeDebug.matchedClinicKnowledge;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 根拠がある対応可否でも、質問サービスと一致しない関連ページだけのチップは出さない
+    if (serviceAvailQuestion && serviceAvailability === "available") {
+      if (
+        matchServiceAvailabilityTopic(userMessage) &&
+        !siteEvidenceSupportsServiceAvailability(userMessage, fetchedSourceChunks) &&
+        !clinicKnowledgeStrong &&
+        !isAttendFocusedQuery(userMessage) &&
+        !isMeetingFocusedQuery(userMessage) &&
+        !isGynecologyTopicMessage(userMessage)
+      ) {
+        referencedPages = [];
+      }
+    }
+
     if (includeDebug) {
       siteKnowledgeDebug = {
         ...(siteKnowledgeDebug || {}),
         queryCategory,
         metaChat: metaChatHit || null,
         siteKnowledgeSearched,
+        availability: serviceAvailability,
         evidenceUrls,
         chipUrls: referencedPages.map((p) => ({
           url: p.url,

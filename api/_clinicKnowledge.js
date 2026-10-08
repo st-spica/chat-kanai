@@ -61,8 +61,24 @@ const CACHE_TTL_MS = Math.max(
  *   updatedAt: string,
  *   enabled: boolean,
  *   relatedSiteUrl?: string,
+ *   availability?: "available"|"unavailable"|"unknown"|null,
  * }} ClinicKnowledgeItem
  */
+
+/** @param {any} raw */
+function normalizeAvailability(raw) {
+  const v = String(raw?.availability ?? "").trim().toLowerCase();
+  if (v === "available" || v === "unavailable" || v === "unknown") return v;
+  // 回答文からのゆるい推定（明示フィールドが無い既存JSON向け）
+  const ans = String(raw?.answer || "");
+  if (/行っておりません|実施していません|対応していません|ご用意がありません|行っていません/.test(ans)) {
+    return "unavailable";
+  }
+  if (/対応しています|行っています|ご利用いただけます|ご招待いただけます|処方は可能|可能です|できます/.test(ans)) {
+    return "available";
+  }
+  return null;
+}
 
 /** @typedef {{ item: ClinicKnowledgeItem, score: number, reasons: string[] }} ClinicKnowledgeHit */
 /** @typedef {{ id: string, intent?: string|null, score: number, reason: string }} ClinicKnowledgeRejection */
@@ -187,6 +203,8 @@ function normalizeOneItem(raw, index) {
     enabled: true,
   };
   if (relatedSiteUrl) item.relatedSiteUrl = relatedSiteUrl;
+  const availability = normalizeAvailability(raw);
+  if (availability) item.availability = availability;
   return item;
 }
 

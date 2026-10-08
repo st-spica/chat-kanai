@@ -266,6 +266,7 @@
         "ワクチン"
       ],
       "answer": "申し訳ありませんが、当院ではお子さまの予防接種は行っておりません。お子さまの予防接種については、小児科などの医療機関へご相談ください。",
+      "availability": "unavailable",
       "priority": 100,
       "updatedAt": "2026-10-08",
       "enabled": true
