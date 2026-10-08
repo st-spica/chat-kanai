@@ -1,10 +1,11 @@
 {
   "version": 2,
-  "description": "院内登録情報（公式サイト未掲載でもチャットで案内してよい確定情報）。enabled=false は検索対象外。",
+  "description": "院内登録情報（公式サイト未掲載でもチャットで案内してよい確定情報）。enabled=false は検索対象外。intent で予約系の意図を分離する。",
   "items": [
     {
       "id": "reception-001",
       "category": "診療/受付",
+      "intent": "reservation_availability",
       "questionPatterns": [
         "当日受診・本日の予約はできますか？",
         "今日の診療の予約はできますか",
@@ -14,7 +15,6 @@
         "今日の予約は取れますか"
       ],
       "keywords": [
-        "予約",
         "当日予約",
         "当日受診",
         "本日の予約",
@@ -88,33 +88,76 @@
       "relatedSiteUrl": "https://kanai.or.jp/news/"
     },
     {
-      "id": "reservation_cancel_change",
+      "id": "web_reservation_availability",
       "category": "reservation",
+      "intent": "web_reservation_availability",
       "questionPatterns": [
-        "予約をキャンセルしたい",
-        "予約を変更したい",
-        "予約キャンセルはどうすればいいですか",
-        "予約変更はいつまでできますか",
-        "WEB予約をキャンセルしたい",
-        "妊婦健診の予約を変更したい",
-        "婦人科の予約を変更したい",
-        "産前産後教室の予約を変更したい"
+        "WEB予約はできますか",
+        "WEBで予約できますか",
+        "WEBで予約できませんか",
+        "WEBで予約できないの",
+        "ネット予約できますか",
+        "オンライン予約できますか",
+        "ウェブ予約はできますか"
       ],
       "keywords": [
-        "予約",
-        "キャンセル",
-        "変更",
-        "初診",
-        "再診",
         "WEB予約",
-        "妊婦健診",
-        "婦人科",
-        "産前産後教室"
+        "ネット予約",
+        "オンライン予約",
+        "ウェブ予約"
       ],
-      "answer": "予約の変更・キャンセルについては、初診の方はお電話でご連絡ください。再診でWEB予約をご利用の場合、妊婦健診・婦人科枠は前日の08:00までWEB上で変更できます。それ以降はお電話でご連絡ください。産前産後教室の予約は、前日の14:00まで変更できます。それ以降はお電話でご連絡ください。",
+      "answer": "再診（2回目以降）の方はWEB予約をご利用いただけます。ご自身でWEB予約・自動受付機・お電話にてご予約をお取りください。初診の方は午前診のみお電話でご予約可能です（当日予約はできません）。夜診は予約をお取りしていませんので直接来院してください。",
       "priority": 100,
       "updatedAt": "2026-10-08",
-      "enabled": true
+      "enabled": true,
+      "relatedSiteUrl": "https://kanai.or.jp/beginner/"
+    },
+    {
+      "id": "reservation_change",
+      "category": "reservation",
+      "intent": "reservation_change",
+      "questionPatterns": [
+        "予約を変更したい",
+        "予約変更はいつまでできますか",
+        "WEB予約を変更したい",
+        "WEB予約の変更",
+        "妊婦健診の予約を変更したい",
+        "婦人科の予約を変更したい",
+        "産前産後教室の予約を変更したい",
+        "予約の変更方法"
+      ],
+      "keywords": [
+        "予約変更",
+        "変更したい",
+        "変更できる"
+      ],
+      "answer": "予約の変更について、初診の方はお電話でご連絡ください。再診でWEB予約をご利用の場合、妊婦健診・婦人科枠は前日の08:00までWEB上で変更できます。それ以降はお電話でご連絡ください。産前産後教室の予約は、前日の14:00まで変更できます。それ以降はお電話でご連絡ください。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true,
+      "relatedSiteUrl": "https://kanai.or.jp/beginner/"
+    },
+    {
+      "id": "reservation_cancel",
+      "category": "reservation",
+      "intent": "reservation_cancel",
+      "questionPatterns": [
+        "予約をキャンセルしたい",
+        "予約キャンセルはどうすればいいですか",
+        "WEB予約をキャンセルしたい",
+        "予約のキャンセル方法",
+        "予約を取り消したい"
+      ],
+      "keywords": [
+        "予約キャンセル",
+        "キャンセルしたい",
+        "取り消し"
+      ],
+      "answer": "予約のキャンセルについて、初診の方はお電話でご連絡ください。再診でWEB予約をご利用の場合も、変更期限を過ぎているときやWEB上で手続きできないときはお電話でご連絡ください。産前産後教室の予約も、期限後はお電話でご連絡ください。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true,
+      "relatedSiteUrl": "https://kanai.or.jp/beginner/"
     }
   ]
 }

@@ -16,10 +16,25 @@ import {
 } from "./_siteKnowledge.js";
 import {
   buildClinicRegisteredKnowledgePrompt,
+  detectClinicIntent,
   isClinicKnowledgeStrong,
   peekClinicKnowledgeStatus,
   searchClinicKnowledge,
 } from "./_clinicKnowledge.js";
+
+const WEB_RESERVATION_NO_INFO_ANSWER =
+  "WEB予約について確認できる情報がありません。お手数ですが、当院へお電話でお問い合わせください。";
+
+/** サイト抜粋に WEB予約の可否が明示されているか */
+function siteMentionsWebReservationAvailability(snippet) {
+  const s = String(snippet || "");
+  if (!/WEB予約|ウェブ予約|ネット予約|オンライン予約/i.test(s)) return false;
+  // 変更・キャンセル期限だけの記述は可否根拠にしない
+  if (/変更|キャンセル/.test(s) && !/ご利用いただけ|予約をお取り|予約可能|予約できます|予約できます/.test(s)) {
+    return false;
+  }
+  return /ご利用いただけ|WEB予約・|予約をお取り|予約可能|予約でき|ご予約いただけ/.test(s);
+}
 
 /** 参照チップは最大1件 */
 const MAX_REFERENCE_CHIPS = 1;
@@ -1955,6 +1970,9 @@ export default async function handler(req, res) {
     let clinicKnowledgeHits = [];
     let clinicKnowledgeStrong = false;
     let clinicTopScore = 0;
+    let clinicDetectedIntent = null;
+    let clinicNormalizedQuery = "";
+    let clinicRejected = [];
     let evidenceUrls = [];
     let chipUrls = [];
     let siteKnowledgeSearched = false;
@@ -1979,6 +1997,9 @@ export default async function handler(req, res) {
         const ck = await searchClinicKnowledge(userMessage, { forceRefresh });
         clinicKnowledgeHits = ck.hits || [];
         clinicTopScore = ck.topScore || 0;
+        clinicDetectedIntent = ck.detectedIntent || detectClinicIntent(userMessage);
+        clinicNormalizedQuery = ck.normalizedQuery || "";
+        clinicRejected = ck.rejected || [];
         clinicKnowledgeStrong =
           Boolean(ck.strong) ||
           isClinicKnowledgeStrong(clinicTopScore, clinicKnowledgeHits);
@@ -1990,14 +2011,18 @@ export default async function handler(req, res) {
               source: ck.source,
               topScore: clinicTopScore,
               strong: clinicKnowledgeStrong,
+              detectedIntent: clinicDetectedIntent,
+              normalizedQuery: clinicNormalizedQuery,
               hits: clinicKnowledgeHits.map((h) => ({
                 id: h.item.id,
                 category: h.item.category,
+                intent: h.item.intent || null,
                 score: h.score,
                 reasons: h.reasons,
                 updatedAt: h.item.updatedAt,
                 sourceType: "clinic_registered",
               })),
+              rejected: clinicRejected,
               status: peekClinicKnowledgeStatus(),
             },
           };
@@ -2216,6 +2241,57 @@ export default async function handler(req, res) {
       };
     }
 
+    // WEB予約可否: 変更・キャンセル情報で穴埋めしない。根拠が無ければ定型回答。
+    const webReserveAvailIntent =
+      clinicDetectedIntent === "web_reservation_availability";
+    const webReserveHasClinic = clinicKnowledgeHits.some(
+      (h) => h.item?.intent === "web_reservation_availability"
+    );
+    const webReserveHasSite = siteMentionsWebReservationAvailability(clinicSnippet);
+    if (webReserveAvailIntent && !webReserveHasClinic && !webReserveHasSite) {
+      const answer = WEB_RESERVATION_NO_INFO_ANSWER;
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: clinicDetectedIntent,
+          normalizedQuery: clinicNormalizedQuery,
+          matchedClinicKnowledge: [],
+          rejectedKnowledge: clinicRejected,
+          webReservationAvailability: {
+            hasClinic: false,
+            hasSite: false,
+            action: "fixed_no_info",
+          },
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: clinicDetectedIntent,
+          webReservationNoInfo: true,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = clinicDetectedIntent;
+        payload.normalizedQuery = clinicNormalizedQuery;
+        payload.matchedClinicKnowledge = [];
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
+    }
+    if (webReserveAvailIntent && webReserveHasSite && !webReserveHasClinic) {
+      // 予約変更・キャンセルの院内登録が混ざらないようクリア済み想定。サイト可否のみ使う。
+      registeredClinicPrompt = "";
+    }
+
     const needNoEvidencePrompt =
       !metaChatHit &&
       clinicFactual &&
@@ -2224,12 +2300,43 @@ export default async function handler(req, res) {
       !notOfferedHit;
 
     const tokyoDatetimePrompt = buildTokyoDatetimeSystemPrompt(userMessage);
+    const reservationIntentGuard =
+      webReserveAvailIntent && (webReserveHasClinic || webReserveHasSite)
+        ? [
+            {
+              role: "system",
+              content: [
+                "【このターン：WEB予約の可否】",
+                "ユーザーはWEB予約ができるかどうかを尋ねています（否定疑問も含む）。",
+                "予約変更期限・キャンセル手順・前日08:00／14:00などの変更専用情報は使わないでください。",
+                "渡された抜粋に書かれたWEB予約の可否・対象（初診/再診など）だけを案内してください。",
+              ].join("\n"),
+            },
+          ]
+        : clinicDetectedIntent === "reservation_change"
+          ? [
+              {
+                role: "system",
+                content:
+                  "【このターン：予約変更】予約変更の期限・方法だけを案内し、WEB予約の可否一般論で薄めないでください。",
+              },
+            ]
+          : clinicDetectedIntent === "reservation_cancel"
+            ? [
+                {
+                  role: "system",
+                  content:
+                    "【このターン：予約キャンセル】キャンセル手順だけを案内してください。",
+                },
+              ]
+            : [];
 
     const messages = [
       { role: "system", content: SYSTEM },
       ...(tokyoDatetimePrompt
         ? [{ role: "system", content: tokyoDatetimePrompt }]
         : []),
+      ...reservationIntentGuard,
       // 院内登録情報（公式サイトより優先）→ 公式サイト抜粋の順で渡す
       ...(registeredClinicPrompt
         ? [{ role: "system", content: registeredClinicPrompt }]
@@ -2379,6 +2486,17 @@ export default async function handler(req, res) {
     if (siteKnowledgeDebug) {
       payload.siteKnowledgeDebug = siteKnowledgeDebug;
       payload.knowledgeConfidence = knowledgeConfidence;
+    }
+    if (includeDebug) {
+      payload.detectedIntent = clinicDetectedIntent;
+      payload.normalizedQuery = clinicNormalizedQuery;
+      payload.matchedClinicKnowledge = clinicKnowledgeHits.map((h) => ({
+        id: h.item.id,
+        intent: h.item.intent || null,
+        score: h.score,
+        reasons: h.reasons,
+      }));
+      payload.rejectedKnowledge = clinicRejected;
     }
     return res.status(200).json(payload);
   } catch (e) {

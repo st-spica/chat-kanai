@@ -179,6 +179,15 @@ export const SITE_ROUTE_MAP = [
     urls: ["https://kanai.or.jp/beginner/"],
     boost: 160,
   },
+  {
+    id: "web_reservation",
+    label: "WEB予約可否",
+    patterns: [
+      /WEB予約|ウェブ予約|ネット予約|オンライン予約|WEBで予約|ネットで予約|オンラインで予約/i,
+    ],
+    urls: ["https://kanai.or.jp/beginner/"],
+    boost: 200,
+  },
 ];
 
 /**

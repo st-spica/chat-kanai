@@ -44,6 +44,7 @@ const CACHE_TTL_MS = Math.max(
  * @typedef {{
  *   id: string,
  *   category: string,
+ *   intent?: string|null,
  *   questionPatterns: string[],
  *   keywords: string[],
  *   answer: string,
@@ -55,6 +56,18 @@ const CACHE_TTL_MS = Math.max(
  */
 
 /** @typedef {{ item: ClinicKnowledgeItem, score: number, reasons: string[] }} ClinicKnowledgeHit */
+/** @typedef {{ id: string, intent?: string|null, score: number, reason: string }} ClinicKnowledgeRejection */
+
+/** 予約系 intent（キーワード一致だけでは採用しない） */
+export const RESERVATION_INTENTS = new Set([
+  "reservation_availability",
+  "web_reservation_availability",
+  "reservation_change",
+  "reservation_cancel",
+  "first_visit_reservation",
+  "revisit_reservation",
+  "class_reservation",
+]);
 
 let memoryCache = {
   at: 0,
@@ -130,6 +143,8 @@ function normalizeOneItem(raw, index) {
     String(raw.id || "").trim() ||
     `item-${String(index + 1).padStart(3, "0")}`;
   const category = String(raw.category ?? "").trim() || "other";
+  const intentRaw = String(raw.intent || "").trim();
+  const intent = intentRaw || inferItemIntent(id, category, questionPatterns);
   const priority = Number.isFinite(Number(raw.priority))
     ? Number(raw.priority)
     : 50;
@@ -142,6 +157,7 @@ function normalizeOneItem(raw, index) {
   const item = {
     id,
     category,
+    intent,
     questionPatterns,
     keywords,
     answer,
@@ -151,6 +167,37 @@ function normalizeOneItem(raw, index) {
   };
   if (relatedSiteUrl) item.relatedSiteUrl = relatedSiteUrl;
   return item;
+}
+
+/**
+ * @param {string} id
+ * @param {string} category
+ * @param {string[]} patterns
+ */
+function inferItemIntent(id, category, patterns) {
+  const hay = `${id}\n${category}\n${(patterns || []).join("\n")}`.toLowerCase();
+  if (/reservation_cancel|キャンセル/.test(hay) && /予約|reservation/.test(hay)) {
+    return "reservation_cancel";
+  }
+  if (/reservation_change|予約変更|変更したい/.test(hay)) {
+    return "reservation_change";
+  }
+  if (/web_reservation|web予約|ウェブ予約/.test(hay)) {
+    return "web_reservation_availability";
+  }
+  if (/first_visit|初診/.test(hay) && /予約|reservation/.test(hay)) {
+    return "first_visit_reservation";
+  }
+  if (/revisit|再診/.test(hay) && /予約|reservation/.test(hay)) {
+    return "revisit_reservation";
+  }
+  if (/class_reservation|教室/.test(hay) && /予約|reservation/.test(hay)) {
+    return "class_reservation";
+  }
+  if (/reception-001|当日予約|reservation_availability/.test(hay)) {
+    return "reservation_availability";
+  }
+  return null;
 }
 
 function inferKeywords(question, answer) {
@@ -294,11 +341,81 @@ function normalizeQueryText(text) {
 }
 
 /**
+ * 予約系の表記ゆれ・否定疑問を正規化（意味は「可否を問う」）
+ * @param {string} userMessage
+ */
+export function normalizeReservationQuery(userMessage) {
+  let s = String(userMessage || "").trim();
+  s = s.replace(/ウェブ予約|ネット予約|オンライン予約/gi, "WEB予約");
+  s = s.replace(/ウェブで予約|ネットで予約|オンラインで予約/gi, "WEBで予約");
+  // 否定疑問も「できますか」と同じ意図へ
+  s = s.replace(
+    /WEB(?:で)?予約(?:は)?(?:できませんか|できないの|できないですか|できないでしょうか|できないよね|できないんだっけ)/g,
+    "WEB予約はできますか"
+  );
+  s = s.replace(/WEB(?:で)?予約(?:は)?できますか/g, "WEB予約はできますか");
+  s = s.replace(/WEB予約(?:は)?可能ですか/g, "WEB予約はできますか");
+  return normalizeQueryText(s);
+}
+
+/**
+ * 質問の clinic intent を推定（予約系を優先分離）
+ * @param {string} userMessage
+ * @returns {string|null}
+ */
+export function detectClinicIntent(userMessage) {
+  const raw = String(userMessage || "").trim();
+  if (!raw) return null;
+  const msg = normalizeReservationQuery(raw);
+  const hasReserve = /予約/.test(msg);
+  const hasWeb = /WEB|ウェブ|ネット|オンライン/i.test(msg);
+  const hasChange = /変更/.test(msg);
+  const hasCancel = /キャンセル|取り消|取消/.test(msg);
+
+  // 変更・キャンセルは可否より優先
+  if (hasReserve && hasChange) {
+    return "reservation_change";
+  }
+  if (hasReserve && hasCancel) {
+    return "reservation_cancel";
+  }
+
+  // WEB予約の可否（否定疑問含む）
+  if (
+    hasWeb &&
+    hasReserve &&
+    /でき|可能|利用|取れ|取れます|申し込め|申込め/.test(msg)
+  ) {
+    return "web_reservation_availability";
+  }
+  if (/^WEB予約はできますか$/.test(msg) || /WEB予約/.test(msg) && /でき|可能/.test(msg)) {
+    return "web_reservation_availability";
+  }
+
+  if (/産前産後教室|教室/.test(msg) && hasReserve) {
+    return "class_reservation";
+  }
+  if (/初診/.test(msg) && hasReserve) {
+    return "first_visit_reservation";
+  }
+  if (/再診/.test(msg) && hasReserve) {
+    return "revisit_reservation";
+  }
+  if (/(?:当日|今日|本日)/.test(msg) && hasReserve) {
+    return "reservation_availability";
+  }
+  if (hasReserve && /でき|可能|取れ|申し込め|申込め/.test(msg)) {
+    return "reservation_availability";
+  }
+  return null;
+}
+
+/**
  * QUERY_NORMALIZERS 等で質問を拡張したマッチ用テキスト
  * @param {string} userMessage
  */
 function expandMessageForClinicMatch(userMessage) {
-  const msg = String(userMessage || "");
+  const msg = normalizeReservationQuery(userMessage);
   const extras = [];
   if (isVisitFocusedMessage(msg)) extras.push("面会", "お見舞い");
   if (isAttendFocusedMessage(msg)) extras.push("立ち会い", "立会い");
@@ -311,31 +428,79 @@ function expandMessageForClinicMatch(userMessage) {
   return normalizeQueryText(`${msg} ${extras.join(" ")}`);
 }
 
+function patternActionTags(text) {
+  const t = String(text || "");
+  return {
+    change: /変更/.test(t),
+    cancel: /キャンセル|取り消|取消/.test(t),
+    availability: /でき|可能|利用|取れ|取れます|申し込め|申込め|ありますか/.test(t),
+  };
+}
+
 /**
  * @param {string} userMessage
  * @param {ClinicKnowledgeItem} item
- * @returns {{ score: number, reasons: string[] }}
+ * @param {{ queryIntent?: string|null }} [opts]
+ * @returns {{ score: number, reasons: string[], rejected?: boolean, rejectReason?: string }}
  */
-export function scoreClinicKnowledgeItem(userMessage, item) {
+export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
   const msg = String(userMessage || "").trim();
-  if (!msg || !item?.enabled) return { score: 0, reasons: [] };
+  if (!msg || !item?.enabled) {
+    return { score: 0, reasons: [], rejected: true, rejectReason: "empty" };
+  }
 
+  const queryIntent =
+    opts.queryIntent !== undefined ? opts.queryIntent : detectClinicIntent(msg);
+  const itemIntent = item.intent || null;
+  const normalizedQuery = normalizeReservationQuery(msg);
   const expanded = expandMessageForClinicMatch(msg);
-  const msgNorm = normalizeQueryText(msg).toLowerCase();
+  const msgNorm = normalizedQuery.toLowerCase();
   const expLower = expanded.toLowerCase();
   const reasons = [];
-  let score = 0;
 
-  // 1) questionPatterns（最重要）
+  // intent 不一致は除外（予約系のみ厳格）
+  if (
+    queryIntent &&
+    RESERVATION_INTENTS.has(queryIntent) &&
+    itemIntent &&
+    RESERVATION_INTENTS.has(itemIntent) &&
+    queryIntent !== itemIntent
+  ) {
+    return {
+      score: 0,
+      reasons: [`intent不一致:query=${queryIntent}/item=${itemIntent}`],
+      rejected: true,
+      rejectReason: `intent不一致(query=${queryIntent}, item=${itemIntent})`,
+    };
+  }
+
+  let score = 0;
   let bestPattern = 0;
+  const qAct = patternActionTags(normalizedQuery);
+
   for (const pat of item.questionPatterns || []) {
     const p = normalizeQueryText(pat).toLowerCase();
     if (!p) continue;
+    const pAct = patternActionTags(p);
+
+    // アクション（変更/キャンセル/可否）が食い違うパターンは使わない
+    if (qAct.change !== pAct.change || qAct.cancel !== pAct.cancel) {
+      continue;
+    }
+    if (
+      RESERVATION_INTENTS.has(queryIntent || "") &&
+      qAct.availability &&
+      (pAct.change || pAct.cancel) &&
+      !qAct.change &&
+      !qAct.cancel
+    ) {
+      continue;
+    }
+
     if (msgNorm === p || msgNorm.includes(p) || p.includes(msgNorm)) {
       bestPattern = Math.max(bestPattern, 120);
       reasons.push(`pattern一致:${pat.slice(0, 24)}`);
     } else {
-      // パターン語の部分一致
       const toks = p.split(/\s+/).filter((t) => t.length >= 2);
       let hit = 0;
       for (const t of toks) {
@@ -344,41 +509,60 @@ export function scoreClinicKnowledgeItem(userMessage, item) {
       if (toks.length && hit === toks.length) {
         bestPattern = Math.max(bestPattern, 90);
         reasons.push(`pattern語全一致:${pat.slice(0, 24)}`);
-      } else if (hit > 0) {
-        bestPattern = Math.max(bestPattern, 25 * hit);
+      } else if (hit >= 2 && !RESERVATION_INTENTS.has(itemIntent || "")) {
+        // 予約系は部分一致だけで高得点にしない
+        bestPattern = Math.max(bestPattern, 20 * hit);
       }
     }
   }
   score += bestPattern;
 
-  // 2) keywords
+  // keywords: 予約系は pattern があるときだけ補助点。keyword単独では通過させない
   let kwHits = 0;
+  let kwScore = 0;
   for (const kw of item.keywords || []) {
     const k = String(kw || "").toLowerCase();
     if (k.length < 2) continue;
     if (expLower.includes(k) || msgNorm.includes(k)) {
       kwHits += 1;
-      score += k.length >= 3 ? 28 : 18;
+      kwScore += k.length >= 3 ? 16 : 10;
       reasons.push(`keyword:${kw}`);
     }
   }
-  if (kwHits >= 2) score += 20;
+  if (kwHits >= 2) kwScore += 10;
 
-  // 3) category / 関連
+  const isReservationItem = RESERVATION_INTENTS.has(itemIntent || "");
+  if (isReservationItem) {
+    if (bestPattern >= 90) {
+      score += Math.min(30, kwScore);
+    } else if (bestPattern > 0) {
+      score += Math.min(12, kwScore);
+    } else {
+      // keywordのみ → 通過不可
+      return {
+        score: Math.min(35, kwScore + Math.min(15, (Number(item.priority) || 0) * 0.1)),
+        reasons: [...reasons, "keywordのみ(予約intentはpattern必須)"],
+        rejected: true,
+        rejectReason: "keywordのみでpattern不一致",
+      };
+    }
+  } else {
+    score += kwScore;
+  }
+
+  if (queryIntent && itemIntent && queryIntent === itemIntent) {
+    score += 40;
+    reasons.push(`intent一致:${queryIntent}`);
+  }
+
   const cat = String(item.category || "").toLowerCase();
-  if (cat && (expLower.includes(cat) || msgNorm.includes(cat))) {
+  if (cat && !isReservationItem && (expLower.includes(cat) || msgNorm.includes(cat))) {
     score += 12;
     reasons.push("category一致");
   }
-  const catHead = cat.split(/[/\s]/)[0];
-  if (catHead.length >= 2 && expLower.includes(catHead)) {
-    score += 6;
-  }
 
-  // priority は微調整（本スコアを上書きしない）
   score += Math.min(30, Math.max(0, Number(item.priority) || 0) * 0.15);
 
-  // 重複理由を整理
   const uniq = [];
   const seen = new Set();
   for (const r of reasons) {
@@ -386,34 +570,76 @@ export function scoreClinicKnowledgeItem(userMessage, item) {
     seen.add(r);
     uniq.push(r);
   }
-  return { score: Math.round(score), reasons: uniq.slice(0, 10) };
+  return { score: Math.round(score), reasons: uniq.slice(0, 12) };
 }
 
 /**
  * @param {string} userMessage
  * @param {{ forceRefresh?: boolean, items?: ClinicKnowledgeItem[] }} [opts]
- * @returns {Promise<{ hits: ClinicKnowledgeHit[], topScore: number, source: string }>}
+ * @returns {Promise<{
+ *   hits: ClinicKnowledgeHit[],
+ *   topScore: number,
+ *   source: string,
+ *   strong: boolean,
+ *   detectedIntent: string|null,
+ *   normalizedQuery: string,
+ *   rejected: ClinicKnowledgeRejection[],
+ * }>}
  */
 export async function searchClinicKnowledge(userMessage, opts = {}) {
   const loaded = opts.items
     ? { items: opts.items, source: "provided" }
     : await loadClinicKnowledgeSource(opts);
   const items = loaded.items || [];
+  const detectedIntent = detectClinicIntent(userMessage);
+  const normalizedQuery = normalizeReservationQuery(userMessage);
+
   if (!items.length) {
-    return { hits: [], topScore: 0, source: loaded.source || "none", strong: false };
+    return {
+      hits: [],
+      topScore: 0,
+      source: loaded.source || "none",
+      strong: false,
+      detectedIntent,
+      normalizedQuery,
+      rejected: [],
+    };
   }
 
-  const scored = items
-    .map((item) => {
-      const { score, reasons } = scoreClinicKnowledgeItem(userMessage, item);
-      return { item, score, reasons };
-    })
-    .filter((h) => h.score >= MIN_PASS_SCORE)
-    .sort((a, b) => b.score - a.score || (b.item.priority || 0) - (a.item.priority || 0));
+  /** @type {ClinicKnowledgeRejection[]} */
+  const rejected = [];
+  const scored = [];
+  for (const item of items) {
+    const { score, reasons, rejected: isRejected, rejectReason } =
+      scoreClinicKnowledgeItem(userMessage, item, { queryIntent: detectedIntent });
+    if (isRejected || score < MIN_PASS_SCORE) {
+      if (isRejected || (detectedIntent && RESERVATION_INTENTS.has(detectedIntent))) {
+        rejected.push({
+          id: item.id,
+          intent: item.intent || null,
+          score,
+          reason: rejectReason || (score < MIN_PASS_SCORE ? `スコア不足(${score})` : "除外"),
+        });
+      }
+      continue;
+    }
+    scored.push({ item, score, reasons });
+  }
+  scored.sort(
+    (a, b) => b.score - a.score || (b.item.priority || 0) - (a.item.priority || 0)
+  );
 
   const topScore = scored[0]?.score || 0;
   if (!topScore) {
-    return { hits: [], topScore: 0, source: loaded.source, strong: false };
+    return {
+      hits: [],
+      topScore: 0,
+      source: loaded.source,
+      strong: false,
+      detectedIntent,
+      normalizedQuery,
+      rejected: rejected.slice(0, 20),
+    };
   }
 
   const minKeep = Math.max(topScore * 0.55, topScore - 40, MIN_PASS_SCORE);
@@ -423,6 +649,9 @@ export async function searchClinicKnowledge(userMessage, opts = {}) {
     topScore,
     source: loaded.source,
     strong: isClinicKnowledgeStrong(topScore, hits),
+    detectedIntent,
+    normalizedQuery,
+    rejected: rejected.slice(0, 20),
   };
 }
 
