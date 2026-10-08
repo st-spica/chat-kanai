@@ -368,6 +368,46 @@ export function isAbortionQuery(userMessage) {
   return /中絶|人工妊娠中絶|妊娠を中断|妊娠中断/.test(msg);
 }
 
+const INFERTILITY_TOPIC_RE =
+  /不妊治療|不妊相談|不妊|妊活|タイミング療法|排卵誘発|排卵誘発剤|排卵誘発薬/;
+
+const ADVANCED_INFERTILITY_RE =
+  /体外受精|人工授精|顕微授精|ART|IVF|ICSI|採卵|胚移植|精子提供/;
+
+/**
+ * 高度生殖医療（一般不妊相談の範囲外）か
+ * @param {string} userMessage
+ */
+export function isAdvancedInfertilityQuery(userMessage) {
+  return ADVANCED_INFERTILITY_RE.test(String(userMessage || ""));
+}
+
+/**
+ * 一般不妊相談・タイミング・排卵誘発の質問か
+ * @param {string} userMessage
+ */
+export function isInfertilityConsultationQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  if (isAdvancedInfertilityQuery(msg) && !INFERTILITY_TOPIC_RE.test(msg)) {
+    // 体外受精のみの質問も不妊関連として扱う（範囲外案内用）
+    return true;
+  }
+  return INFERTILITY_TOPIC_RE.test(msg);
+}
+
+/**
+ * 不妊相談の曜日・担当医の質問か（推測禁止・体制表案内）
+ * @param {string} userMessage
+ */
+export function isInfertilityScheduleQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!isInfertilityConsultationQuery(msg)) return false;
+  return /何曜日|どの曜日|曜日|いつ行け|いつ来|どの先生|担当|先生が|誰が|スケジュール|体制表/.test(
+    msg
+  );
+}
+
 /**
  * 婦人科手術（筋腫・卵巣嚢腫・内膜症・子宮摘出等）の可否か
  * 中絶・産科処置は含めない
@@ -864,6 +904,10 @@ export function detectClinicService(userMessage) {
   if (isChildAccompaniedVisitQuery(msg)) {
     return "outpatient_visit";
   }
+  // 一般不妊相談（高度生殖医療の可否断定はしない）
+  if (isInfertilityConsultationQuery(msg) || isAdvancedInfertilityQuery(msg)) {
+    return "general_infertility_consultation";
+  }
   // 分娩料金（産後ケア料金は除外）
   if (
     /予約金|予納金|出産費用|分娩費用|分娩料金|入院費|きょうだい割引|パパママ割引|出産育児一時金/.test(
@@ -1032,6 +1076,16 @@ export const SITE_ROUTE_MAP = [
     patterns: [QUERY_NORMALIZERS.gynecology.pattern],
     urls: ["https://kanai.or.jp/gynecology/"],
     boost: 180,
+  },
+  {
+    id: "infertility_consultation",
+    label: "一般不妊相談",
+    patterns: [
+      /不妊治療|不妊相談|不妊|妊活|タイミング療法|排卵誘発|排卵誘発剤/,
+      /体外受精|人工授精|顕微授精/,
+    ],
+    urls: ["https://kanai.or.jp/beginner/#doctor_schedule"],
+    boost: 260,
   },
   {
     id: "hours",

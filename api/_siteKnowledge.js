@@ -2001,6 +2001,9 @@ export function labelForKnowledgeChunk(c) {
   if (/#price_birth/i.test(url)) {
     return "分娩料金について";
   }
+  if (/#doctor_schedule/i.test(url)) {
+    return "診療体制表はこちら";
+  }
   if (/\/facilities\/?/i.test(url)) {
     return "院内施設のご案内";
   }

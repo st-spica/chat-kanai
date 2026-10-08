@@ -403,6 +403,14 @@ export function detectSaturdayOrdinalInMessage(msg) {
 export function isClinicHoursQuery(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg) return false;
+  // 不妊・妊活などサービス可否は診療時間ではない（「やっていますか」の誤反応防止）
+  if (
+    /不妊|妊活|タイミング療法|排卵誘発|体外受精|人工授精|顕微授精|ART|IVF/.test(
+      msg
+    )
+  ) {
+    return false;
+  }
   // 予約可否は別ハンドラ
   if (
     /夜診|夜の診察|夕方の診察/.test(msg) &&
@@ -410,10 +418,26 @@ export function isClinicHoursQuery(userMessage) {
   ) {
     return false;
   }
+  // 明示的な診療時間・枠・休診
   if (
-    /診療時間|診察時間|受付時間|休診|午前診|午後診|夜診|何時から|何時まで|開いてい|診察して|診療して|診て(い|る|ます)|やって(い|る|ます)/.test(
-      msg
-    )
+    /診療時間|診察時間|受付時間|休診|午前診|午後診|何時から|何時まで/.test(msg)
+  ) {
+    return true;
+  }
+  // 夜診の時間・曜日（予約以外）
+  if (
+    /夜診/.test(msg) &&
+    /何時|時間|曜日|ありますか|開い|やって/.test(msg) &&
+    !/予約/.test(msg)
+  ) {
+    return true;
+  }
+  if (/開いてい/.test(msg)) return true;
+  // 「診察していますか」は日付・曜日文脈があるときだけ
+  if (
+    /(診察|診療)して(い|る|ます)/.test(msg) &&
+    (detectWeekdayInMessage(msg) != null ||
+      /今日|本日|明日|明後日|祝日|土曜|日曜/.test(msg))
   ) {
     return true;
   }

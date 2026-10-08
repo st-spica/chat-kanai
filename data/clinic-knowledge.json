@@ -153,6 +153,34 @@
       "relatedSiteUrl": "https://kanai.or.jp/facilities/"
     },
     {
+      "id": "general-infertility-consultation",
+      "category": "婦人科/不妊相談",
+      "intent": "infertility_consultation",
+      "service": "general_infertility_consultation",
+      "availability": "limited",
+      "questionPatterns": [
+        "不妊治療はやっていますか",
+        "不妊治療はできますか",
+        "不妊相談はできますか",
+        "妊娠しないので相談したい",
+        "タイミング療法はできますか",
+        "排卵誘発剤は処方してもらえますか",
+        "妊活について相談できますか"
+      ],
+      "keywords": [
+        "不妊治療",
+        "不妊相談",
+        "妊活",
+        "タイミング療法",
+        "排卵誘発法"
+      ],
+      "answer": "当院では一般不妊相談に対応しております。妊娠を急がない方を対象に、タイミング療法や排卵誘発法（内服薬の処方）のみ対応しています。対応できる医師は曜日によって異なりますので、診療体制表をご確認のうえ、日程を合わせてご受診ください。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true,
+      "relatedSiteUrl": "https://kanai.or.jp/beginner/#doctor_schedule"
+    },
+    {
       "id": "birth-reservation-deposit",
       "category": "分娩料金/予約金",
       "intent": "birth_reservation_deposit",

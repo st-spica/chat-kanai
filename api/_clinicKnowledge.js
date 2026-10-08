@@ -27,12 +27,15 @@ import {
   isGynecologicSurgeryQuery,
   isGynecologyUltrasoundFrequencyQuery,
   isFeeFocusedMessage,
+  isAdvancedInfertilityQuery,
   isChildAccompaniedVisitQuery,
   isChildcareRequestQuery,
   isChildPatientExamQuery,
   isEveningConsultationHoursQuery,
   isEveningConsultationReservationQuery,
   isHospitalBagQuery,
+  isInfertilityConsultationQuery,
+  isInfertilityScheduleQuery,
   isKidsRoomQuery,
   isMotherDistressConsultMessage,
   isNonChildbirthBelongingsQuery,
@@ -87,18 +90,28 @@ const CACHE_TTL_MS = Math.max(
  *   updatedAt: string,
  *   enabled: boolean,
  *   relatedSiteUrl?: string,
- *   availability?: "available"|"unavailable"|"unknown"|null,
+ *   availability?: "available"|"unavailable"|"unknown"|"limited"|null,
  * }} ClinicKnowledgeItem
  */
 
 /** @param {any} raw */
 function normalizeAvailability(raw) {
   const v = String(raw?.availability ?? "").trim().toLowerCase();
-  if (v === "available" || v === "unavailable" || v === "unknown") return v;
+  if (
+    v === "available" ||
+    v === "unavailable" ||
+    v === "unknown" ||
+    v === "limited"
+  ) {
+    return v;
+  }
   // 回答文からのゆるい推定（明示フィールドが無い既存JSON向け）
   const ans = String(raw?.answer || "");
   if (/行っておりません|実施していません|対応していません|ご用意がありません|行っていません/.test(ans)) {
     return "unavailable";
+  }
+  if (/のみ対応|限定|一般不妊相談に対応/.test(ans)) {
+    return "limited";
   }
   if (/対応しています|行っています|ご利用いただけます|ご招待いただけます|処方は可能|可能です|できます/.test(ans)) {
     return "available";
@@ -132,6 +145,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "ultrasound_frequency",
   "hospital_bag",
   "child_accompanied_visit",
+  "infertility_consultation",
   "birth_reservation_deposit",
   "birth_advance_payment",
   "birth_hospitalization_cost",
@@ -536,6 +550,11 @@ export function detectClinicIntent(userMessage) {
     return "child_accompanied_visit";
   }
 
+  // 一般不妊相談（診療時間・高度生殖医療の可否断定と分離）
+  if (isInfertilityConsultationQuery(msg) || isAdvancedInfertilityQuery(msg)) {
+    return "infertility_consultation";
+  }
+
   // 分娩料金（予約金・予納金・入院費・割引）。産後ケア料金は含めない
   {
     const birthIntent = detectBirthPricingIntent(msg);
@@ -813,6 +832,24 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["お子さま同伴:対象外質問のため除外"],
         rejected: true,
         rejectReason: "child_accompanied_visitは同伴・キッズルームのみ",
+      };
+    }
+  }
+  // 一般不妊相談は不妊・妊活質問以外に流用しない
+  if (
+    item.id === "general-infertility-consultation" ||
+    itemIntent === "infertility_consultation" ||
+    itemService === "general_infertility_consultation"
+  ) {
+    if (
+      !isInfertilityConsultationQuery(msg) &&
+      !isAdvancedInfertilityQuery(msg)
+    ) {
+      return {
+        score: 0,
+        reasons: ["不妊相談:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "infertility_consultationは不妊・妊活質問のみ",
       };
     }
   }

@@ -37,9 +37,12 @@ import {
   isAbortionQuery,
   isCelebrationDinnerAllergyQuery,
   isCelebrationDinnerFoodRequestQuery,
+  isAdvancedInfertilityQuery,
   isChildAccompaniedVisitQuery,
   isChildcareRequestQuery,
   isChildPatientExamQuery,
+  isInfertilityConsultationQuery,
+  isInfertilityScheduleQuery,
   isKidsRoomQuery,
   isGenderSelectionQuery,
   isGynecologicExamConsultQuery,
@@ -90,6 +93,68 @@ const FACILITIES_REF_PAGE = {
   url: "https://kanai.or.jp/facilities/",
   title: "院内施設のご案内",
 };
+
+const INFERTILITY_SCHEDULE_REF_PAGE = {
+  url: "https://kanai.or.jp/beginner/#doctor_schedule",
+  title: "診療体制表はこちら",
+};
+
+const INFERTILITY_GENERAL_ANSWER = [
+  "当院では、一般不妊相談に対応しております。",
+  "",
+  "妊娠を急がない方を対象に、",
+  "タイミング療法や排卵誘発法（内服薬の処方）のみ",
+  "対応しています。",
+  "",
+  "対応できる医師は曜日によって異なりますので、",
+  "下記の診療体制表をご確認のうえ、",
+  "日程を合わせてご受診ください。",
+].join("\n");
+
+const INFERTILITY_SCHEDULE_ANSWER = [
+  "一般不妊相談に対応できる医師は曜日によって異なります。",
+  "下記の診療体制表をご確認のうえ、日程を合わせてご受診ください。",
+].join("\n");
+
+const INFERTILITY_TIMING_ANSWER = [
+  "はい。一般不妊相談の範囲で、タイミング療法に対応しています。",
+  "対応できる医師は曜日によって異なりますので、診療体制表をご確認ください。",
+].join("\n");
+
+const INFERTILITY_OVULATION_ANSWER = [
+  "はい。一般不妊相談の範囲で、排卵誘発法（内服薬の処方）に対応しています。",
+  "実際の処方の可否は、医師の診察・判断によります。",
+  "対応できる医師は曜日によって異なりますので、診療体制表をご確認ください。",
+].join("\n");
+
+const INFERTILITY_ADVANCED_OUT_OF_SCOPE_ANSWER = [
+  "当院で対応している一般不妊相談は、タイミング療法と排卵誘発法（内服薬の処方）のみです。",
+  "体外受精・人工授精・顕微授精などについては、一般不妊相談の対応範囲には含まれません。",
+].join("\n");
+
+/**
+ * @param {string} userMessage
+ * @returns {{ answer: string, focus: string }|null}
+ */
+function buildInfertilityConsultationAnswer(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!isInfertilityConsultationQuery(msg) && !isAdvancedInfertilityQuery(msg)) {
+    return null;
+  }
+  if (isAdvancedInfertilityQuery(msg)) {
+    return { answer: INFERTILITY_ADVANCED_OUT_OF_SCOPE_ANSWER, focus: "advanced" };
+  }
+  if (isInfertilityScheduleQuery(msg)) {
+    return { answer: INFERTILITY_SCHEDULE_ANSWER, focus: "schedule" };
+  }
+  if (/タイミング/.test(msg)) {
+    return { answer: INFERTILITY_TIMING_ANSWER, focus: "timing" };
+  }
+  if (/排卵誘発/.test(msg)) {
+    return { answer: INFERTILITY_OVULATION_ANSWER, focus: "ovulation" };
+  }
+  return { answer: INFERTILITY_GENERAL_ANSWER, focus: "general" };
+}
 
 const CHILD_ACCOMPANY_HINT_RE =
   /連れ|一緒|同伴|子連れ|連れて行|連れてき|連れて来|上の子/;
@@ -869,6 +934,7 @@ const SYSTEM = `
 ・【診療時間・休診】曜日別の確定データ以外から推測しない。一般的な病院の時間をコピーしたり、別曜日の枠を流用したりしない。第3・第5土曜日は休診。火曜に午後診・夜診はない。木・金に夜診はない。臨時休診は通常予定と混同しない。
 ・【お子さま同伴・キッズルーム】お子さま連れの来院は可能。院内にキッズルームあり。診療内容・時間帯による制限や「事前電話確認」を勝手に付け足さない。キッズルームを理由にスタッフ託児・診察中の預かり・分娩時同伴・入院宿泊まで対応可能と推測しない。お子さま本人の診察・予防接種と同伴案内を混同しない。
 ・【分娩料金】予約金（10,000円）と予納金（100,000円／300,000円）を混同しない。予約金のうち5,000円は入院費への精算であり「5,000円のみ返金不可」と誤解釈しない。金額は確定データ以外から推測しない。産後ケア料金に分娩料金を流用しない。きょうだい割引・パパママ割引は分娩料金ページの制度であり、分娩予約特典ページと混同しない。
+・【一般不妊相談】不妊治療・妊活の質問では診療時間表を出さない。対応は一般不妊相談に限り、妊娠を急がない方向けのタイミング療法・排卵誘発法（内服薬処方）のみ。担当医・曜日は推測せず診療体制表を案内する。体外受精・人工授精・顕微授精を一般不妊相談の根拠だけで対応可能としない。
 
 【絶対に守る基本原則】
 以下を 必ず守ってください。
@@ -1679,7 +1745,9 @@ function shouldForceRichHtmlForMessage(userMessage, safeHistory) {
   if (
     isClinicHoursQuery(userMessage) ||
     isEveningConsultationReservationQuery(userMessage) ||
-    isBirthPricingQuery(userMessage)
+    isBirthPricingQuery(userMessage) ||
+    isInfertilityConsultationQuery(userMessage) ||
+    isAdvancedInfertilityQuery(userMessage)
   ) {
     return false;
   }
@@ -2118,6 +2186,7 @@ function defaultRefPageTitle(url) {
   const u = String(url || "").toLowerCase();
   if (/#hos_bring/i.test(u)) return "入院時の持ち物について";
   if (/#price_birth/i.test(u)) return "分娩料金について";
+  if (/#doctor_schedule/i.test(u)) return "診療体制表はこちら";
   if (/\/obstetrics\/checkup\/?/i.test(u)) return "妊婦健診について";
   if (/\/facilities\/?/i.test(u)) return "院内施設のご案内";
   if (/\/about\/?/i.test(u)) return "当院について";
@@ -2182,6 +2251,24 @@ function relatedSiteUrlChipFromClinicHits(
           title: BIRTH_PRICING_REF_PAGE.title,
           score: 100,
           reason: "clinic relatedSiteUrl（分娩料金）",
+        };
+      }
+    }
+    // 一般不妊相談：#doctor_schedule を保持
+    if (
+      h.item?.intent === "infertility_consultation" ||
+      h.item?.id === "general-infertility-consultation" ||
+      /#doctor_schedule/i.test(url)
+    ) {
+      if (
+        isInfertilityConsultationQuery(userMessage) ||
+        isAdvancedInfertilityQuery(userMessage)
+      ) {
+        return {
+          url: INFERTILITY_SCHEDULE_REF_PAGE.url,
+          title: INFERTILITY_SCHEDULE_REF_PAGE.title,
+          score: 100,
+          reason: "clinic relatedSiteUrl（診療体制表）",
         };
       }
     }
@@ -2306,14 +2393,16 @@ function guardReferenceChipsByQuestion(pages, userMessage, opts = {}) {
       (/\/obstetrics\/checkup\//i.test(p.url || "") &&
         isPrenatalUltrasoundFrequencyQuery(msg)) ||
       (/#hos_bring/i.test(p.url || "") && isHospitalBagQuery(msg)) ||
-      (/#visit|#assist_birth|#price_birth|\/vaccine\/|\/beginner\/|\/hospitalization\/|\/rsv_bonus\/|\/notpermit\//i.test(
+      (/#visit|#assist_birth|#price_birth|#doctor_schedule|\/vaccine\/|\/beginner\/|\/hospitalization\/|\/rsv_bonus\/|\/notpermit\//i.test(
         p.url || ""
       ) &&
         (isMeetingFocusedQuery(msg) ||
           isAttendFocusedQuery(msg) ||
           isPhotoRecordingFocusedQuery(msg) ||
           isDeliveryBenefitsFocusedMessage(msg) ||
-          /ワクチン|インフルエンザ|予防接種|今日|本日|明日|午後|午前|診療|診察|予約|費用|料金|割引|特典|プレゼント|キャンペーン|ディナー|招待|撮影|写真|動画|録音/.test(
+          isInfertilityConsultationQuery(msg) ||
+          isAdvancedInfertilityQuery(msg) ||
+          /ワクチン|インフルエンザ|予防接種|今日|本日|明日|午後|午前|診療|診察|予約|費用|料金|割引|特典|プレゼント|キャンペーン|ディナー|招待|撮影|写真|動画|録音|不妊|妊活/.test(
             msg
           )));
     if (hit || routeOk) {
@@ -3335,6 +3424,77 @@ export default async function handler(req, res) {
         payload.detectedService = "evening_consultation";
         payload.availability = "unavailable";
         payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.rejectedKnowledge = clinicRejected;
+        payload.referenceChips = referencedPages;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 一般不妊相談（診療時間表を出さない。高度生殖医療は範囲外）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      (isInfertilityConsultationQuery(userMessage) ||
+        isAdvancedInfertilityQuery(userMessage))
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "general-infertility-consultation" ||
+          h.item?.intent === "infertility_consultation"
+      );
+      const built = buildInfertilityConsultationAnswer(userMessage);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim() ||
+          INFERTILITY_GENERAL_ANSWER
+      );
+      const referencedPages = [INFERTILITY_SCHEDULE_REF_PAGE];
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "infertility_consultation",
+          detectedService: "general_infertility_consultation",
+          availability: ckHit?.item?.availability || "limited",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  availability: ckHit.item.availability || "limited",
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          matchedSiteUrl: INFERTILITY_SCHEDULE_REF_PAGE.url,
+          rejectedKnowledge: clinicRejected,
+          referenceChips: referencedPages,
+          infertilityFocus: built?.focus || null,
+          note: "一般不妊相談は範囲を明示。診療時間表は出さない。担当曜日は推測しない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "infertility_consultation",
+          service: "general_infertility_consultation",
+          infertilityConsultation: true,
+          infertilityFocus: built?.focus || null,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "infertility_consultation";
+        payload.detectedService = "general_infertility_consultation";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = INFERTILITY_SCHEDULE_REF_PAGE.url;
         payload.rejectedKnowledge = clinicRejected;
         payload.referenceChips = referencedPages;
       }
