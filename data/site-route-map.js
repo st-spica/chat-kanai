@@ -448,6 +448,63 @@ export function isGenderSelectionQuery(userMessage) {
   return false;
 }
 
+/** 妊婦健診・妊娠経過の文脈か */
+export function mentionsPrenatalCheckupTopic(text) {
+  return /妊婦健診|妊婦検|健診枠|妊娠|妊婦|胎嚢|産科|健診/.test(
+    String(text || "")
+  );
+}
+
+/**
+ * 婦人科診察でのエコー頻度か（妊婦健診ルールを流用しない）
+ * @param {string} userMessage
+ */
+export function isGynecologyUltrasoundFrequencyQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  if (!/エコー|超音波/.test(msg)) return false;
+  if (!/婦人科/.test(msg)) return false;
+  return /毎回|頻度|いつから|してもらえ/.test(msg) || /診察/.test(msg);
+}
+
+/**
+ * 妊婦健診でのエコー頻度・胎嚢確認前後の案内か
+ * @param {string} userMessage
+ * @param {string} [contextText] 直前会話（妊婦健診文脈の補完）
+ */
+export function isPrenatalUltrasoundFrequencyQuery(
+  userMessage,
+  contextText = ""
+) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  if (isGynecologyUltrasoundFrequencyQuery(msg)) return false;
+
+  const ctx = `${msg}\n${String(contextText || "")}`;
+
+  // 胎嚢未確認のフォロー（エコー頻度の文脈）
+  if (
+    /胎嚢/.test(msg) &&
+    /確認できていな|見えな|まだ|写っていな|写らな/.test(msg)
+  ) {
+    return (
+      mentionsPrenatalCheckupTopic(ctx) ||
+      /エコー|超音波/.test(ctx) ||
+      mentionsPrenatalCheckupTopic(msg)
+    );
+  }
+
+  if (!/エコー|超音波/.test(msg)) return false;
+  if (!/毎回|いつから|頻度|毎回来/.test(msg)) return false;
+
+  // 明示的に妊婦健診／妊娠／胎嚢
+  if (/妊婦健診|妊婦|妊娠|胎嚢|産科/.test(msg)) return true;
+  // 直前が妊婦健診の話
+  if (mentionsPrenatalCheckupTopic(contextText)) return true;
+  // 産婦人科チャットでは「エコーは毎回？」を妊婦健診として扱う（婦人科明示時は上で除外済み）
+  return true;
+}
+
 /**
  * 赤ちゃんの体調・症状相談（健診まで待たせない）
  * @param {string} userMessage
@@ -566,6 +623,14 @@ export function detectClinicService(userMessage) {
   // 婦人科手術（未実施・中絶は別扱い）
   if (isGynecologicSurgeryQuery(msg)) {
     return "gynecologic_surgery";
+  }
+  // 妊婦健診のエコー頻度
+  if (isPrenatalUltrasoundFrequencyQuery(msg)) {
+    return "prenatal_checkup";
+  }
+  // 婦人科のエコー頻度（妊婦健診と分離）
+  if (isGynecologyUltrasoundFrequencyQuery(msg)) {
+    return "gynecology";
   }
   // お祝いディナー（家族招待・食材変更・アレルギー）
   if (
@@ -746,7 +811,10 @@ export const SITE_ROUTE_MAP = [
   {
     id: "checkup",
     label: "妊婦健診",
-    patterns: [/妊婦健診|妊婦検|健診枠/],
+    patterns: [
+      /妊婦健診|妊婦検|健診枠/,
+      /(?:エコー|超音波).{0,12}(?:毎回|いつから)|(?:毎回|いつから).{0,12}(?:エコー|超音波)/,
+    ],
     urls: ["https://kanai.or.jp/obstetrics/checkup/"],
     boost: 200,
   },

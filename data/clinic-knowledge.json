@@ -224,6 +224,34 @@
       "enabled": true
     },
     {
+      "id": "prenatal-checkup-ultrasound-frequency",
+      "category": "産科/妊婦健診",
+      "intent": "ultrasound_frequency",
+      "service": "prenatal_checkup",
+      "questionPatterns": [
+        "エコーは毎回ありますか",
+        "毎回エコーしてもらえますか",
+        "妊婦健診では毎回エコーがありますか",
+        "超音波検査は毎回ありますか",
+        "超音波検査は毎回してもらえますか",
+        "エコーはいつから毎回ありますか",
+        "胎嚢が見えたら毎回エコーがありますか",
+        "まだ胎嚢が確認できていません"
+      ],
+      "keywords": [
+        "エコー",
+        "超音波",
+        "妊婦健診",
+        "毎回",
+        "胎嚢"
+      ],
+      "answer": "エコーについては、妊娠の進み具合や状況によって異なりますが、当院では胎嚢が確認できるようになると、毎回の妊婦健診でエコーを行っています。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true,
+      "relatedSiteUrl": "https://kanai.or.jp/obstetrics/checkup/"
+    },
+    {
       "id": "web_reservation_availability",
       "category": "reservation",
       "intent": "web_reservation_availability",

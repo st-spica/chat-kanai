@@ -40,8 +40,10 @@ import {
   isGynecologicMedicationQuery,
   isGynecologicSurgeryQuery,
   isGynecologyTopicMessage,
+  isGynecologyUltrasoundFrequencyQuery,
   isInfantUrgentSymptomMessage,
   isMotherDistressConsultMessage,
+  isPrenatalUltrasoundFrequencyQuery,
   isVisitationIntentMessage,
   parseInfantAgeMonths,
   resolveBabyCareGuidanceRoute,
@@ -64,6 +66,39 @@ const CELEBRATION_DINNER_FOOD_REQUEST_ANSWER =
 
 const CELEBRATION_DINNER_ALLERGY_ANSWER =
   "食物アレルギーについては安全に関わるため、事前にスタッフへご相談ください。対応の可否についてはお約束できません。";
+
+const PRENATAL_ULTRASOUND_FREQUENCY_ANSWER =
+  "エコーについては、妊娠の進み具合や状況によって異なりますが、当院では胎嚢が確認できるようになると、毎回の妊婦健診でエコーを行っています。";
+
+const PRENATAL_ULTRASOUND_BEFORE_SAC_ANSWER =
+  "胎嚢が確認できるまでの時期は、妊娠の進み具合や状況によってエコーの有無が異なります。当院では胎嚢が確認できるようになると、毎回の妊婦健診でエコーを行っています。";
+
+const GYNECOLOGY_ULTRASOUND_FREQUENCY_NO_INFO_ANSWER =
+  "婦人科診察でのエコーの頻度については、現在確認できる情報がありません。詳しくは当院までお問い合わせください。";
+
+const PRENATAL_CHECKUP_REF_PAGE = {
+  url: "https://kanai.or.jp/obstetrics/checkup/",
+  title: "妊婦健診について",
+};
+
+/** 胎嚢未確認のフォローアップか（毎回実施と断定しない） */
+function isBeforeGestationalSacMessage(userMessage) {
+  const msg = String(userMessage || "").trim();
+  return (
+    /胎嚢/.test(msg) &&
+    /確認できていな|見えな|まだ|写っていな|写らな/.test(msg)
+  );
+}
+
+function buildPrenatalUltrasoundFrequencyAnswer(userMessage) {
+  if (isBeforeGestationalSacMessage(userMessage)) {
+    return PRENATAL_ULTRASOUND_BEFORE_SAC_ANSWER;
+  }
+  if (/いつから/.test(String(userMessage || ""))) {
+    return "当院では胎嚢が確認できるようになると、毎回の妊婦健診でエコーを行っています。";
+  }
+  return PRENATAL_ULTRASOUND_FREQUENCY_ANSWER;
+}
 
 /** 会話履歴からお祝いディナー文脈テキストを作る */
 function celebrationDinnerContextText(safeHistory, userMessage = "") {
@@ -595,6 +630,7 @@ const SYSTEM = `
 ・日常的な赤ちゃんの育児相談（夜泣き・睡眠・生活リズム等）では、「いつでも／お気軽にご相談ください」「具体的な状況を教えてください」「当院でサポートします」など、常時相談窓口と誤認される表現は使わない。月齢を認識し、1・2ヶ月健診の対象時期なら健診時相談を案内し、それ以降（目安:生後3ヶ月〜）は自治体の保健センターや小児科などを案内する。過ぎた健診をこれから使える相談先として案内しない。月齢不明で案内先の判断に必要なときだけ簡潔に月齢を確認する（体調不良・母親の限界・緊急は除く）。
 ・【診療サービスの対応可否を推測しない（最重要）】「婦人科だからできるはず」「ワクチンページがあるから子供も接種できるはず」「産婦人科だから小児も診られるはず」「分娩を扱うから分娩スタイルも選べるはず」「関連ページがあるから対応しているはず」「一般的な産婦人科では対応している」などの推測は禁止。「できます／対応しています」と答えるには、対象サービスと対象者が一致する明確な院内情報（院内登録情報または公式サイトの該当記述）が必要。情報が確認できないときは「できる／できない」を断定せず、確認できる情報がない旨を伝え当院へ直接問い合わせるよう案内する。妊婦向けワクチンの記載を、お子さま本人への予防接種の根拠にしない。産み分けは「婦人科でご相談いただけます」と案内しない（未実施の院内情報がある場合はそれに従う）。
 ・【婦人科の手術と診察・処方を区別する】当院では婦人科の手術（子宮筋腫・卵巣のう腫・内膜症・子宮摘出など）は行っていない。手術が必要なら対応医療機関への相談を案内する。一方、診察・診断・お薬の相談は婦人科で受けられる。お薬は診察のうえ医師が必要性を判断し、特定の薬の処方を保証しない。「手術」という語だけで中絶など別サービスの登録情報を流用しない。中絶については既存の院内登録情報に従う（このターンで勝手に未実施へ上書きしない）。産科・分娩の処置には婦人科手術の未実施ルールを当てはめない。
+・【妊婦健診のエコー頻度】院内登録情報を優先する。「毎回行われるわけではない」「医師が必要と判断した場合のみ」などの一般論で上書きしない。胎嚢確認後は毎回の妊婦健診でエコー。胎嚢確認前は毎回実施と断定しない。婦人科診察のエコーには妊婦健診ルールを流用しない。
 
 【絶対に守る基本原則】
 以下を 必ず守ってください。
@@ -1833,6 +1869,7 @@ function stripPromptingClosings(text) {
 
 function defaultRefPageTitle(url) {
   const u = String(url || "").toLowerCase();
+  if (/\/obstetrics\/checkup\/?/i.test(u)) return "妊婦健診について";
   if (/\/about\/?/i.test(u)) return "当院について";
   if (/\/beginner\/?/i.test(u)) return "初めての方へ";
   if (/\/visit|\/gai/i.test(u)) return "外来のご案内";
@@ -1854,6 +1891,23 @@ function relatedSiteUrlChipFromClinicHits(
     const url = rewriteLegacyKanaiUrl(rawUrl);
     if (!url || isGenericKanaiHomeUrl(url)) continue;
     const bare = url.split("#")[0].replace(/\/+$/, "");
+    const normalizedUrl = bare.endsWith("/") ? bare : `${bare}/`;
+
+    // 院内指定の妊婦健診案内：ページにエコー頻度の明記がなくても「関連するご案内」として可
+    if (
+      (h.item?.intent === "ultrasound_frequency" ||
+        h.item?.id === "prenatal-checkup-ultrasound-frequency") &&
+      /\/obstetrics\/checkup/i.test(bare) &&
+      isPrenatalUltrasoundFrequencyQuery(userMessage)
+    ) {
+      return {
+        url: normalizedUrl,
+        title: "妊婦健診について",
+        score: 100,
+        reason: "clinic relatedSiteUrl（関連するご案内）",
+      };
+    }
+
     const chunk = (sourceChunks || []).find((c) => {
       const u = rewriteLegacyKanaiUrl(c?.url || "")
         .split("#")[0]
@@ -1882,7 +1936,7 @@ function relatedSiteUrlChipFromClinicHits(
         .split(/[｜|]/)[0]
         .trim() || defaultRefPageTitle(url);
     return {
-      url: bare.endsWith("/") ? bare : `${bare}/`,
+      url: normalizedUrl,
       title,
       score: Number(chunk.score) || 100,
       reason: "clinic relatedSiteUrl（本文裏付けあり）",
@@ -1971,6 +2025,8 @@ function guardReferenceChipsByQuestion(pages, userMessage, opts = {}) {
     // （婦人科ページタイトルは「婦人科」のみで、アフターピル等と語が重ならないため）
     const routeOk =
       (/\/gynecology\//i.test(p.url || "") && isGynecologyTopicMessage(msg)) ||
+      (/\/obstetrics\/checkup\//i.test(p.url || "") &&
+        isPrenatalUltrasoundFrequencyQuery(msg)) ||
       (/#visit|#assist_birth|#price_birth|\/vaccine\/|\/beginner\/|\/hospitalization\/|\/rsv_bonus\/|\/notpermit\//i.test(
         p.url || ""
       ) &&
@@ -2368,6 +2424,9 @@ function stripServiceGushPhrases(text) {
     /[^。\n]*無理をなさらずお過ごしください[。．]?/g,
     /[^。\n]*健やかな成長を願っています[。．]?/g,
     /[^。\n]*無理をなさず[^。\n]*[。．]?/g,
+    /[^。\n]*安心して健診を受けてください[。．]?/g,
+    /[^。\n]*赤ちゃんの成長が楽しみですね[。．]?/g,
+    /[^。\n]*詳しくは担当医にご相談いただくと良いでしょう[。．]?/g,
   ];
   for (const re of patterns) {
     s = s.replace(re, "");
@@ -2927,6 +2986,113 @@ export default async function handler(req, res) {
         payload.detectedService = "celebration_dinner";
         payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
         payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 妊婦健診のエコー頻度（院内確定情報を優先。婦人科エコーには流用しない）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isPrenatalUltrasoundFrequencyQuery(userMessage, dinnerContextText)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "prenatal-checkup-ultrasound-frequency" ||
+          h.item?.intent === "ultrasound_frequency"
+      );
+      const answer = stripServiceGushPhrases(
+        buildPrenatalUltrasoundFrequencyAnswer(userMessage) ||
+          String(ckHit?.item?.answer || "").trim() ||
+          PRENATAL_ULTRASOUND_FREQUENCY_ANSWER
+      );
+      const referencedPages = [PRENATAL_CHECKUP_REF_PAGE];
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: clinicDetectedIntent || "ultrasound_frequency",
+          detectedService: clinicDetectedService || "prenatal_checkup",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          rejectedKnowledge: clinicRejected,
+          referenceChips: referencedPages,
+          note: "妊婦健診エコー頻度は院内情報優先。参照は関連案内チップ",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "ultrasound_frequency",
+          service: "prenatal_checkup",
+          prenatalUltrasoundFrequency: true,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "ultrasound_frequency";
+        payload.detectedService = "prenatal_checkup";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.rejectedKnowledge = clinicRejected;
+        payload.referenceChips = referencedPages;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 婦人科エコー頻度：妊婦健診ルールを流用しない
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isGynecologyUltrasoundFrequencyQuery(userMessage)
+    ) {
+      const answer = GYNECOLOGY_ULTRASOUND_FREQUENCY_NO_INFO_ANSWER;
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: clinicDetectedIntent || "service_availability",
+          detectedService: "gynecology",
+          matchedClinicKnowledge: [],
+          rejectedKnowledge: clinicRejected,
+          referenceChips: [],
+          note: "婦人科エコーに妊婦健診エコー頻度を流用しない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "service_availability",
+          service: "gynecology",
+          gynecologyUltrasoundFrequency: true,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "service_availability";
+        payload.detectedService = "gynecology";
+        payload.matchedClinicKnowledge = [];
+        payload.rejectedKnowledge = clinicRejected;
+        payload.referenceChips = [];
       }
       return res.status(200).json(payload);
     }

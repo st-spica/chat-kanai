@@ -25,9 +25,11 @@ import {
   isGynecologicExamConsultQuery,
   isGynecologicMedicationQuery,
   isGynecologicSurgeryQuery,
+  isGynecologyUltrasoundFrequencyQuery,
   isFeeFocusedMessage,
   isMotherDistressConsultMessage,
   isPhotoRecordingFocusedMessage,
+  isPrenatalUltrasoundFrequencyQuery,
   isVisitFocusedMessage,
   isVisitationIntentMessage,
   resolveBabyCareGuidanceRoute,
@@ -112,6 +114,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "meal_customization",
   "meal_allergy",
   "childbirth_bonus_dinner",
+  "ultrasound_frequency",
 ]);
 
 let memoryCache = {
@@ -248,6 +251,11 @@ function inferItemService(id, category, patterns, relatedUrl) {
   ) {
     return "celebration_dinner";
   }
+  if (
+    /ultrasound_frequency|prenatal-checkup-ultrasound|prenatal_checkup/.test(hay)
+  ) {
+    return "prenatal_checkup";
+  }
   if (/assist_birth|立ち会い|分娩|rsv_bonus|childbirth/.test(hay)) {
     return "delivery";
   }
@@ -293,6 +301,9 @@ function inferItemIntent(id, category, patterns) {
     /ディナー|食事|お祝い/.test(hay)
   ) {
     return "meal_customization";
+  }
+  if (/ultrasound_frequency|エコー|超音波/.test(hay) && /毎回|胎嚢|妊婦健診/.test(hay)) {
+    return "ultrasound_frequency";
   }
   if (/childbirth_bonus_dinner|お祝いディナー|ディナーご招待/.test(hay)) {
     return "childbirth_bonus_dinner";
@@ -504,6 +515,11 @@ export function detectClinicIntent(userMessage) {
     return "baby_care_consultation";
   }
 
+  // 妊婦健診のエコー頻度（婦人科エコーは流用しない）
+  if (isPrenatalUltrasoundFrequencyQuery(msg)) {
+    return "ultrasound_frequency";
+  }
+
   // 面会（サービスは detectClinicService で別判定）
   if (isVisitationIntentMessage(msg)) {
     return "visitation";
@@ -678,6 +694,24 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
       };
     }
   }
+  // 妊婦健診エコー頻度は婦人科エコー質問に流用しない
+  if (
+    item.id === "prenatal-checkup-ultrasound-frequency" ||
+    itemIntent === "ultrasound_frequency"
+  ) {
+    if (
+      isGynecologyUltrasoundFrequencyQuery(msg) ||
+      !isPrenatalUltrasoundFrequencyQuery(msg)
+    ) {
+      return {
+        score: 0,
+        reasons: ["エコー頻度:妊婦健診以外のため除外"],
+        rejected: true,
+        rejectReason: "ultrasound_frequencyは妊婦健診エコーのみ",
+      };
+    }
+  }
+
   // お祝いディナー：食材変更／アレルギー／家族招待を相互流用しない
   if (
     item.id === "celebration-dinner-food-request" ||
@@ -1070,6 +1104,14 @@ export function buildClinicRegisteredKnowledgePrompt(hits) {
           "・食物アレルギーは好き嫌いと別扱い。安全のため事前にスタッフへ確認を案内する。",
           "・アレルギー対応が可能とは断定しない。変更・個別対応の約束はしない。",
           "・「できる限り対応します」「ご安心ください」は使わない。",
+        ]
+      : []),
+    ...(hits.some((h) => h.item?.intent === "ultrasound_frequency")
+      ? [
+          "・妊婦健診のエコー頻度は院内登録情報を優先する。一般論（毎回ではない／医師判断のみ等）で上書きしない。",
+          "・胎嚢確認後は毎回の妊婦健診でエコー、確認前は毎回実施と断定しない。",
+          "・婦人科診察のエコーにはこの情報を使わない。",
+          "・「安心して健診を」「成長が楽しみ」などの締めは付けない。",
         ]
       : []),
     "",
