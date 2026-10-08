@@ -30,8 +30,14 @@
   margin-bottom: 20px;
 }
 .consul-ai .attention {
-  margin: 30px 0;
+  margin: 25px 0 30px;
   letter-spacing: -0.01em;
+}
+.consul-ai .attention li{
+  font-size:14px;
+}
+.consul-ai .attention li:before{
+  content: "※";
 }
 .consul-ai .msgs {
   display: none;
@@ -321,8 +327,12 @@
     border-radius: 7px;
   }
   .consul-ai .attention{
-    font-size: 14px;
-    margin: 15px 0 20px;
+    margin: 20px 0 25px;
+  }
+  .consul-ai .attention li{
+    font-size: 13px;
+    line-height:1.5;
+    margin-bottom:5px;
   }
   .consul-ai .msgs{
     padding: 15px 10px;
