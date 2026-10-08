@@ -1337,32 +1337,49 @@
       "service": "outpatient",
       "target": "new_patient",
       "availability": "available",
+      "responseMode": "fixed",
+      "requiredFacts": [
+        "初診料は1,080円",
+        "初回受診時には別途検査料が必要",
+        "検査料によって合計金額が異なる"
+      ],
       "questionPatterns": [
         "初診料はいくらですか",
+        "初診時はいくらくらいかかりますか",
         "初診の料金を教えてください",
+        "初診診察の料金を教えてください",
+        "初診時の診察代はいくらですか",
         "初診はいくらですか",
         "初診の費用はいくらですか",
         "初めて受診するといくらかかりますか",
         "初めての受診はいくらですか",
+        "初めて来院するときの費用は",
         "初めて来院するときの料金は",
         "初回の診察料はいくらですか",
+        "初回の診察費用を教えてください",
         "初回の受診費用を教えてください",
         "初診で必要な金額はいくらですか",
         "初診の診察代を教えてください",
+        "初診料以外にお金はかかりますか",
+        "初診は全部でいくらかかりますか",
         "初診料は3300円ですか",
-        "初診料だけで受診できますか"
+        "初診料だけで受診できますか",
+        "初診は1,080円だけで済みますか"
       ],
       "keywords": [
         "初診料",
         "初診",
+        "初診時",
+        "初診診察",
         "初回の診察料",
         "初めての受診",
         "初めての来院",
         "初診の料金",
-        "初診の費用"
+        "初診の費用",
+        "診察代"
       ],
-      "summary": "当院の初診料は1,080円です。初回受診時は初診料に加え検査料が必要で、検査内容により合計は異なります。",
-      "answer": "当院の初診料は1,080円です。初回の受診時には、初診料に加えて検査料が必要となります。検査内容によって合計金額は異なります。",
+      "summary": "当院の初診料は1,080円です。初回来院時は初診料＋検査料が必要で、検査内容により合計は一律ではありません。",
+      "answer": "当院の初診料は1,080円です。初回の来院時に必要な金額は、初診料1,080円＋検査料となります。検査料は検査内容によって異なるため、合計金額は一律ではありません。",
       "careSource": "data/first-visit-fee.js",
       "clinicInformation": {
         "firstVisitFee": {
@@ -1373,22 +1390,95 @@
         },
         "additionalExaminationFee": {
           "required": true,
-          "description": "初回の受診時には、初診料とは別に検査料が必要です。",
+          "description": "初回の来院時には、初診料とは別に検査料が必要です。",
           "amount": null,
-          "note": "検査内容によって金額が異なります。"
+          "note": "検査内容によって金額が異なります。合計金額は一律ではありません。"
         },
         "totalFee": {
           "formula": "初診料1,080円＋検査料",
           "fixedAmount": false,
-          "description": "初回受診時の合計金額は、検査内容によって異なります。"
+          "description": "初回受診時の合計金額は、検査内容によって異なり一律ではありません。"
         }
       },
       "responseRules": {
         "useConfirmedFee": true,
+        "useExactAnswer": true,
         "avoidEstimatedTotal": true,
         "avoidUnnecessaryPhoneReferral": true,
         "avoidConflictingPrices": true,
-        "keepAnswerConcise": true
+        "keepAnswerConcise": false,
+        "alwaysIncludeExamFeeNote": true
+      },
+      "priority": 200,
+      "updatedAt": "2026-10-08",
+      "enabled": true
+    },
+    {
+      "id": "postpartum-milkcare-reservation",
+      "category": "産後ケア/母乳ケア",
+      "intent": "milkcare_reservation",
+      "service": "milkcare",
+      "target": "postpartum_mother",
+      "availability": "available",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "母乳ケアの予約はどうしたらいいですか",
+        "母乳ケアは予約できますか",
+        "母乳ケアの予約方法を教えて",
+        "母乳ケアは電話予約ですか",
+        "母乳ケアはネット予約できますか",
+        "母乳ケアはWEB予約できますか",
+        "母乳ケアは当日予約できますか",
+        "母乳ケアを予約したい",
+        "母乳相談の予約をしたい",
+        "母乳相談の予約方法は",
+        "授乳相談の予約方法は",
+        "授乳相談の予約をしたい",
+        "おっぱいケアの予約方法は",
+        "おっぱいケアは予約できますか",
+        "母乳外来の予約方法を教えて",
+        "母乳外来の予約方法は"
+      ],
+      "keywords": [
+        "母乳ケア",
+        "母乳相談",
+        "母乳外来",
+        "おっぱいケア",
+        "授乳相談",
+        "予約",
+        "電話予約",
+        "WEB予約",
+        "ネット予約"
+      ],
+      "summary": "母乳ケアは完全予約制で、電話予約のみ。WEB予約・再来機では予約不可。",
+      "answer": "母乳ケアは完全予約制で、お電話でのみご予約を承っております。ご希望の方は、事前に当院までお電話にてご予約ください。詳しいご案内は、下記のページをご確認ください。",
+      "careSource": "data/milkcare.js",
+      "clinicInformation": {
+        "reservation": {
+          "required": true,
+          "method": "telephone_only",
+          "telephoneReservation": true,
+          "webReservation": false,
+          "walkInReservation": false,
+          "description": "母乳ケアは完全予約制で、電話予約のみ受け付けています。"
+        },
+        "reception": {
+          "description": "来院後の受付方法は予約方法とは別の案内として扱います。予約当日は本館1階再来機で受付し、2階待合で待ちます。"
+        },
+        "schedule": "水・木・金・第2・4土曜日",
+        "priceYen": 3000,
+        "location": "本館5F",
+        "duration": "約45分"
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/aftersupport/#milkcare",
+      "relatedSiteLabel": "母乳ケアについて",
+      "responseRules": {
+        "reservationMethod": "telephone_only",
+        "avoidWebReservationGuidance": true,
+        "avoidConfusingReceptionWithReservation": true,
+        "preferOfficialPage": true,
+        "preserveUrlFragment": true,
+        "useExactAnswer": true
       },
       "priority": 200,
       "updatedAt": "2026-10-08",

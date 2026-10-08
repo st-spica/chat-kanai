@@ -1407,6 +1407,10 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
       /ワクチン|インフルエンザ|\/vaccine/,
     ],
     [(m) => /子宮頸がん|子宮がん検診/.test(m), /子宮頸がん|子宮がん検診|\/gynecology/],
+    [
+      (m) => /母乳ケア|母乳相談|母乳外来|おっぱいケア|授乳相談/.test(m),
+      /母乳ケア|#milkcare|\/aftersupport/,
+    ],
     [(m) => /産後ケア|産後サポート/.test(m), /産後ケア|産後サポート|\/aftersupport/],
     [(m) => /休診|診療時間|午後診|午前診|今日|本日|明日/.test(m), /休診|診療時間|午前診|午後診|夜診/],
     [isDeliveryBenefitsFocusedMessage, /分娩予約特典|rsv_bonus|出産費用割引|お祝いディナー|特典|割引|プレゼント/],
@@ -1663,7 +1667,16 @@ async function loadFreshKnowledgeForQuery(
   const searchQuery = expandQueryForSearch(userMessage, now);
   const list = await loadCandidateUrlList(opts);
   const routeBoostMap = buildRouteBoostMap(userMessage);
-  const preferred = preferredUrlsForMessage(userMessage).map((u) => u.split("#")[0]);
+  // 候補照合用は # なし。表示・セクション抽出用に fragment 付きを保持（#milkcare 等）
+  const preferredFull = preferredUrlsForMessage(userMessage);
+  const preferred = preferredFull.map((u) => String(u || "").split("#")[0]);
+  const preferredDisplayByBare = new Map();
+  for (const full of preferredFull) {
+    const bare = String(full || "").split("#")[0];
+    if (bare && String(full).includes("#") && !preferredDisplayByBare.has(bare)) {
+      preferredDisplayByBare.set(bare, String(full));
+    }
+  }
   const clinicStrong = Boolean(opts.clinicKnowledgeStrong);
   const allowNews =
     !clinicStrong || needsNewsFreshnessQuery(userMessage) || Boolean(opts.allowNews);
@@ -1746,12 +1759,25 @@ async function loadFreshKnowledgeForQuery(
   /** @type {KnowledgeChunk[]} */
   let chunks = (
     await Promise.all(
-      picked.map(({ entry }) =>
-        fetchPageChunk(entry.url, maxChars, {
+      picked.map(({ entry }) => {
+        const bare = String(entry.url || "").split("#")[0];
+        const displayUrl = preferredDisplayByBare.get(bare) || entry.url;
+        const hash = String(displayUrl).includes("#")
+          ? String(displayUrl).split("#")[1]
+          : "";
+        const displayTitle =
+          hash === "milkcare"
+            ? "母乳ケアについて"
+            : hash === "aftercare"
+              ? "産後ケアについて"
+              : undefined;
+        return fetchPageChunk(displayUrl, maxChars, {
           lastmod: entry.lastmod,
           pageType: entry.pageType,
-        })
-      )
+          displayUrl,
+          displayTitle,
+        });
+      })
     )
   ).filter(Boolean);
 
@@ -2034,6 +2060,9 @@ export function labelForKnowledgeChunk(c) {
   }
   if (/#ultraimaging/i.test(url)) {
     return "4D超音波撮影について";
+  }
+  if (/#milkcare/i.test(url)) {
+    return "母乳ケアについて";
   }
   if (/\/photographer\/?/i.test(url)) {
     return "ニューボーン＆マタニティフォトについて";

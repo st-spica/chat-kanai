@@ -35,6 +35,10 @@ import {
   isMaleDoctorQuery,
 } from "./female-doctor.js";
 import { isNewbornMaternityPhotoQuery } from "./newborn-maternity-photo.js";
+import {
+  isMilkcareQuery,
+  isMilkcareReservationQuery,
+} from "./milkcare.js";
 import { isKidsRoomQuery } from "./site-route-map.js";
 
 /** @typedef {string|null} TopicIntent */
@@ -104,6 +108,17 @@ export function detectStandaloneIntent(userMessage) {
 
   // ニューボーン＆マタニティフォト
   if (isNewbornMaternityPhotoQuery(msg)) return "newborn_maternity_photo";
+
+  // 母乳ケア（予約／受付／料金／曜日を分離）
+  if (isMilkcareQuery(msg)) {
+    if (isMilkcareReservationQuery(msg)) return "milkcare_reservation";
+    if (/受付|再来機|待合|予約当日|来院後/.test(msg)) {
+      return "milkcare_reception";
+    }
+    if (/料金|費用|いくら|値段|価格/.test(msg)) return "milkcare_price";
+    if (/何曜日|曜日|いつ受け|実施日/.test(msg)) return "milkcare_schedule";
+    return "milkcare_overview";
+  }
 
   // 分娩費用
   if (isBirthPricingQuery(msg)) {
@@ -416,6 +431,11 @@ export function clinicKnowledgeIdForIntent(intent) {
     four_d_ultrasound: "obstetrics-4d-ultrasound",
     female_doctor: "clinic-female-doctor",
     newborn_maternity_photo: "newborn-maternity-photo",
+    milkcare_reservation: "postpartum-milkcare-reservation",
+    milkcare_reception: "postpartum-milkcare-reservation",
+    milkcare_schedule: "postpartum-milkcare-reservation",
+    milkcare_price: "postpartum-milkcare-reservation",
+    milkcare_overview: "postpartum-milkcare-reservation",
     birth_reservation_deposit: "birth-reservation-deposit",
     kids_room: null,
   };

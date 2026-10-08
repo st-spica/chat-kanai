@@ -2,13 +2,19 @@
  * 初診料の確定データ（一元管理）
  *
  * 金額は本ファイルのみに置く。3,300円（文書料など）と混同しない。
- * AI推測・サイト抜粋による金額上書き禁止。
+ * 回答は固定文。初診料のみで終わらせず、検査料・合計非一律を必ず含める。
  */
 
 /** 確定：初診料（円） */
 export const FIRST_VISIT_FEE_YEN = 1080;
 
 export const FIRST_VISIT_FEE_DISPLAY = "1,080円";
+
+/**
+ * 必須3点を含む固定回答（言い換え禁止）
+ */
+export const FIRST_VISIT_FEE_FIXED_ANSWER =
+  "当院の初診料は1,080円です。初回の来院時に必要な金額は、初診料1,080円＋検査料となります。検査料は検査内容によって異なるため、合計金額は一律ではありません。";
 
 /**
  * @param {number} yen
@@ -44,10 +50,10 @@ export function isFirstVisitFeeQuery(userMessage) {
   // 明示の初診料
   if (/初診料/.test(msg)) return true;
 
-  // 初診＋料金系
+  // 初診＋料金系（初診時／初診診察／診察代／いくらくらい など）
   if (
     /初診/.test(msg) &&
-    /(?:いくら|料金|費用|金額|代|円|かかる|必要)/.test(msg)
+    /(?:いくら|料金|費用|金額|代|円|かかる|必要|くらいかか)/.test(msg)
   ) {
     return true;
   }
@@ -60,30 +66,15 @@ export function isFirstVisitFeeQuery(userMessage) {
     return true;
   }
 
-  // 初回の診察料
-  if (/初回の?(?:診察料|受診費用|診察代)/.test(msg)) return true;
+  // 初回の診察料・診察費用
+  if (/初回の?(?:診察料|受診費用|診察代|診察費用)/.test(msg)) return true;
 
-  // 「初診はいくら」「初診の料金」
-  if (/初診(?:は|の)?(?:いくら|料金|費用|診察代)/.test(msg)) return true;
+  // 「初診はいくら」「初診の料金」「初診診察の料金」
+  if (/初診(?:時|診察)?(?:は|の)?(?:いくら|料金|費用|診察代)/.test(msg)) {
+    return true;
+  }
 
   return false;
-}
-
-/**
- * 初回受診の合計費用を聞いているか（初診料そのものではない）
- * @param {string} msg
- */
-function asksTotalFirstVisitCost(msg) {
-  // 「初診料はいくら」「初診の料金」「初回の診察料」は初診料のみ
-  if (/初診料|初回の診察料|初診の(?:料金|費用|診察代)/.test(msg) && !/必要|全部|合計|だけで/.test(msg)) {
-    return false;
-  }
-  if (/初診はいくら/.test(msg)) return false;
-  return (
-    /全部で|合計|トータル|総額|必要な金額|いくらかかり/.test(msg) ||
-    /初めて(?:の)?(?:受診|来院).{0,8}(?:いくら|費用|料金|必要)/.test(msg) ||
-    /初めて受診するといくら|初診で必要な|初回の受診費用/.test(msg)
-  );
 }
 
 /**
@@ -92,63 +83,50 @@ function asksTotalFirstVisitCost(msg) {
  *   answer: string,
  *   intent: string,
  *   firstVisitFeeYen: number,
- *   focus: "fee_only"|"total_with_exam"|"correction_3300"|"fee_only_enough",
+ *   focus: string,
+ *   useExactAnswer: boolean,
  * }|null}
  */
 export function buildFirstVisitFeeAnswer(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!isFirstVisitFeeQuery(msg)) return null;
 
-  const fee = FIRST_VISIT_FEE_DISPLAY;
   const feeYen = FIRST_VISIT_FEE_YEN;
+  const fixed = FIRST_VISIT_FEE_FIXED_ANSWER;
 
   // 3,300円の誤認訂正（文書料などと混同されやすい）
   if (/3[,，]?300|３３００|三千三百/.test(msg)) {
     return {
-      answer: [
-        `いいえ。当院の初診料は${fee}です。`,
-        "初回の受診時には、初診料に加えて検査料が必要となる場合があります。",
-        "検査内容によって合計金額は異なります。",
-      ].join("\n"),
+      answer: `いいえ。${fixed}`,
       intent: "first_visit_fee",
       firstVisitFeeYen: feeYen,
       focus: "correction_3300",
+      useExactAnswer: true,
     };
   }
 
-  // 初診料だけで受診できるか
-  if (/初診料だけ|それだけ|検査なし|検査なしで/.test(msg)) {
+  // 初診料だけで済むか／以外にかかるか
+  if (
+    /初診料だけ|1,?080円だけ|それだけ|検査なし|だけで済み|以外に|別途|検査料/.test(
+      msg
+    )
+  ) {
     return {
-      answer: [
-        `当院の初診料は${fee}です。`,
-        "初回の受診時には、初診料とは別に検査料が必要となることがあります。",
-        "検査内容によって金額が異なるため、初診料のみで確定するとは限りません。",
-      ].join("\n"),
+      answer: fixed,
       intent: "first_visit_fee",
       firstVisitFeeYen: feeYen,
-      focus: "fee_only_enough",
+      focus: "with_exam_required",
+      useExactAnswer: true,
     };
   }
 
-  // 初めての受診の合計・必要な金額
-  if (asksTotalFirstVisitCost(msg)) {
-    return {
-      answer: [
-        `初回の来院時に必要な金額は、初診料${fee}＋検査料です。`,
-        "検査料は検査内容によって異なり、合計金額は一律ではありません。",
-      ].join("\n"),
-      intent: "first_visit_fee",
-      firstVisitFeeYen: feeYen,
-      focus: "total_with_exam",
-    };
-  }
-
-  // デフォルト：初診料（電話案内は付けない）
+  // すべての初診料金質問で固定回答（必須3点を省略しない）
   return {
-    answer: `当院の初診料は${fee}です。`,
+    answer: fixed,
     intent: "first_visit_fee",
     firstVisitFeeYen: feeYen,
-    focus: "fee_only",
+    focus: "fixed",
+    useExactAnswer: true,
   };
 }
 
@@ -157,6 +135,7 @@ export function getFirstVisitFeeConfirmed() {
   return {
     amountYen: FIRST_VISIT_FEE_YEN,
     displayAmount: formatYen(FIRST_VISIT_FEE_YEN),
+    fixedAnswer: FIRST_VISIT_FEE_FIXED_ANSWER,
     source: "data/first-visit-fee.js",
   };
 }

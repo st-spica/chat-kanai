@@ -116,6 +116,7 @@ import {
 } from "../data/homecoming-delivery.js";
 import {
   buildFirstVisitFeeAnswer,
+  FIRST_VISIT_FEE_FIXED_ANSWER,
   FIRST_VISIT_FEE_YEN,
   isFirstVisitFeeQuery,
 } from "../data/first-visit-fee.js";
@@ -124,6 +125,11 @@ import {
   FOUR_D_ULTRASOUND_REF_PAGE,
   isFourDUltrasoundQuery,
 } from "../data/four-d-ultrasound.js";
+import {
+  buildMilkcareAnswer,
+  isMilkcareQuery,
+  MILKCARE_REF_PAGE,
+} from "../data/milkcare.js";
 import {
   buildFemaleDoctorAnswer,
   DOCTOR_SCHEDULE_REF_PAGE,
@@ -4575,6 +4581,115 @@ export default async function handler(req, res) {
       return res.status(200).json(attachTopicDebug(payload, "female_doctor"));
     }
 
+    // 母乳ケア（電話予約のみ。再来機受付と混同しない。#milkcare を維持）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isMilkcareQuery(userMessage) &&
+      (!topicResolution?.detectedIntent ||
+        String(topicResolution.detectedIntent).startsWith("milkcare_"))
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "postpartum-milkcare-reservation" ||
+          String(h.item?.intent || "").startsWith("milkcare_")
+      );
+      const built = buildMilkcareAnswer(userMessage);
+      const intentName = built?.intent || "milkcare_reservation";
+      let answer = String(built?.answer || "").trim();
+      if (!answer) {
+        answer = String(ckHit?.item?.answer || "").trim();
+      }
+      // 予約質問なのに再来機案内が混入したら確定文へ差し替え
+      if (
+        intentName === "milkcare_reservation" &&
+        /再来機/.test(answer) &&
+        !/予約当日|受付/.test(userMessage)
+      ) {
+        answer = String(built?.answer || "").trim();
+      }
+      // WEB予約を誤案内しない
+      if (
+        /WEB予約|ネット予約|オンライン予約/.test(answer) &&
+        /できます|ご利用|お取り/.test(answer) &&
+        !/対応しておらず|できません|お電話/.test(answer)
+      ) {
+        answer = String(built?.answer || "").trim();
+      }
+      if (!built?.useExactAnswer) {
+        answer = stripServiceGushPhrases(answer);
+      }
+      const referencedPages = (built?.referencedPages?.length
+        ? built.referencedPages
+        : [MILKCARE_REF_PAGE]
+      ).map((p) => ({
+        url: String(p.url || MILKCARE_REF_PAGE.url),
+        title: String(p.title || MILKCARE_REF_PAGE.title),
+      }));
+      // #milkcare を落とさない
+      for (const p of referencedPages) {
+        if (/aftersupport/i.test(p.url) && !/#milkcare/i.test(p.url)) {
+          p.url = MILKCARE_REF_PAGE.url;
+          p.title = MILKCARE_REF_PAGE.title;
+        }
+      }
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: intentName,
+          detectedService: "milkcare",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "postpartum-milkcare-reservation",
+                  intent: intentName,
+                  service: "milkcare",
+                  score: 100,
+                },
+              ],
+          matchedSiteUrl: MILKCARE_REF_PAGE.url,
+          referenceChips: referencedPages,
+          focus: built?.focus || "reservation",
+          responseMode: "fixed",
+          rejectedKnowledge: clinicRejected,
+          note: "母乳ケアは電話予約のみ。再来機は来院後受付。WEB予約不可。#milkcare維持",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: intentName,
+          service: "milkcare",
+          milkcare: true,
+          matchedSiteUrl: MILKCARE_REF_PAGE.url,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = intentName;
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = MILKCARE_REF_PAGE.url;
+        payload.referenceChips = referencedPages;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(attachTopicDebug(payload, intentName));
+    }
+
     // 4D超音波撮影（実施あり。未実施と答えない。#ultraimaging を維持）
     if (
       !metaChatHit &&
@@ -4675,15 +4790,19 @@ export default async function handler(req, res) {
           h.item?.intent === "first_visit_fee"
       );
       const built = buildFirstVisitFeeAnswer(userMessage);
+      // 固定回答全文を使用（1文省略・GPT短縮・文字数制限による削除をしない）
       const answer = stripServiceGushPhrases(
         String(built?.answer || "").trim() ||
-          String(ckHit?.item?.answer || "").trim()
+          String(ckHit?.item?.answer || "").trim() ||
+          FIRST_VISIT_FEE_FIXED_ANSWER
       );
-      // 金額の一貫性ガード（3,300円等が混入したら確定文に差し替え）
+      // 金額の一貫性ガード（3,300円等が混入したら固定全文に差し替え）
       const safeAnswer =
         /3[,，]?300/.test(answer) && !/いいえ/.test(answer)
-          ? `当院の初診料は1,080円です。`
-          : answer;
+          ? FIRST_VISIT_FEE_FIXED_ANSWER
+          : /検査料/.test(answer)
+            ? answer
+            : FIRST_VISIT_FEE_FIXED_ANSWER;
       if (includeDebug) {
         siteKnowledgeDebug = {
           ...(siteKnowledgeDebug || {}),
@@ -4707,9 +4826,10 @@ export default async function handler(req, res) {
                 },
               ],
           firstVisitFeeYen: built?.firstVisitFeeYen ?? FIRST_VISIT_FEE_YEN,
-          focus: built?.focus || "fee_only",
+          focus: built?.focus || "fixed",
+          responseMode: "fixed",
           rejectedKnowledge: clinicRejected,
-          note: "初診料は data/first-visit-fee.js の確定1,080円。電話案内不要。文書料と混同禁止",
+          note: "初診料は固定回答全文（1,080円＋検査料・合計非一律）。電話案内不要。文書料と混同禁止",
         };
       }
       await appendChatLog({

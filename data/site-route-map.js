@@ -1214,9 +1214,18 @@ export const SITE_ROUTE_MAP = [
     boost: 200,
   },
   {
+    id: "milkcare",
+    label: "母乳ケア",
+    patterns: [
+      /母乳ケア|母乳相談|母乳外来|おっぱいケア|授乳相談/,
+    ],
+    urls: ["https://kanai.or.jp/aftersupport/#milkcare"],
+    boost: 260,
+  },
+  {
     id: "aftercare",
     label: "産後ケア",
-    patterns: [/産後ケア|産後サポート|母乳ケア/],
+    patterns: [/産後ケア|産後サポート/],
     urls: ["https://kanai.or.jp/aftersupport/", "https://kanai.or.jp/aftersupport/#aftercare"],
     boost: 200,
   },

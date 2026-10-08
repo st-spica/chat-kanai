@@ -70,6 +70,10 @@ import {
   isMaleDoctorQuery,
 } from "../data/female-doctor.js";
 import { isNewbornMaternityPhotoQuery } from "../data/newborn-maternity-photo.js";
+import {
+  isMilkcareQuery,
+  isMilkcareReservationQuery,
+} from "../data/milkcare.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -175,6 +179,11 @@ export const STRICT_MATCH_INTENTS = new Set([
   "four_d_ultrasound",
   "female_doctor",
   "newborn_maternity_photo",
+  "milkcare_reservation",
+  "milkcare_reception",
+  "milkcare_schedule",
+  "milkcare_price",
+  "milkcare_overview",
   "birth_reservation_deposit",
   "birth_advance_payment",
   "birth_hospitalization_cost",
@@ -629,6 +638,17 @@ export function detectClinicIntent(userMessage) {
     return "newborn_maternity_photo";
   }
 
+  // 母乳ケア（予約方法と来院後受付・他診療WEB予約と混同しない）
+  if (isMilkcareQuery(msg)) {
+    if (isMilkcareReservationQuery(msg)) return "milkcare_reservation";
+    if (/受付|再来機|待合|予約当日|来院後/.test(msg)) {
+      return "milkcare_reception";
+    }
+    if (/料金|費用|いくら|値段|価格/.test(msg)) return "milkcare_price";
+    if (/何曜日|曜日|いつ受け|実施日/.test(msg)) return "milkcare_schedule";
+    return "milkcare_overview";
+  }
+
   // 葉酸 / 妊娠中の服薬 / 授乳中の服薬（混同禁止）
   if (isPregnancyFolicAcidQuery(msg)) {
     return "pregnancy_folic_acid";
@@ -1058,6 +1078,20 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["ニューボーンフォト:対象外質問のため除外"],
         rejected: true,
         rejectReason: "newborn_maternity_photoは該当撮影紹介のみ",
+      };
+    }
+  }
+  // 母乳ケアは対象外（一般診療予約・産後ケア宿泊等）に流用しない
+  if (
+    item.id === "postpartum-milkcare-reservation" ||
+    String(itemIntent || "").startsWith("milkcare_")
+  ) {
+    if (!isMilkcareQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["母乳ケア:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "milkcareは母乳ケア関連のみ",
       };
     }
   }
