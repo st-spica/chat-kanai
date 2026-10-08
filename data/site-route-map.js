@@ -424,6 +424,64 @@ export function isCelebrationDinnerFoodRequestQuery(userMessage, contextText = "
   return true;
 }
 
+/** 夜診・夜間診察の言及か */
+export function mentionsEveningConsultation(text) {
+  return /夜診|夜の診察|夕方の診察|夜間診|夜の外来/.test(String(text || ""));
+}
+
+/**
+ * 夜診の診療時間のみの質問か（予約可否は含めない）
+ * @param {string} userMessage
+ */
+export function isEveningConsultationHoursQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg || !mentionsEveningConsultation(msg)) return false;
+  if (/予約/.test(msg)) return false;
+  return /何時|時間|から|まで|開い|やって|何時台/.test(msg);
+}
+
+/**
+ * 夜診の予約可否・受付順か（他の診療予約・時間のみ質問と分離）
+ * @param {string} userMessage
+ * @param {string} [contextText] 直前会話（夜診文脈の補完）
+ */
+export function isEveningConsultationReservationQuery(
+  userMessage,
+  contextText = ""
+) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  // 他サービスの予約には流用しない
+  if (
+    /妊婦健診|婦人科|初診|再診|産前産後教室|教室予約|WEB予約|ウェブ予約|ネット予約/.test(
+      msg
+    ) &&
+    !mentionsEveningConsultation(msg)
+  ) {
+    return false;
+  }
+  if (isEveningConsultationHoursQuery(msg)) return false;
+
+  const ctx = `${msg}\n${String(contextText || "")}`;
+  const eveningInMsg = mentionsEveningConsultation(msg);
+  const eveningInCtx = mentionsEveningConsultation(contextText);
+  // 直前が夜診で、今回が「予約できますか？」だけ
+  const followUpReserve =
+    eveningInCtx &&
+    !eveningInMsg &&
+    /予約/.test(msg) &&
+    msg.length <= 40 &&
+    !/妊婦健診|婦人科|初診|WEB|ウェブ/.test(msg);
+
+  if (!eveningInMsg && !followUpReserve) return false;
+
+  return (
+    /予約|受付順|予約なし|予約無し|予約しなくても|予約せず|予約しないで|取りたい|取れる/.test(
+      msg
+    ) || followUpReserve
+  );
+}
+
 /**
  * 産後ケア等、分娩入院以外の持ち物か
  * @param {string} userMessage
@@ -443,7 +501,7 @@ export function isHospitalBagQuery(userMessage) {
   if (!msg || isNonChildbirthBelongingsQuery(msg)) return false;
 
   if (
-    /入院時の持ち物|入院の持ち物|入院するとき何が必要|出産の入院準備|入院バッグ|陣痛バッグ|入院準備を|持ち物を知りたい|持ち物を全部|必要な持ち物を全部|持ち物を教えて/.test(
+    /入院時の持ち物|入院の持ち物|入院するとき何が必要|出産の入院準備|入院バッグ|陣痛バッグ|入院準備を|持ち物を知りたい|持ち物を全部|必要な持ち物を全部|持ち物を教えて|何を持っていけば/.test(
       msg
     )
   ) {
@@ -456,9 +514,17 @@ export function isHospitalBagQuery(userMessage) {
   ) {
     return true;
   }
+  // 病院側の用意・アメニティ・持参不要
+  if (
+    /(?:病院|当院).{0,12}(?:用意|支給|貸|置いて)|(?:用意|支給|貸).{0,12}(?:病院|当院)|アメニティ|持っていかなくて|持参しなくて|持参不要|自分で持っていかなくて|支給される|貸してもらえる/.test(
+      msg
+    )
+  ) {
+    return true;
+  }
   // 個別品目の持参要否（分娩入院文脈）
   if (
-    /(?:パジャマ|ルームウェア|スリッパ|シャンプー|リンス|コンディショナー|ボディソープ|タオル|病衣).{0,16}(?:持|必要|持参|持って)|(?:持|必要|持参|持って).{0,16}(?:パジャマ|ルームウェア|スリッパ|シャンプー|リンス|コンディショナー|ボディソープ|タオル)/.test(
+    /(?:パジャマ|ルームウェア|スリッパ|シャンプー|リンス|コンディショナー|ボディソープ|タオル|病衣|マタニティガウン|歯ブラシ|歯みがき|歯磨き|ドライヤー).{0,16}(?:持|必要|持参|持って|用意|ある|あります)|(?:持|必要|持参|持って|用意).{0,16}(?:パジャマ|ルームウェア|スリッパ|シャンプー|リンス|コンディショナー|ボディソープ|タオル|歯ブラシ|歯みがき|歯磨き)/.test(
       msg
     )
   ) {
@@ -478,6 +544,39 @@ export function isHospitalBagFullListQuery(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!isHospitalBagQuery(msg)) return false;
   return /全部|すべて|全て|一覧|詳しく|詳細/.test(msg);
+}
+
+/**
+ * 入院持ち物の質問フォーカス
+ * @returns {"patient_bring"|"hospital_provided"|"hospital_provided_full"|"full_list"|"item_hospital_provided"|"item_patient_bring"|"item_baby_clothes"|null}
+ */
+export function detectHospitalBagFocus(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg || !isHospitalBagQuery(msg)) return null;
+
+  const wantsFull = isHospitalBagFullListQuery(msg);
+  const hospitalProvidedAsk =
+    /(?:病院|当院).{0,12}(?:用意|支給|貸|置いて)|(?:用意|支給|貸).{0,12}(?:病院|当院)|アメニティ|持っていかなくて|持参しなくて|持参不要|自分で持っていかなくて|支給される|貸してもらえる|用意してくれる|用意してくれ/.test(
+      msg
+    );
+
+  if (wantsFull && hospitalProvidedAsk) return "hospital_provided_full";
+  if (wantsFull) return "full_list";
+
+  // 個別品目（先に判定）
+  if (/歯ブラシ|歯みがき|歯磨き/.test(msg)) return "item_patient_bring";
+  if (/赤ちゃんの(?:退院時の)?(?:服|衣服)/.test(msg)) return "item_baby_clothes";
+  if (
+    /パジャマ|ルームウェア|スリッパ|シャンプー|リンス|コンディショナー|ボディソープ|タオル|ドライヤー|病衣|マタニティガウン|箱ティッシュ|お産パッド|清浄綿/.test(
+      msg
+    ) &&
+    /持|必要|持参|持って|用意|ある|あります|支給|貸/.test(msg)
+  ) {
+    return "item_hospital_provided";
+  }
+
+  if (hospitalProvidedAsk) return "hospital_provided";
+  return "patient_bring";
 }
 
 /**
@@ -684,6 +783,10 @@ export function detectClinicService(userMessage) {
   if (isHospitalBagQuery(msg)) {
     return "childbirth_hospitalization";
   }
+  // 夜診の予約（受付順・予約不可）
+  if (isEveningConsultationReservationQuery(msg)) {
+    return "evening_consultation";
+  }
   // 妊婦健診のエコー頻度
   if (isPrenatalUltrasoundFrequencyQuery(msg)) {
     return "prenatal_checkup";
@@ -855,8 +958,9 @@ export const SITE_ROUTE_MAP = [
     id: "hospital_bag",
     label: "入院時の持ち物",
     patterns: [
-      /入院時の持ち物|入院の持ち物|入院バッグ|陣痛バッグ|出産の入院準備|入院するとき何が必要|持ち物を知りたい|持ち物を全部/,
-      /(?:パジャマ|スリッパ|シャンプー|退院時の(?:服|衣服)).{0,12}(?:持|必要|持参)/,
+      /入院時の持ち物|入院の持ち物|入院バッグ|陣痛バッグ|出産の入院準備|入院するとき何が必要|持ち物を知りたい|持ち物を全部|何を持っていけば/,
+      /(?:病院|当院).{0,12}(?:用意|支給)|アメニティ|持っていかなくて|持参しなくて|用意してくれる/,
+      /(?:パジャマ|スリッパ|シャンプー|歯ブラシ|歯みがき|退院時の(?:服|衣服)).{0,12}(?:持|必要|持参|用意)/,
       /(?:入院|出産|分娩).{0,12}(?:持ち物|準備|何を持)/,
     ],
     urls: ["https://kanai.or.jp/obstetrics/childbirth/#hos_bring"],

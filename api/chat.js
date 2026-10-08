@@ -42,6 +42,9 @@ import {
   isGynecologicSurgeryQuery,
   isGynecologyTopicMessage,
   isGynecologyUltrasoundFrequencyQuery,
+  isEveningConsultationHoursQuery,
+  isEveningConsultationReservationQuery,
+  detectHospitalBagFocus,
   isHospitalBagFullListQuery,
   isHospitalBagQuery,
   isInfantUrgentSymptomMessage,
@@ -93,16 +96,44 @@ const HOSPITAL_BAG_REF_PAGE = {
 const HOSPITAL_BAG_SUMMARY_ANSWER = [
   "ご入院の際には、母子健康手帳・健康保険証・診察券、産褥用ショーツ、授乳ブラ、母乳パッド、赤ちゃんの退院時の衣服などをご用意ください。",
   "",
-  "また、パジャマやタオル、シャンプーなどは当院でご用意しています。",
+  "また、マタニティガウンやタオル、シャンプーなどは当院でご用意しています。",
   "",
   "持ち物の詳しい一覧は、以下のページからご確認いただけます。",
 ].join("\n");
 
-const HOSPITAL_BAG_PROVIDED_ANSWER =
-  "当院でご用意していますので、持参の必要はありません。";
+/** 病院側用意品（代表例・公式表記に合わせる） */
+const HOSPITAL_BAG_HOSPITAL_PROVIDED_ANSWER = [
+  "当院では、ご入院中に使用するマタニティガウンやタオル、スリッパ、シャンプー・コンディショナー、ボディソープなどをご用意しています。",
+  "",
+  "その他のご用意しているものについては、以下のページをご確認ください。",
+].join("\n");
+
+const HOSPITAL_BAG_PROVIDED_ITEM_ANSWER =
+  "当院でご用意していますので、持参の必要はありません。詳しくは以下のページをご確認ください。";
 
 const HOSPITAL_BAG_BABY_CLOTHES_ANSWER =
-  "赤ちゃんの退院時の衣服（1組）は、ご用意いただく物に含まれます。";
+  "赤ちゃんの退院時の衣服（1組）は、ご用意いただく物に含まれます。詳しくは以下のページをご確認ください。";
+
+const HOSPITAL_BAG_TOOTHBRUSH_ANSWER =
+  "歯みがきセットは、ご用意いただく物に含まれます。詳しくは以下のページをご確認ください。";
+
+const HOSPITAL_BAG_HOSPITAL_PROVIDED_FULL_ANSWER = [
+  "【当院でご用意している物】",
+  "",
+  "【ママ用】",
+  "・病衣（マタニティガウン）",
+  "・バスタオル・フェイスタオル",
+  "・箱ティッシュ",
+  "・お産パッド、清浄綿（授乳用）",
+  "・シャンプー・コンディショナー、ボディソープ、ヘアドライヤー、スリッパ",
+  "",
+  "【赤ちゃん用】",
+  "・入院中の衣服（Bébéオリジナル ベビー肌着）",
+  "・バスタオル",
+  "・新生児用紙オムツ、おしりふき、おへそ消毒セット",
+  "",
+  "詳細は以下のページをご確認ください。",
+].join("\n");
 
 const HOSPITAL_BAG_FULL_LIST_ANSWER = [
   "【ご用意いただく物（主なもの）】",
@@ -125,53 +156,96 @@ const HOSPITAL_BAG_FULL_LIST_ANSWER = [
   "・シャンプー・コンディショナー、ボディソープ、ヘアドライヤー、スリッパ",
   "・赤ちゃん用の入院中の衣服・オムツ・おしりふき・おへそ消毒セットなど",
   "",
-  "条件付きのものや詳細は、以下のページをご確認ください。",
+  "詳細は以下のページをご確認ください。",
 ].join("\n");
 
 const POSTPARTUM_BELONGINGS_NO_INFO_ANSWER =
   "産後ケアの持ち物については、現在確認できる情報がありません。詳しくは当院までお問い合わせください。";
 
-/** @returns {{ answer: string, matchedSection: string }|null} */
+const EVENING_RESERVATION_UNAVAILABLE_ANSWER =
+  "申し訳ありませんが、夜診は予約制ではなく、受付順での診察となります。ご来院のうえ、受付をお願いいたします。";
+
+const EVENING_RESERVATION_FOLLOWUP_ANSWER =
+  "夜診は予約制ではなく、受付順での診察となります。";
+
+const EVENING_RESERVATION_WALKIN_ANSWER =
+  "はい。夜診は予約制ではなく、受付順での診察となります。ご来院のうえ、受付をお願いいたします。";
+
+function buildEveningReservationAnswer(userMessage, safeHistory = []) {
+  const msg = String(userMessage || "").trim();
+  const ctx = celebrationDinnerContextText(safeHistory, userMessage);
+  const followUpOnly =
+    isEveningConsultationReservationQuery(msg, ctx) &&
+    !/夜診|夜の診察|夕方の診察/.test(msg);
+  if (/予約なし|予約無し|予約しなくても|予約せず|予約しないで/.test(msg)) {
+    return EVENING_RESERVATION_WALKIN_ANSWER;
+  }
+  if (followUpOnly) return EVENING_RESERVATION_FOLLOWUP_ANSWER;
+  return EVENING_RESERVATION_UNAVAILABLE_ANSWER;
+}
+
+/**
+ * @returns {{ answer: string, matchedSection: string, focus: string }|null}
+ */
 function buildHospitalBagAnswer(userMessage) {
   const msg = String(userMessage || "").trim();
   if (isNonChildbirthBelongingsQuery(msg)) {
     return {
       answer: POSTPARTUM_BELONGINGS_NO_INFO_ANSWER,
       matchedSection: "none",
+      focus: "postpartum",
     };
   }
   if (!isHospitalBagQuery(msg)) return null;
 
-  if (isHospitalBagFullListQuery(msg)) {
-    return {
-      answer: HOSPITAL_BAG_FULL_LIST_ANSWER,
-      matchedSection: "hos_bring",
-    };
-  }
+  const focus = detectHospitalBagFocus(msg) || "patient_bring";
+  const section = "hos_bring";
 
-  if (/赤ちゃんの(?:退院時の)?(?:服|衣服)/.test(msg)) {
-    return {
-      answer: HOSPITAL_BAG_BABY_CLOTHES_ANSWER,
-      matchedSection: "hos_bring",
-    };
+  switch (focus) {
+    case "hospital_provided":
+      return {
+        answer: HOSPITAL_BAG_HOSPITAL_PROVIDED_ANSWER,
+        matchedSection: section,
+        focus,
+      };
+    case "hospital_provided_full":
+      return {
+        answer: HOSPITAL_BAG_HOSPITAL_PROVIDED_FULL_ANSWER,
+        matchedSection: section,
+        focus,
+      };
+    case "full_list":
+      return {
+        answer: HOSPITAL_BAG_FULL_LIST_ANSWER,
+        matchedSection: section,
+        focus,
+      };
+    case "item_hospital_provided":
+      return {
+        answer: HOSPITAL_BAG_PROVIDED_ITEM_ANSWER,
+        matchedSection: section,
+        focus,
+      };
+    case "item_patient_bring":
+      return {
+        answer: HOSPITAL_BAG_TOOTHBRUSH_ANSWER,
+        matchedSection: section,
+        focus,
+      };
+    case "item_baby_clothes":
+      return {
+        answer: HOSPITAL_BAG_BABY_CLOTHES_ANSWER,
+        matchedSection: section,
+        focus,
+      };
+    case "patient_bring":
+    default:
+      return {
+        answer: HOSPITAL_BAG_SUMMARY_ANSWER,
+        matchedSection: section,
+        focus: "patient_bring",
+      };
   }
-
-  if (
-    /パジャマ|ルームウェア|スリッパ|シャンプー|リンス|コンディショナー|ボディソープ|タオル|ドライヤー|病衣/.test(
-      msg
-    ) &&
-    /持|必要|持参|持って|用意/.test(msg)
-  ) {
-    return {
-      answer: HOSPITAL_BAG_PROVIDED_ANSWER,
-      matchedSection: "hos_bring",
-    };
-  }
-
-  return {
-    answer: HOSPITAL_BAG_SUMMARY_ANSWER,
-    matchedSection: "hos_bring",
-  };
 }
 
 /** 胎嚢未確認のフォローアップか（毎回実施と断定しない） */
@@ -494,7 +568,8 @@ function resolveServiceAvailabilityStatus(opts) {
     notOfferedHit ||
     isChildVaccinationQuery(userMessage) ||
     isGenderSelectionQuery(userMessage) ||
-    isGynecologicSurgeryQuery(userMessage)
+    isGynecologicSurgeryQuery(userMessage) ||
+    isEveningConsultationReservationQuery(userMessage)
   ) {
     return "unavailable";
   }
@@ -725,6 +800,7 @@ const SYSTEM = `
 ・【婦人科の手術と診察・処方を区別する】当院では婦人科の手術（子宮筋腫・卵巣のう腫・内膜症・子宮摘出など）は行っていない。手術が必要なら対応医療機関への相談を案内する。一方、診察・診断・お薬の相談は婦人科で受けられる。お薬は診察のうえ医師が必要性を判断し、特定の薬の処方を保証しない。「手術」という語だけで中絶など別サービスの登録情報を流用しない。中絶については既存の院内登録情報に従う（このターンで勝手に未実施へ上書きしない）。産科・分娩の処置には婦人科手術の未実施ルールを当てはめない。
 ・【妊婦健診のエコー頻度】院内登録情報を優先する。「毎回行われるわけではない」「医師が必要と判断した場合のみ」などの一般論で上書きしない。胎嚢確認後は毎回の妊婦健診でエコー。胎嚢確認前は毎回実施と断定しない。婦人科診察のエコーには妊婦健診ルールを流用しない。
 ・【入院時の持ち物】公式サイトの一覧を優先する。一般的な病院の持ち物を勝手に追加しない。当院でご用意している物（病衣・タオル・シャンプー・スリッパ等）を持参必須と案内しない。「ご用意いただく物」「分娩セット」「当院でご用意している物」を混同しない。産後ケアの持ち物に分娩入院の一覧を流用しない。
+・【夜診の予約】夜診は予約不可・受付順。電話予約や事前予約が可能と案内しない。妊婦健診・WEB予約・初診予約の可否を夜診に流用しない。締切や診療時間など不要な条件を付け足さない。
 
 【絶対に守る基本原則】
 以下を 必ず守ってください。
@@ -3099,6 +3175,74 @@ export default async function handler(req, res) {
       return res.status(200).json(payload);
     }
 
+    // 夜診の予約：予約不可・受付順（電話/事前予約可と案内しない。チップなし）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      !isEveningConsultationHoursQuery(userMessage) &&
+      isEveningConsultationReservationQuery(userMessage, dinnerContextText)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "evening-consultation-reservation" ||
+          (h.item?.service === "evening_consultation" &&
+            h.item?.availability === "unavailable")
+      );
+      const answer = stripServiceGushPhrases(
+        buildEveningReservationAnswer(userMessage, safeHistory) ||
+          String(ckHit?.item?.answer || "").trim() ||
+          EVENING_RESERVATION_UNAVAILABLE_ANSWER
+      );
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "reservation_availability",
+          detectedService: "evening_consultation",
+          availability: "unavailable",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  availability: ckHit.item.availability || "unavailable",
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          rejectedKnowledge: clinicRejected,
+          referenceChips: [],
+          note: "夜診は予約不可・受付順。予約方法の根拠ページが無いためチップなし",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "reservation_availability",
+          service: "evening_consultation",
+          availability: "unavailable",
+          eveningReservationUnavailable: true,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "reservation_availability";
+        payload.detectedService = "evening_consultation";
+        payload.availability = "unavailable";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.rejectedKnowledge = clinicRejected;
+        payload.referenceChips = [];
+      }
+      return res.status(200).json(payload);
+    }
+
     // 産後ケアの持ち物：分娩入院一覧を流用しない
     if (
       !metaChatHit &&
@@ -3175,9 +3319,10 @@ export default async function handler(req, res) {
             : [],
           matchedSiteUrl: HOSPITAL_BAG_PAGE_URL,
           matchedSection: built?.matchedSection || "hos_bring",
+          hospitalBagFocus: built?.focus || null,
           referenceChips: referencedPages,
           rejectedKnowledge: clinicRejected,
-          note: "入院持ち物は公式分類を優先。hospitalizationページは使わない",
+          note: "入院持ち物は公式分類を優先。電話問い合わせ案内は付けない",
         };
       }
       await appendChatLog({
@@ -3189,6 +3334,7 @@ export default async function handler(req, res) {
           service: "childbirth_hospitalization",
           hospitalBag: true,
           matchedSection: built?.matchedSection || "hos_bring",
+          hospitalBagFocus: built?.focus || null,
         },
       });
       const payload = {
@@ -3203,6 +3349,7 @@ export default async function handler(req, res) {
         payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
         payload.matchedSiteUrl = HOSPITAL_BAG_PAGE_URL;
         payload.matchedSection = built?.matchedSection || "hos_bring";
+        payload.hospitalBagFocus = built?.focus || null;
         payload.referenceChips = referencedPages;
         payload.rejectedKnowledge = clinicRejected;
       }

@@ -27,6 +27,8 @@ import {
   isGynecologicSurgeryQuery,
   isGynecologyUltrasoundFrequencyQuery,
   isFeeFocusedMessage,
+  isEveningConsultationHoursQuery,
+  isEveningConsultationReservationQuery,
   isHospitalBagQuery,
   isMotherDistressConsultMessage,
   isNonChildbirthBelongingsQuery,
@@ -263,6 +265,11 @@ function inferItemService(id, category, patterns, relatedUrl) {
     /hospital_bag|childbirth-hospital-bag|入院時の持ち物|hos_bring/.test(hay)
   ) {
     return "childbirth_hospitalization";
+  }
+  if (
+    /evening_consultation|evening-consultation|夜診/.test(hay)
+  ) {
+    return "evening_consultation";
   }
   if (/assist_birth|立ち会い|分娩|rsv_bonus|childbirth/.test(hay)) {
     return "delivery";
@@ -531,6 +538,11 @@ export function detectClinicIntent(userMessage) {
     return "hospital_bag";
   }
 
+  // 夜診の予約可否（時間のみの質問は含めない）
+  if (isEveningConsultationReservationQuery(msg)) {
+    return "reservation_availability";
+  }
+
   // 妊婦健診のエコー頻度（婦人科エコーは流用しない）
   if (isPrenatalUltrasoundFrequencyQuery(msg)) {
     return "ultrasound_frequency";
@@ -723,6 +735,38 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         rejectReason: "hospital_bagは分娩入院の持ち物のみ",
       };
     }
+  }
+  // 夜診予約不可は夜診予約質問以外に流用しない（時間のみ・他診療予約と分離）
+  if (
+    item.id === "evening-consultation-reservation" ||
+    itemService === "evening_consultation"
+  ) {
+    if (
+      isEveningConsultationHoursQuery(msg) ||
+      !isEveningConsultationReservationQuery(msg)
+    ) {
+      return {
+        score: 0,
+        reasons: ["夜診予約:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "evening_consultationは夜診の予約可否のみ",
+      };
+    }
+  }
+  // 夜診予約質問に当日予約一般・WEB予約一般を流用しない
+  if (
+    isEveningConsultationReservationQuery(msg) &&
+    (item.id === "reception-001" ||
+      itemIntent === "web_reservation_availability" ||
+      (itemIntent === "reservation_availability" &&
+        itemService !== "evening_consultation"))
+  ) {
+    return {
+      score: 0,
+      reasons: ["夜診予約:他の予約ルール流用禁止"],
+      rejected: true,
+      rejectReason: "夜診予約には夜診専用情報を使う",
+    };
   }
 
   // 妊婦健診エコー頻度は婦人科エコー質問に流用しない
@@ -1151,6 +1195,13 @@ export function buildClinicRegisteredKnowledgePrompt(hits) {
           "・当院で用意している物（病衣・タオル・シャンプー・スリッパ等）を持参必須と案内しない。",
           "・公式サイトにない一般的な持ち物を追加しない。条件付き（予定帝王切開のみ・必要な方のみ・対象市町村のみ）を全員必須にしない。",
           "・一覧の詳細は公式ページへ案内し、チャットで全部を無理に列挙しなくてよい（全部教えてと求められた場合を除く）。",
+        ]
+      : []),
+    ...(hits.some((h) => h.item?.service === "evening_consultation")
+      ? [
+          "・夜診は予約不可・受付順。電話予約や事前予約が可能と案内しない。",
+          "・締切時刻・診療時間など、質問に不要な条件を勝手に付け足さない。",
+          "・妊婦健診やWEB予約の可否を夜診に流用しない。",
         ]
       : []),
     "",
