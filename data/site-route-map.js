@@ -29,6 +29,16 @@ export const QUERY_NORMALIZERS = {
     pattern:
       /立ち?会[いえ]|立会い|立ち合い|(?:旦那|夫|パートナー|主人|彼氏)[^。\n]{0,12}一緒[^。\n]{0,12}(?:出産|分娩|お産)|(?:出産|分娩|お産)[^。\n]{0,12}一緒|(?:出産|分娩)に付き添|分娩室に入れ|立ち会(?:える|えます|いできる)/,
   },
+  photo_recording: {
+    id: "photo_recording",
+    label: "院内撮影・録音",
+    /**
+     * 写真・動画・録画・録音の可否が主目的の質問
+     * （立ち会い・分娩は状況語になり得るため、撮影語があるときはこちらを優先）
+     */
+    pattern:
+      /(?:写真|動画|映像|画像|撮影|録画|録音|撮[っれり]|SNS投稿|インスタ|SNS)/,
+  },
   fee: {
     id: "fee",
     label: "出産費用",
@@ -48,15 +58,27 @@ export const QUERY_NORMALIZERS = {
 };
 
 /** @param {string} userMessage */
+export function isPhotoRecordingFocusedMessage(userMessage) {
+  return QUERY_NORMALIZERS.photo_recording.pattern.test(
+    String(userMessage || "").trim()
+  );
+}
+
+/** @param {string} userMessage */
 export function isAttendFocusedMessage(userMessage) {
-  return QUERY_NORMALIZERS.attend.pattern.test(String(userMessage || "").trim());
+  const msg = String(userMessage || "").trim();
+  // 撮影・録画の可否が主目的なら立ち会い専用ページに寄せない
+  if (isPhotoRecordingFocusedMessage(msg)) return false;
+  return QUERY_NORMALIZERS.attend.pattern.test(msg);
 }
 
 /** @param {string} userMessage */
 export function isVisitFocusedMessage(userMessage) {
   const msg = String(userMessage || "").trim();
   // 「立ち会えます」等は立ち会い優先（面会の「会える」と混同しない）
-  if (isAttendFocusedMessage(msg)) return false;
+  if (isAttendFocusedMessage(msg) || isPhotoRecordingFocusedMessage(msg)) {
+    return false;
+  }
   return QUERY_NORMALIZERS.visit.pattern.test(msg);
 }
 
@@ -80,6 +102,13 @@ export const SITE_ROUTE_MAP = [
     patterns: [QUERY_NORMALIZERS.visit.pattern],
     urls: ["https://kanai.or.jp/obstetrics/hospitalization/#visit"],
     boost: 200,
+  },
+  {
+    id: "photo_recording",
+    label: "院内撮影・録音",
+    patterns: [QUERY_NORMALIZERS.photo_recording.pattern],
+    urls: ["https://kanai.or.jp/notpermit/"],
+    boost: 240,
   },
   {
     id: "attend",
@@ -222,10 +251,13 @@ export function matchSiteRoutes(userMessage) {
   const msg = String(userMessage || "");
   if (!msg.trim()) return [];
   const attendHit = isAttendFocusedMessage(msg);
+  const photoHit = isPhotoRecordingFocusedMessage(msg);
   const out = [];
   for (const rule of SITE_ROUTE_MAP) {
     // 立ち会い質問では面会ルートを付けない
     if (rule.id === "visit" && attendHit) continue;
+    // 撮影可否が主目的のときは立ち会いルートを付けない（状況語の誤優先防止）
+    if (rule.id === "attend" && photoHit) continue;
     for (const re of rule.patterns || []) {
       if (re.test(msg)) {
         out.push({ ...rule, matchedPattern: String(re) });

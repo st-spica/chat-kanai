@@ -13,6 +13,7 @@ import { dirname, join } from "path";
 import {
   isAttendFocusedMessage,
   isFeeFocusedMessage,
+  isPhotoRecordingFocusedMessage,
   isVisitFocusedMessage,
   QUERY_NORMALIZERS,
 } from "../data/site-route-map.js";
@@ -200,6 +201,9 @@ function inferItemIntent(id, category, patterns) {
   if (/childbirth_bonus_dinner|お祝いディナー|ディナーご招待/.test(hay)) {
     return "childbirth_bonus_dinner";
   }
+  if (/photo_recording|撮影|録音|notpermit|other-081/.test(hay)) {
+    return "photo_recording_policy";
+  }
   return null;
 }
 
@@ -375,6 +379,11 @@ export function detectClinicIntent(userMessage) {
   const hasChange = /変更/.test(msg);
   const hasCancel = /キャンセル|取り消|取消/.test(msg);
 
+  // 院内撮影・録音の可否（立ち会い等の状況語より優先）
+  if (isPhotoRecordingFocusedMessage(msg)) {
+    return "photo_recording_policy";
+  }
+
   // お祝いディナー（分娩予約特典）
   if (
     /お祝いディナー|出産祝いの食事|お祝いの食事/.test(msg) ||
@@ -432,6 +441,9 @@ function expandMessageForClinicMatch(userMessage) {
   const extras = [];
   if (isVisitFocusedMessage(msg)) extras.push("面会", "お見舞い");
   if (isAttendFocusedMessage(msg)) extras.push("立ち会い", "立会い");
+  if (isPhotoRecordingFocusedMessage(msg)) {
+    extras.push("撮影", "動画", "写真", "録音", "院内撮影禁止");
+  }
   if (isFeeFocusedMessage(msg)) extras.push("費用", "料金");
   for (const n of Object.values(QUERY_NORMALIZERS || {})) {
     if (n?.pattern?.test(msg) && n.label) extras.push(n.label);

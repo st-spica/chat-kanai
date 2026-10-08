@@ -8,6 +8,7 @@ import {
   isAttendFocusedQuery,
   isGenericKanaiHomeUrl,
   isMeetingFocusedQuery,
+  isPhotoRecordingFocusedQuery,
   MEETING_INFO_PAGE_URL,
   filterPagesBySitemap,
   rewriteLegacyKanaiUrl,
@@ -447,7 +448,8 @@ script, style, iframe, onclick、data-*、id は使わない。
 - **当院固有の事実**は、その抜粋に書かれている内容だけを根拠にする。抜粋が無い／該当記述が無いときは推測せず、電話問い合わせを案内する。
 - 抜粋があるときは短い質問でもその内容を核にして簡潔に伝える。一般論で薄めない。
 - ユーザー発話に「面会」が含まれるときは、そのターンの抜粋は**面会ページ（${MEETING_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
-- ユーザー発話に「立ち会い」が含まれるときは、そのターンの抜粋は**立ち会い分娩ページ（${ATTEND_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
+- ユーザー発話の主目的が立ち会い分娩の可否・条件のときは、そのターンの抜粋は**立ち会い分娩ページ（${ATTEND_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
+- 写真・動画・撮影・録音の可否が主目的のときは、立ち会い等の状況語があっても撮影ルールページ（患者さまへのお願い）を根拠にする。撮影を一律禁止と推測せず、渡された抜粋の範囲で答える。
 `.trim();
 
 const PROMPT_NO_CLINIC_EVIDENCE = [
@@ -1385,13 +1387,14 @@ function guardReferenceChipsByQuestion(pages, userMessage, opts = {}) {
     const hit = meaningful.some((t) => hay.includes(t.toLowerCase()));
     // 面会・立ち会い・ワクチン等の正規ルートURLはタイトル語が少なくても許可
     const routeOk =
-      /#visit|#assist_birth|#price_birth|\/vaccine\/|\/beginner\/|\/hospitalization\/|\/rsv_bonus\//i.test(
+      /#visit|#assist_birth|#price_birth|\/vaccine\/|\/beginner\/|\/hospitalization\/|\/rsv_bonus\/|\/notpermit\//i.test(
         p.url || ""
       ) &&
       (isMeetingFocusedQuery(msg) ||
         isAttendFocusedQuery(msg) ||
+        isPhotoRecordingFocusedQuery(msg) ||
         isDeliveryBenefitsFocusedMessage(msg) ||
-        /ワクチン|インフルエンザ|予防接種|今日|本日|明日|午後|午前|診療|診察|予約|費用|料金|割引|特典|プレゼント|キャンペーン|ディナー|招待/.test(
+        /ワクチン|インフルエンザ|予防接種|今日|本日|明日|午後|午前|診療|診察|予約|費用|料金|割引|特典|プレゼント|キャンペーン|ディナー|招待|撮影|写真|動画|録音/.test(
           msg
         ));
     if (hit || routeOk) {
@@ -1439,6 +1442,14 @@ function alignChipsWithAnswerPageMentions(answer, candidatePages, currentPages =
         "分娩特典",
         "お祝いディナー",
         "お祝いディナーご招待"
+      );
+    }
+    if (/notpermit/i.test(bare)) {
+      aliases.push(
+        "患者さまへのお願い",
+        "患者様へのお願い",
+        "院内撮影禁止",
+        "撮影禁止"
       );
     }
     const mentioned = aliases.some((a) => a && a.length >= 4 && text.includes(a));

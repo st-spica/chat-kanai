@@ -11,6 +11,7 @@ import { Redis } from "@upstash/redis";
 import {
   isAttendFocusedMessage,
   isDeliveryBenefitsFocusedMessage,
+  isPhotoRecordingFocusedMessage,
   isVisitFocusedMessage,
   matchSiteRoutes,
   preferredUrlsForMessage,
@@ -531,6 +532,10 @@ export function isAttendFocusedQuery(userMessage) {
   return isAttendFocusedMessage(userMessage);
 }
 
+export function isPhotoRecordingFocusedQuery(userMessage) {
+  return isPhotoRecordingFocusedMessage(userMessage);
+}
+
 /** Asia/Tokyo の現在日時パーツ */
 export function getTokyoNowParts(now = new Date()) {
   const fmt = new Intl.DateTimeFormat("en-CA", {
@@ -671,6 +676,9 @@ export function expandQueryForSearch(userMessage, now = new Date()) {
     if (/ディナー|食事|招待|家族|夫/.test(msg)) {
       extras.push("お祝いディナーご招待", "ご家族様1名");
     }
+  }
+  if (isPhotoRecordingFocusedMessage(msg)) {
+    extras.push("院内撮影禁止", "写真", "動画", "録音", "患者さまへのお願い");
   }
   if (!extras.length) return msg;
   return `${msg} ${extras.join(" ")}`.replace(/\s+/g, " ").trim();
@@ -1214,6 +1222,10 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
   const topicPairs = [
     [isVisitFocusedMessage, /面会|#visit|hospitalization|お見舞い/],
     [isAttendFocusedMessage, /立ち会い|立会い|#assist_birth|childbirth/],
+    [
+      isPhotoRecordingFocusedMessage,
+      /院内撮影|撮影禁止|写真|動画|録音|notpermit|患者さまへのお願い|患者様へのお願い/,
+    ],
     [(m) => /里帰り/.test(m), /里帰り|#homecoming/],
     [(m) => /インフルエンザ|ワクチン|予防接種/.test(m), /ワクチン|インフルエンザ|\/vaccine/],
     [(m) => /子宮頸がん|子宮がん検診/.test(m), /子宮頸がん|子宮がん検診|\/gynecology/],
