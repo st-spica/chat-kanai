@@ -801,12 +801,51 @@ function detectEmergency(text) {
 }
 
 /**
+ * 保存・IP・個人情報などプライバシー実仕様の質問か
+ * @param {string} userMessage
+ */
+function isPrivacyDataQuery(userMessage) {
+  const text = String(userMessage || "").trim();
+  if (!text) return false;
+  return (
+    /(?:データ|会話|チャット|やり取り|相談内容|履歴|ログ).*(?:残|保存|記録|消え|削除)/.test(
+      text
+    ) ||
+    /(?:残|保存|記録).*(?:データ|会話|チャット|ログ)/.test(text) ||
+    /個人情報|プライバシー|利用規約/.test(text) ||
+    /IP|アイピー|接続元|特定され|追跡|トラッキング/i.test(text) ||
+    /(?:誰|スタッフ|病院|運営|管理者).*(?:読|見|確認)/.test(text) ||
+    /(?:読まれ|見られ).*(?:て|ます|いる)/.test(text) ||
+    /このチャットは安全|安全ですか|セキュリティ/.test(text)
+  );
+}
+
+/**
+ * 確認済み実装に基づくプライバシー案内（推測・保証表現なし）
+ */
+function buildPrivacySpecAnswer() {
+  return [
+    "この相談チャットでは、ご質問と回答の内容が、案内の品質確認や改善のために記録される場合があります。",
+    "回答の作成にあたり、ご質問の内容や直近の会話の一部を、外部のAIサービスへ送信します。",
+    "",
+    "アクセスの集中を防ぐため、接続元の情報（IPアドレス）を利用する場合があります。",
+    "会話ログ用のデータベースにはIPアドレスを保存する項目はありませんが、サーバーや通信経路の一般的なアクセス記録に残る可能性は否定できません。",
+    "",
+    "氏名・住所・電話番号・保険証番号などの個人情報は入力しないでください。こちらからそうした情報の入力をお願いすることもありません。",
+    "「絶対に安全」「個人を特定できない」といった保証はできませんので、個人が特定される情報の送信はお控えください。",
+  ].join("\n");
+}
+
+/**
  * チャット仕様・プライバシー等のメタ質問（公式サイト検索対象外）
  * @returns {{ id: string, label: string }|null}
  */
 function detectMetaChatQuery(userMessage) {
   const text = String(userMessage || "").trim();
   if (!text) return null;
+  if (isPrivacyDataQuery(text)) {
+    return { id: "meta_chat", label: "チャット仕様" };
+  }
   const patterns = [
     /この(?:やり取り|会話|チャット|相談|メッセージ)/,
     /(?:会話|チャット|やり取り|相談内容|履歴).*(?:保存|記録|ログ|残)/,
@@ -822,6 +861,7 @@ function detectMetaChatQuery(userMessage) {
     /このチャットは安全|安全ですか|セキュリティ/,
     /運営者|管理者は誰|誰が運営/,
     /会話履歴について|ログは残/,
+    /データが残|IP|アイピー|特定され/i,
   ];
   if (patterns.some((re) => re.test(text))) {
     return { id: "meta_chat", label: "チャット仕様" };
@@ -829,17 +869,32 @@ function detectMetaChatQuery(userMessage) {
   return null;
 }
 
+/**
+ * 確認済みの実装仕様（プライバシー回答の唯一の根拠。推測禁止）
+ * - Supabase chat_logs: message/answer/client_id 等を保存（設定時）。IPカラムなし
+ * - 日次レポート: 保存ログをメール集計する場合あり
+ * - Vercel console.log: 会話本文がサーバーログに残る場合あり
+ * - api-proxy.php: クライアントIPを取得し上流へ転送（アプリ内DBへは未保存）
+ * - Vercel: レート制限のため IP を利用（Upstash）。chat_logs には未保存
+ * - OpenAI: 質問＋直近履歴を回答生成のため送信
+ */
 const PROMPT_META_CHAT = [
   "【このターン：チャット仕様・プライバシー（meta_chat・最優先）】",
-  "ユーザーは当院の診療案内ではなく、この相談チャット自体（保存・閲覧・AI・安全性など）について質問しています。",
-  "・公式サイト抜粋やお知らせは使わない。参照リンク（チップ）の案内も書かない。",
-  "・「AI」「ChatGPT」「チャットボット」などと名乗らない。「相談窓口としてご案内します」と表現する。",
-  "・次の内容を、丁寧で簡潔に伝える（嘘や過剰な安心はしない）。",
-  "  1）この画面は当院の相談窓口としての案内チャットであること",
-  "  2）会話内容は、案内品質の確認や改善のため、当院側で記録・確認される場合があること",
-  "  3）診断や処方は行わず、一般的な案内と受診の目安をお伝えする場であること",
-  "  4）個人を特定する情報の入力はできるだけ避けてほしいこと",
-  "・診療時間・休診・予約など院内案内へ話を逸らさない。",
+  "ユーザーは当院の診療案内ではなく、この相談チャット自体（保存・IP・AI・安全性など）について質問しています。",
+  "一般的な医療相談の口調・受診案内・公式サイト抜粋は使わない。参照チップの案内も書かない。",
+  "「AI」「ChatGPT」「チャットボット」などと名乗らない。「相談窓口としてご案内します」と表現する。",
+  "",
+  "【確認済みのシステム仕様（これだけを根拠にする。未記載の断定・推測禁止）】",
+  "1. 会話内容: ご質問と回答は、案内品質の確認・改善のため記録される場合がある（データベース保存、サーバーログ、日次レポート用の集計を含む場合がある）。",
+  "2. IPアドレス: アクセス集中防止（レート制限）のため接続元IPを利用する場合がある。会話ログ用DBにはIP保存用の項目はない。ただしサーバーや通信経路の一般的なアクセス記録にIPが残る可能性は否定できない。「IPは取得していない」「特定できない」と断言しない。",
+  "3. 外部AI: 回答作成のため、ご質問と直近の会話の一部を外部のAIサービスへ送信する。",
+  "4. 個人情報: 氏名・住所・電話・保険番号等の入力は求めない。入力しないよう案内する。",
+  "5. この場は診断・処方を行わず、一般的な案内と受診の目安をお伝えする場である。",
+  "",
+  "【禁止】",
+  "・「絶対に安全」「個人を特定できない」「記録は一切残らない」「IPは取得しない」など、保証・事実と異なる説明",
+  "・意図的な隠蔽や、仕様にない仕組みの創作",
+  "・診療時間・休診・予約など院内案内へ話を逸らすこと",
 ].join("\n");
 
 /**
@@ -2177,11 +2232,39 @@ export default async function handler(req, res) {
     let chipUrls = [];
     let siteKnowledgeSearched = false;
     const metaChatHit = detectMetaChatQuery(userMessage);
+    const privacyDataQuery = Boolean(metaChatHit) && isPrivacyDataQuery(userMessage);
+    const forceRefresh = shouldForceSiteKnowledgeRefresh(req);
+    const includeDebug = shouldIncludeSiteKnowledgeDebug(req);
+
+    // プライバシー（保存・IP等）は確認済み仕様の定型案内のみ（医療SYSTEM・推測禁止）
+    if (privacyDataQuery) {
+      const answer = buildPrivacySpecAnswer();
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: { metaChat: true, privacySpec: true },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = {
+          metaChat: metaChatHit,
+          privacySpec: true,
+          note: "確認済みシステム仕様に基づく定型案内（OpenAI未使用）",
+        };
+        payload.detectedIntent = null;
+        payload.matchedClinicKnowledge = [];
+      }
+      return res.status(200).json(payload);
+    }
+
     const notOfferedHit = metaChatHit ? null : detectNotOfferedService(userMessage);
     const clinicFactual =
       !metaChatHit && isClinicSpecificFactualQuery(userMessage, safeHistory);
-    const forceRefresh = shouldForceSiteKnowledgeRefresh(req);
-    const includeDebug = shouldIncludeSiteKnowledgeDebug(req);
     const queryCategory = metaChatHit
       ? "meta_chat"
       : notOfferedHit
