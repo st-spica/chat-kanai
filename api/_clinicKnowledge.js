@@ -11,10 +11,12 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import {
+  detectClinicService,
   isAttendFocusedMessage,
   isFeeFocusedMessage,
   isPhotoRecordingFocusedMessage,
   isVisitFocusedMessage,
+  isVisitationIntentMessage,
   QUERY_NORMALIZERS,
 } from "../data/site-route-map.js";
 
@@ -46,6 +48,7 @@ const CACHE_TTL_MS = Math.max(
  *   id: string,
  *   category: string,
  *   intent?: string|null,
+ *   service?: string|null,
  *   questionPatterns: string[],
  *   keywords: string[],
  *   answer: string,
@@ -146,6 +149,10 @@ function normalizeOneItem(raw, index) {
   const category = String(raw.category ?? "").trim() || "other";
   const intentRaw = String(raw.intent || "").trim();
   const intent = intentRaw || inferItemIntent(id, category, questionPatterns);
+  const serviceRaw = String(raw.service || "").trim();
+  const service =
+    serviceRaw ||
+    inferItemService(id, category, questionPatterns, relatedSiteUrlHint(raw));
   const priority = Number.isFinite(Number(raw.priority))
     ? Number(raw.priority)
     : 50;
@@ -159,6 +166,7 @@ function normalizeOneItem(raw, index) {
     id,
     category,
     intent,
+    service,
     questionPatterns,
     keywords,
     answer,
@@ -168,6 +176,35 @@ function normalizeOneItem(raw, index) {
   };
   if (relatedSiteUrl) item.relatedSiteUrl = relatedSiteUrl;
   return item;
+}
+
+function relatedSiteUrlHint(raw) {
+  return String(raw?.relatedSiteUrl || raw?.url || "").trim();
+}
+
+/**
+ * @param {string} id
+ * @param {string} category
+ * @param {string[]} patterns
+ * @param {string} relatedUrl
+ */
+function inferItemService(id, category, patterns, relatedUrl) {
+  const hay = `${id}\n${category}\n${(patterns || []).join("\n")}\n${relatedUrl}`.toLowerCase();
+  if (/postpartum|産後ケア|aftersupport|aftercare/.test(hay)) {
+    return "postpartum_care";
+  }
+  if (/hospitalization|#visit|産科入院|入院中/.test(hay)) {
+    return "obstetric_hospitalization";
+  }
+  if (/gynecology|婦人科/.test(hay)) return "gynecology";
+  if (/lesson|教室/.test(hay)) return "prenatal_postnatal_class";
+  if (/assist_birth|立ち会い|分娩|rsv_bonus|childbirth/.test(hay)) {
+    return "delivery";
+  }
+  if (/beginner|外来|初診|再診|outpatient|reception/.test(hay)) {
+    return "outpatient";
+  }
+  return null;
 }
 
 /**
@@ -384,6 +421,11 @@ export function detectClinicIntent(userMessage) {
     return "photo_recording_policy";
   }
 
+  // 面会（サービスは detectClinicService で別判定）
+  if (isVisitationIntentMessage(msg)) {
+    return "visitation";
+  }
+
   // お祝いディナー（分娩予約特典）
   if (
     /お祝いディナー|出産祝いの食事|お祝いの食事/.test(msg) ||
@@ -476,12 +518,25 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
 
   const queryIntent =
     opts.queryIntent !== undefined ? opts.queryIntent : detectClinicIntent(msg);
+  const queryService =
+    opts.queryService !== undefined ? opts.queryService : detectClinicService(msg);
   const itemIntent = item.intent || null;
+  const itemService = item.service || null;
   const normalizedQuery = normalizeReservationQuery(msg);
   const expanded = expandMessageForClinicMatch(msg);
   const msgNorm = normalizedQuery.toLowerCase();
   const expLower = expanded.toLowerCase();
   const reasons = [];
+
+  // 対象サービス不一致は除外（異なる診療サービスのルール流用防止）
+  if (queryService && itemService && queryService !== itemService) {
+    return {
+      score: 0,
+      reasons: [`service不一致:query=${queryService}/item=${itemService}`],
+      rejected: true,
+      rejectReason: `service不一致(query=${queryService}, item=${itemService})`,
+    };
+  }
 
   // intent 不一致は除外（予約系のみ厳格）
   if (
@@ -579,6 +634,10 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
     score += 40;
     reasons.push(`intent一致:${queryIntent}`);
   }
+  if (queryService && itemService && queryService === itemService) {
+    score += 35;
+    reasons.push(`service一致:${queryService}`);
+  }
 
   const cat = String(item.category || "").toLowerCase();
   if (cat && !isReservationItem && (expLower.includes(cat) || msgNorm.includes(cat))) {
@@ -607,6 +666,7 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
  *   source: string,
  *   strong: boolean,
  *   detectedIntent: string|null,
+ *   detectedService: string|null,
  *   normalizedQuery: string,
  *   rejected: ClinicKnowledgeRejection[],
  * }>}
@@ -617,6 +677,7 @@ export async function searchClinicKnowledge(userMessage, opts = {}) {
     : await loadClinicKnowledgeSource(opts);
   const items = loaded.items || [];
   const detectedIntent = detectClinicIntent(userMessage);
+  const detectedService = detectClinicService(userMessage);
   const normalizedQuery = normalizeReservationQuery(userMessage);
 
   if (!items.length) {
@@ -626,6 +687,7 @@ export async function searchClinicKnowledge(userMessage, opts = {}) {
       source: loaded.source || "none",
       strong: false,
       detectedIntent,
+      detectedService,
       normalizedQuery,
       rejected: [],
     };
@@ -636,12 +698,20 @@ export async function searchClinicKnowledge(userMessage, opts = {}) {
   const scored = [];
   for (const item of items) {
     const { score, reasons, rejected: isRejected, rejectReason } =
-      scoreClinicKnowledgeItem(userMessage, item, { queryIntent: detectedIntent });
+      scoreClinicKnowledgeItem(userMessage, item, {
+        queryIntent: detectedIntent,
+        queryService: detectedService,
+      });
     if (isRejected || score < MIN_PASS_SCORE) {
-      if (isRejected || (detectedIntent && RESERVATION_INTENTS.has(detectedIntent))) {
+      if (
+        isRejected ||
+        (detectedIntent && RESERVATION_INTENTS.has(detectedIntent)) ||
+        detectedService
+      ) {
         rejected.push({
           id: item.id,
           intent: item.intent || null,
+          service: item.service || null,
           score,
           reason: rejectReason || (score < MIN_PASS_SCORE ? `スコア不足(${score})` : "除外"),
         });
@@ -662,6 +732,7 @@ export async function searchClinicKnowledge(userMessage, opts = {}) {
       source: loaded.source,
       strong: false,
       detectedIntent,
+      detectedService,
       normalizedQuery,
       rejected: rejected.slice(0, 20),
     };
@@ -675,6 +746,7 @@ export async function searchClinicKnowledge(userMessage, opts = {}) {
     source: loaded.source,
     strong: isClinicKnowledgeStrong(topScore, hits),
     detectedIntent,
+    detectedService,
     normalizedQuery,
     rejected: rejected.slice(0, 20),
   };

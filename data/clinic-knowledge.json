@@ -1,11 +1,37 @@
 {
   "version": 2,
-  "description": "院内登録情報（公式サイト未掲載でもチャットで案内してよい確定情報）。enabled=false は検索対象外。intent で予約系の意図を分離する。",
+  "description": "院内登録情報（公式サイト未掲載でもチャットで案内してよい確定情報）。enabled=false は検索対象外。intent / service で適用範囲を分離する。",
   "items": [
+    {
+      "id": "postpartum-care-visitation",
+      "category": "産後ケア",
+      "intent": "visitation",
+      "service": "postpartum_care",
+      "questionPatterns": [
+        "産後ケア中に面会できますか",
+        "産後ケア中に夫を呼べますか",
+        "産後ケア中に友達は面会できますか",
+        "産後ケアで家族は面会できますか",
+        "産後ケア中に夫や友達を面会に呼んでいいですか"
+      ],
+      "keywords": [
+        "産後ケア",
+        "面会",
+        "夫",
+        "家族",
+        "友達"
+      ],
+      "answer": "",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": false,
+      "relatedSiteUrl": "https://kanai.or.jp/aftersupport/"
+    },
     {
       "id": "reception-001",
       "category": "診療/受付",
       "intent": "reservation_availability",
+      "service": "outpatient",
       "questionPatterns": [
         "当日受診・本日の予約はできますか？",
         "今日の診療の予約はできますか",

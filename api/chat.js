@@ -16,7 +16,6 @@ import {
   peekSiteKnowledgeStatus,
   labelForKnowledgeChunk,
 } from "./_siteKnowledge.js";
-import { isDeliveryBenefitsFocusedMessage } from "../data/site-route-map.js";
 import {
   buildClinicRegisteredKnowledgePrompt,
   detectClinicIntent,
@@ -24,9 +23,17 @@ import {
   peekClinicKnowledgeStatus,
   searchClinicKnowledge,
 } from "./_clinicKnowledge.js";
+import {
+  detectClinicService,
+  isDeliveryBenefitsFocusedMessage,
+  isVisitationIntentMessage,
+} from "../data/site-route-map.js";
 
 const WEB_RESERVATION_NO_INFO_ANSWER =
   "WEB予約について確認できる情報がありません。お手数ですが、当院へお電話でお問い合わせください。";
+
+const POSTPARTUM_VISITATION_NO_INFO_ANSWER =
+  "産後ケアをご利用中の面会については、現在確認できる情報がありません。詳しくは当院まで直接お問い合わせください。";
 
 /** サイト抜粋に WEB予約の可否が明示されているか */
 function siteMentionsWebReservationAvailability(snippet) {
@@ -447,9 +454,11 @@ script, style, iframe, onclick、data-*、id は使わない。
 このあと別の system メッセージとして「当院公式サイトのページ本文の抜粋（URL・更新日付き）」が渡される場合がある。
 - **当院固有の事実**は、その抜粋に書かれている内容だけを根拠にする。抜粋が無い／該当記述が無いときは推測せず、電話問い合わせを案内する。
 - 抜粋があるときは短い質問でもその内容を核にして簡潔に伝える。一般論で薄めない。
-- ユーザー発話に「面会」が含まれるときは、そのターンの抜粋は**面会ページ（${MEETING_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
+- ユーザー発話の主目的が**産科入院中の面会**のときは、そのターンの抜粋は**面会ページ（${MEETING_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
+- **産後ケア**中の面会・家族来訪について聞かれたとき、産科入院の面会時間・人数・親族範囲を流用しない。根拠が無い場合は確認できない旨を伝え、当院への問い合わせを案内する（推測禁止）。
 - ユーザー発話の主目的が立ち会い分娩の可否・条件のときは、そのターンの抜粋は**立ち会い分娩ページ（${ATTEND_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
 - 写真・動画・撮影・録音の可否が主目的のときは、立ち会い等の状況語があっても撮影ルールページ（患者さまへのお願い）を根拠にする。撮影を一律禁止と推測せず、渡された抜粋の範囲で答える。
+- 院内情報は適用対象（service）が質問と一致するものだけを根拠にする。キーワード一致だけで別サービスのルールを使わない。
 `.trim();
 
 const PROMPT_NO_CLINIC_EVIDENCE = [
@@ -2066,6 +2075,7 @@ export default async function handler(req, res) {
     let clinicKnowledgeStrong = false;
     let clinicTopScore = 0;
     let clinicDetectedIntent = null;
+    let clinicDetectedService = null;
     let clinicNormalizedQuery = "";
     let clinicRejected = [];
     let evidenceUrls = [];
@@ -2093,6 +2103,8 @@ export default async function handler(req, res) {
         clinicKnowledgeHits = ck.hits || [];
         clinicTopScore = ck.topScore || 0;
         clinicDetectedIntent = ck.detectedIntent || detectClinicIntent(userMessage);
+        clinicDetectedService =
+          ck.detectedService || detectClinicService(userMessage);
         clinicNormalizedQuery = ck.normalizedQuery || "";
         clinicRejected = ck.rejected || [];
         clinicKnowledgeStrong =
@@ -2107,11 +2119,13 @@ export default async function handler(req, res) {
               topScore: clinicTopScore,
               strong: clinicKnowledgeStrong,
               detectedIntent: clinicDetectedIntent,
+              detectedService: clinicDetectedService,
               normalizedQuery: clinicNormalizedQuery,
               hits: clinicKnowledgeHits.map((h) => ({
                 id: h.item.id,
                 category: h.item.category,
                 intent: h.item.intent || null,
+                service: h.item.service || null,
                 score: h.score,
                 reasons: h.reasons,
                 updatedAt: h.item.updatedAt,
@@ -2125,6 +2139,61 @@ export default async function handler(req, res) {
       } catch (e) {
         console.error("clinic-knowledge search failed:", e?.message || e);
       }
+    }
+
+    // 産後ケア中の面会：産科入院の面会ルールを流用せず、根拠が無ければ定型案内
+    const postpartumVisitationNoEvidence =
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      clinicDetectedService === "postpartum_care" &&
+      (clinicDetectedIntent === "visitation" ||
+        isVisitationIntentMessage(userMessage)) &&
+      !clinicKnowledgeHits.some(
+        (h) =>
+          h.item?.service === "postpartum_care" &&
+          (h.item?.intent === "visitation" || /面会/.test(h.item?.answer || ""))
+      );
+    if (postpartumVisitationNoEvidence) {
+      const answer = POSTPARTUM_VISITATION_NO_INFO_ANSWER;
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: clinicDetectedIntent,
+          detectedService: clinicDetectedService,
+          matchedClinicKnowledge: [],
+          rejectedKnowledge: clinicRejected,
+          excludedEvidence: [
+            {
+              url: MEETING_INFO_PAGE_URL,
+              reason: "service不一致:産後ケア面会に産科入院面会を流用しない",
+            },
+          ],
+          postpartumVisitation: { action: "fixed_no_info" },
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: clinicDetectedIntent,
+          service: clinicDetectedService,
+          postpartumVisitationNoInfo: true,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = clinicDetectedIntent;
+        payload.detectedService = clinicDetectedService;
+        payload.matchedClinicKnowledge = [];
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
     }
 
     // 3) 公式サイト検索（メタ質問では実行しない）
@@ -2597,10 +2666,12 @@ export default async function handler(req, res) {
     }
     if (includeDebug) {
       payload.detectedIntent = clinicDetectedIntent;
+      payload.detectedService = clinicDetectedService;
       payload.normalizedQuery = clinicNormalizedQuery;
       payload.matchedClinicKnowledge = clinicKnowledgeHits.map((h) => ({
         id: h.item.id,
         intent: h.item.intent || null,
+        service: h.item.service || null,
         score: h.score,
         reasons: h.reasons,
       }));

@@ -64,6 +64,53 @@ export function isPhotoRecordingFocusedMessage(userMessage) {
   );
 }
 
+/**
+ * 質問の対象サービス（適用範囲）を推定する。
+ * 同じ「面会」でも産科入院と産後ケアではルールが異なるため必須。
+ * @param {string} userMessage
+ * @returns {string|null}
+ */
+export function detectClinicService(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return null;
+  // より具体的なサービスを先に判定
+  if (/産後ケア|産後サポート|産後デイ|産後のデイ|ショートステイ/.test(msg)) {
+    return "postpartum_care";
+  }
+  if (/産前産後教室|産前教室|産後教室|ママフィット|アクティブクラス/.test(msg)) {
+    return "prenatal_postnatal_class";
+  }
+  if (/婦人科/.test(msg) && !/産科|分娩|出産|お産/.test(msg)) {
+    return "gynecology";
+  }
+  if (
+    /入院中|産科入院|出産後の入院|分娩後.{0,8}入院|入院中の面会|入院の面会|面会時間/.test(
+      msg
+    ) ||
+    (/入院/.test(msg) && /面会|お見舞い|夫|家族|友達|友人/.test(msg))
+  ) {
+    return "obstetric_hospitalization";
+  }
+  if (/立ち?会|立会い|分娩室|LDR/.test(msg) || /分娩予約|お産の予約/.test(msg)) {
+    return "delivery";
+  }
+  if (/外来|初診|再診|WEB予約|ウェブ予約/.test(msg)) {
+    return "outpatient";
+  }
+  return null;
+}
+
+/** 面会・お見舞い系の意図か（サービス判定とは独立） */
+export function isVisitationIntentMessage(userMessage) {
+  const msg = String(userMessage || "").trim();
+  return (
+    QUERY_NORMALIZERS.visit.pattern.test(msg) ||
+    /面会|お見舞い|呼べる|呼んで|呼んでいい|来てもいい|来ていい|友達が来|友人が来/.test(
+      msg
+    )
+  );
+}
+
 /** @param {string} userMessage */
 export function isAttendFocusedMessage(userMessage) {
   const msg = String(userMessage || "").trim();
@@ -77,6 +124,10 @@ export function isVisitFocusedMessage(userMessage) {
   const msg = String(userMessage || "").trim();
   // 「立ち会えます」等は立ち会い優先（面会の「会える」と混同しない）
   if (isAttendFocusedMessage(msg) || isPhotoRecordingFocusedMessage(msg)) {
+    return false;
+  }
+  // 産後ケア中の面会は産科入院の面会ページ対象外
+  if (detectClinicService(msg) === "postpartum_care") {
     return false;
   }
   return QUERY_NORMALIZERS.visit.pattern.test(msg);
@@ -252,12 +303,15 @@ export function matchSiteRoutes(userMessage) {
   if (!msg.trim()) return [];
   const attendHit = isAttendFocusedMessage(msg);
   const photoHit = isPhotoRecordingFocusedMessage(msg);
+  const service = detectClinicService(msg);
   const out = [];
   for (const rule of SITE_ROUTE_MAP) {
     // 立ち会い質問では面会ルートを付けない
     if (rule.id === "visit" && attendHit) continue;
     // 撮影可否が主目的のときは立ち会いルートを付けない（状況語の誤優先防止）
     if (rule.id === "attend" && photoHit) continue;
+    // 産後ケアの面会では産科入院の面会ルートを付けない
+    if (rule.id === "visit" && service === "postpartum_care") continue;
     for (const re of rule.patterns || []) {
       if (re.test(msg)) {
         out.push({ ...rule, matchedPattern: String(re) });
