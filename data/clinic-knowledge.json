@@ -1329,6 +1329,70 @@
       "priority": 200,
       "updatedAt": "2026-10-08",
       "enabled": true
+    },
+    {
+      "id": "clinic-first-visit-fee",
+      "category": "診療案内/初診料",
+      "intent": "first_visit_fee",
+      "service": "outpatient",
+      "target": "new_patient",
+      "availability": "available",
+      "questionPatterns": [
+        "初診料はいくらですか",
+        "初診の料金を教えてください",
+        "初診はいくらですか",
+        "初診の費用はいくらですか",
+        "初めて受診するといくらかかりますか",
+        "初めての受診はいくらですか",
+        "初めて来院するときの料金は",
+        "初回の診察料はいくらですか",
+        "初回の受診費用を教えてください",
+        "初診で必要な金額はいくらですか",
+        "初診の診察代を教えてください",
+        "初診料は3300円ですか",
+        "初診料だけで受診できますか"
+      ],
+      "keywords": [
+        "初診料",
+        "初診",
+        "初回の診察料",
+        "初めての受診",
+        "初めての来院",
+        "初診の料金",
+        "初診の費用"
+      ],
+      "summary": "当院の初診料は1,080円です。初回受診時は初診料に加え検査料が必要で、検査内容により合計は異なります。",
+      "answer": "当院の初診料は1,080円です。初回の受診時には、初診料に加えて検査料が必要となります。検査内容によって合計金額は異なります。",
+      "careSource": "data/first-visit-fee.js",
+      "clinicInformation": {
+        "firstVisitFee": {
+          "amount": 1080,
+          "currency": "JPY",
+          "displayAmount": "1,080円",
+          "description": "当院の初診料は1,080円です。"
+        },
+        "additionalExaminationFee": {
+          "required": true,
+          "description": "初回の受診時には、初診料とは別に検査料が必要です。",
+          "amount": null,
+          "note": "検査内容によって金額が異なります。"
+        },
+        "totalFee": {
+          "formula": "初診料1,080円＋検査料",
+          "fixedAmount": false,
+          "description": "初回受診時の合計金額は、検査内容によって異なります。"
+        }
+      },
+      "responseRules": {
+        "useConfirmedFee": true,
+        "avoidEstimatedTotal": true,
+        "avoidUnnecessaryPhoneReferral": true,
+        "avoidConflictingPrices": true,
+        "keepAnswerConcise": true
+      },
+      "priority": 200,
+      "updatedAt": "2026-10-08",
+      "enabled": true
     }
   ]
 }

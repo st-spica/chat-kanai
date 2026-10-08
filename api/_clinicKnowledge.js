@@ -63,6 +63,7 @@ import { isBreechPresentationQuery } from "../data/pregnancy-breech.js";
 import { isPregnancyWeightQuery } from "../data/pregnancy-weight.js";
 import { isLaborHospitalContactQuery } from "../data/labor-contact.js";
 import { isHomecomingDeliveryQuery } from "../data/homecoming-delivery.js";
+import { isFirstVisitFeeQuery } from "../data/first-visit-fee.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -164,6 +165,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "pregnancy_weight_management",
   "labor_hospital_contact",
   "homecoming_delivery",
+  "first_visit_fee",
   "birth_reservation_deposit",
   "birth_advance_payment",
   "birth_hospitalization_cost",
@@ -598,6 +600,11 @@ export function detectClinicIntent(userMessage) {
     return "homecoming_delivery";
   }
 
+  // 初診料（文書料3,300円・他料金と混同しない）
+  if (isFirstVisitFeeQuery(msg)) {
+    return "first_visit_fee";
+  }
+
   // 葉酸 / 妊娠中の服薬 / 授乳中の服薬（混同禁止）
   if (isPregnancyFolicAcidQuery(msg)) {
     return "pregnancy_folic_acid";
@@ -974,6 +981,20 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["里帰り出産:対象外質問のため除外"],
         rejected: true,
         rejectReason: "homecoming_deliveryは里帰り出産関連のみ",
+      };
+    }
+  }
+  // 初診料は対象外（再診・健診・分娩料金など）に流用しない
+  if (
+    item.id === "clinic-first-visit-fee" ||
+    itemIntent === "first_visit_fee"
+  ) {
+    if (!isFirstVisitFeeQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["初診料:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "first_visit_feeは初診料関連のみ",
       };
     }
   }
