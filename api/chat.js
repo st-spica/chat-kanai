@@ -5,6 +5,7 @@ import {
   ATTEND_INFO_PAGE_URL,
   buildTokyoDatetimeSystemPrompt,
   getSiteKnowledgeSnippetSupplement,
+  getTokyoNowParts,
   HOSPITAL_BAG_PAGE_URL,
   isAttendFocusedQuery,
   isGenericKanaiHomeUrl,
@@ -55,6 +56,12 @@ import {
   parseInfantAgeMonths,
   resolveBabyCareGuidanceRoute,
 } from "../data/site-route-map.js";
+import {
+  buildClinicHoursAnswer,
+  buildFullHoursRichHtml,
+  CLINIC_HOURS_REF_PAGE,
+  isClinicHoursQuery,
+} from "../data/clinic-hours.js";
 
 const WEB_RESERVATION_NO_INFO_ANSWER =
   "WEB予約について確認できる情報がありません。お手数ですが、当院へお電話でお問い合わせください。";
@@ -162,14 +169,18 @@ const HOSPITAL_BAG_FULL_LIST_ANSWER = [
 const POSTPARTUM_BELONGINGS_NO_INFO_ANSWER =
   "産後ケアの持ち物については、現在確認できる情報がありません。詳しくは当院までお問い合わせください。";
 
-const EVENING_RESERVATION_UNAVAILABLE_ANSWER =
-  "申し訳ありませんが、夜診は予約制ではなく、受付順での診察となります。ご来院のうえ、受付をお願いいたします。";
+const EVENING_RESERVATION_UNAVAILABLE_ANSWER = [
+  "夜診は予約制ではなく、受付順での診察となります。",
+  "事前予約はできませんので、ご来院のうえ受付をお願いいたします。",
+].join("\n");
 
 const EVENING_RESERVATION_FOLLOWUP_ANSWER =
-  "夜診は予約制ではなく、受付順での診察となります。";
+  "夜診は予約制ではなく、受付順での診察となります。事前予約はできません。";
 
-const EVENING_RESERVATION_WALKIN_ANSWER =
-  "はい。夜診は予約制ではなく、受付順での診察となります。ご来院のうえ、受付をお願いいたします。";
+const EVENING_RESERVATION_WALKIN_ANSWER = [
+  "はい。夜診は予約制ではなく、受付順での診察となります。",
+  "事前予約はできませんので、ご来院のうえ受付をお願いいたします。",
+].join("\n");
 
 function buildEveningReservationAnswer(userMessage, safeHistory = []) {
   const msg = String(userMessage || "").trim();
@@ -800,7 +811,8 @@ const SYSTEM = `
 ・【婦人科の手術と診察・処方を区別する】当院では婦人科の手術（子宮筋腫・卵巣のう腫・内膜症・子宮摘出など）は行っていない。手術が必要なら対応医療機関への相談を案内する。一方、診察・診断・お薬の相談は婦人科で受けられる。お薬は診察のうえ医師が必要性を判断し、特定の薬の処方を保証しない。「手術」という語だけで中絶など別サービスの登録情報を流用しない。中絶については既存の院内登録情報に従う（このターンで勝手に未実施へ上書きしない）。産科・分娩の処置には婦人科手術の未実施ルールを当てはめない。
 ・【妊婦健診のエコー頻度】院内登録情報を優先する。「毎回行われるわけではない」「医師が必要と判断した場合のみ」などの一般論で上書きしない。胎嚢確認後は毎回の妊婦健診でエコー。胎嚢確認前は毎回実施と断定しない。婦人科診察のエコーには妊婦健診ルールを流用しない。
 ・【入院時の持ち物】公式サイトの一覧を優先する。一般的な病院の持ち物を勝手に追加しない。当院でご用意している物（病衣・タオル・シャンプー・スリッパ等）を持参必須と案内しない。「ご用意いただく物」「分娩セット」「当院でご用意している物」を混同しない。産後ケアの持ち物に分娩入院の一覧を流用しない。
-・【夜診の予約】夜診は予約不可・受付順。電話予約や事前予約が可能と案内しない。妊婦健診・WEB予約・初診予約の可否を夜診に流用しない。締切や診療時間など不要な条件を付け足さない。
+・【夜診の予約】夜診は予約不可・受付順。電話予約や事前予約が可能と案内しない。妊婦健診・WEB予約・初診予約の可否を夜診に流用しない。締切や診療時間など不要な条件を付け足さない。診療時間表を勝手に付け足さない。
+・【診療時間・休診】曜日別の確定データ以外から推測しない。一般的な病院の時間をコピーしたり、別曜日の枠を流用したりしない。第3・第5土曜日は休診。火曜に午後診・夜診はない。木・金に夜診はない。臨時休診は通常予定と混同しない。
 
 【絶対に守る基本原則】
 以下を 必ず守ってください。
@@ -1606,6 +1618,11 @@ function shouldForceRichHtmlForMessage(userMessage, safeHistory) {
     }
   }
   const text = chunks.join("\n").slice(-4000);
+
+  // 診療時間は確定データからプログラム生成するため、GPTのリッチHTML生成を強制しない
+  if (isClinicHoursQuery(userMessage) || isEveningConsultationReservationQuery(userMessage)) {
+    return false;
+  }
 
   const schedule =
     /診療時間|診察時間|受付時間|休診|夜診|午前診|午後診|日曜|祝日|開いてい|何時から|何時まで|診療.*いつ|いつ.*診療/.test(
@@ -3175,7 +3192,7 @@ export default async function handler(req, res) {
       return res.status(200).json(payload);
     }
 
-    // 夜診の予約：予約不可・受付順（電話/事前予約可と案内しない。チップなし）
+    // 夜診の予約：予約不可・受付順（電話/事前予約可と案内しない。診療時間表は出さない）
     if (
       !metaChatHit &&
       !casualGreetingOnly &&
@@ -3193,6 +3210,7 @@ export default async function handler(req, res) {
           String(ckHit?.item?.answer || "").trim() ||
           EVENING_RESERVATION_UNAVAILABLE_ANSWER
       );
+      const referencedPages = [CLINIC_HOURS_REF_PAGE];
       if (includeDebug) {
         siteKnowledgeDebug = {
           ...(siteKnowledgeDebug || {}),
@@ -3211,8 +3229,8 @@ export default async function handler(req, res) {
               ]
             : [],
           rejectedKnowledge: clinicRejected,
-          referenceChips: [],
-          note: "夜診は予約不可・受付順。予約方法の根拠ページが無いためチップなし",
+          referenceChips: referencedPages,
+          note: "夜診は予約不可・受付順。診療時間表は出さない",
         };
       }
       await appendChatLog({
@@ -3229,7 +3247,7 @@ export default async function handler(req, res) {
       const payload = {
         answer,
         emergency: false,
-        referencedPages: [],
+        referencedPages,
       };
       if (includeDebug) {
         payload.debug = siteKnowledgeDebug;
@@ -3238,7 +3256,60 @@ export default async function handler(req, res) {
         payload.availability = "unavailable";
         payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
         payload.rejectedKnowledge = clinicRejected;
-        payload.referenceChips = [];
+        payload.referenceChips = referencedPages;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 診療時間・休診日：確定データからプログラム生成（GPT推測禁止）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isClinicHoursQuery(userMessage)
+    ) {
+      const built = buildClinicHoursAnswer(userMessage, {
+        nowParts: getTokyoNowParts(),
+      });
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() || buildFullHoursRichHtml()
+      );
+      const referencedPages = built?.referencedPages?.length
+        ? built.referencedPages
+        : [CLINIC_HOURS_REF_PAGE];
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: built?.intent || "clinic_hours",
+          detectedService: "clinic_hours",
+          matchedClinicKnowledge: [],
+          rejectedKnowledge: clinicRejected,
+          referenceChips: referencedPages,
+          scheduleData: built?.scheduleData || null,
+          note: "診療時間は data/clinic-hours.js の確定データから生成",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: built?.intent || "clinic_hours",
+          service: "clinic_hours",
+          clinicHours: true,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = built?.intent || "clinic_hours";
+        payload.detectedService = "clinic_hours";
+        payload.scheduleData = built?.scheduleData || null;
+        payload.referenceChips = referencedPages;
+        payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(payload);
     }

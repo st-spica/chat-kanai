@@ -430,14 +430,16 @@ export function mentionsEveningConsultation(text) {
 }
 
 /**
- * 夜診の診療時間のみの質問か（予約可否は含めない）
+ * 夜診の診療時間・曜日のみの質問か（予約可否は含めない）
  * @param {string} userMessage
  */
 export function isEveningConsultationHoursQuery(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg || !mentionsEveningConsultation(msg)) return false;
   if (/予約/.test(msg)) return false;
-  return /何時|時間|から|まで|開い|やって|何時台/.test(msg);
+  return /何時|時間|から|まで|開い|やって|何時台|何曜日|どの曜日|曜日|ありますか/.test(
+    msg
+  );
 }
 
 /**
@@ -786,6 +788,14 @@ export function detectClinicService(userMessage) {
   // 夜診の予約（受付順・予約不可）
   if (isEveningConsultationReservationQuery(msg)) {
     return "evening_consultation";
+  }
+  // 診療時間・休診（確定データ）
+  if (
+    /診療時間|診察時間|休診|午前診|午後診|夜診|第[1-5]土曜|何時から|何時まで/.test(
+      msg
+    )
+  ) {
+    return "clinic_hours";
   }
   // 妊婦健診のエコー頻度
   if (isPrenatalUltrasoundFrequencyQuery(msg)) {

@@ -39,6 +39,7 @@ import {
   resolveBabyCareGuidanceRoute,
   QUERY_NORMALIZERS,
 } from "../data/site-route-map.js";
+import { isClinicHoursQuery } from "../data/clinic-hours.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -743,6 +744,7 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
   ) {
     if (
       isEveningConsultationHoursQuery(msg) ||
+      isClinicHoursQuery(msg) ||
       !isEveningConsultationReservationQuery(msg)
     ) {
       return {
@@ -750,6 +752,21 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["夜診予約:対象外質問のため除外"],
         rejected: true,
         rejectReason: "evening_consultationは夜診の予約可否のみ",
+      };
+    }
+  }
+  // 診療時間の確定データ要約は診療時間質問以外に流用しない
+  if (
+    item.id === "clinic-hours-schedule" ||
+    itemIntent === "clinic_hours" ||
+    itemService === "clinic_hours"
+  ) {
+    if (!isClinicHoursQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["診療時間:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "clinic_hoursは診療時間・休診質問のみ",
       };
     }
   }

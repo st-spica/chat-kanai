@@ -521,9 +521,9 @@ function sanitizeRichHtml(html) {
 }
 
 const disclaimerText =
-`当院に関するご質問はもちろん、
-妊娠・出産・育児や女性の健康に関するお悩みなど、お気軽にご相談ください。
-小さな不安でも、まずは相談してみませんか。`;
+`当院へのご質問はもちろん、妊娠・出産・育児のお悩みや、
+日頃感じている不安・不満なども、遠慮なくお聞かせください。
+皆さまの率直なお声を大切にし、より安心して通っていただける医院を目指してまいります。`;
 
 const disclaimerFixed = document.getElementById("disclaimerFixed");
 const msgsEl = document.getElementById("msgs");
