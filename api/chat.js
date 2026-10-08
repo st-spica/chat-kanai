@@ -130,6 +130,12 @@ import {
   isFemaleDoctorQuery,
   isMaleDoctorQuery,
 } from "../data/female-doctor.js";
+import {
+  buildNewbornMaternityPhotoAnswer,
+  NEWBORN_MATERNITY_PHOTO_FIXED_ANSWER,
+  NEWBORN_MATERNITY_PHOTO_REF_PAGE,
+  isNewbornMaternityPhotoQuery,
+} from "../data/newborn-maternity-photo.js";
 
 const WEB_RESERVATION_NO_INFO_ANSWER =
   "WEB予約について確認できる情報がありません。お手数ですが、当院へお電話でお問い合わせください。";
@@ -991,6 +997,7 @@ const SYSTEM = `
 ・【初診料】確定は1,080円のみ。3,300円（文書料など）やその他金額を初診料としない。初回受診の合計は初診料＋検査料で、検査料・合計は断定しない。再診料・妊婦健診・分娩予約金・中絶・ワクチン料金と混同しない。電話問い合わせを原則付け足さない。
 ・【4D超音波撮影】当院で実施している。未実施と答えない。通常の健診エコー・性別確認・動画ダウンロードと混同しない。詳細は公式の #ultraimaging を案内する。
 ・【女性医師・指名】女性医師は在籍。医師の指名は不可。曜日・時間はハードコードせず診療体制表（#doctor_schedule）へ案内する。「確認できる情報がありません」だけで終わらせない。男性医師の質問と混同しない。
+・【ニューボーン＆マタニティフォト】外部サービスの紹介。提携・専属・院内運営と案内しない。指定の固定文を言い換えない。料金相場を推測しない。問い合わせ先のLINE URLを勝手に生成しない。4Dエコー写真・分娩中撮影・院内撮影ルールと混同しない。
 ・【出産費用割引】きょうだい割引＝過去に当院で出産された方（15,000円）。パパママ割引＝ご夫婦のどちらかが当院で生まれた方（10,000円）。名称から条件を推測しない。「パートナー同伴で割引」「夫婦受診で割引」「二人目なら必ず割引」「同じ家庭の二人目なら割引」は禁止。
 ・【つわり】セルフケアは相談内容に合わせて1〜3点だけ。9項目の列挙禁止。水分がとれない・反復嘔吐・体重減少などは受診案内を優先。妊娠悪阻などの診断名を断定しない。「必ず治る」「食べられなくても大丈夫」は禁止。緊急症状は救急誘導を優先。
 ・【妊娠中の服薬】個別の薬の安全性・胎児影響・服用の継続／中止をAIが判断しない。「安全です」「絶対ダメ」「すぐに中止」「すべて避ける」は禁止。医師相談を案内する。授乳中の服薬・葉酸・小児予防接種と混同しない。葉酸はサプリ案内可（当院販売あり）。
@@ -4381,6 +4388,108 @@ export default async function handler(req, res) {
         payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(payload);
+    }
+
+    // ニューボーン＆マタニティフォト（外部紹介・固定回答。提携・院内撮影と誤案内しない）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      allowStructuredIntent("newborn_maternity_photo") &&
+      isNewbornMaternityPhotoQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "newborn-maternity-photo" ||
+          h.item?.intent === "newborn_maternity_photo"
+      );
+      const built = buildNewbornMaternityPhotoAnswer(userMessage);
+      let answer = String(built?.answer || "").trim();
+      if (!answer) {
+        answer = String(ckHit?.item?.answer || NEWBORN_MATERNITY_PHOTO_FIXED_ANSWER).trim();
+      }
+      // 固定回答パスでは strip / 言い換えで文面を変えない
+      if (built?.useExactAnswer) {
+        answer = NEWBORN_MATERNITY_PHOTO_FIXED_ANSWER;
+      } else {
+        answer = stripServiceGushPhrases(answer);
+        // 禁止表現の混入を除去して固定案内に寄せる
+        if (
+          /提携|専属|当院が提供|当院の専門|おすすめのプロ|責任を持って撮影/.test(
+            answer
+          )
+        ) {
+          answer = [
+            "ニューボーン＆マタニティフォトは、外部の撮影サービスをご紹介しているものです。",
+            "当院との提携関係はなく、当院が直接撮影を行うサービスではありません。",
+            "",
+            NEWBORN_MATERNITY_PHOTO_FIXED_ANSWER,
+          ].join("\n");
+        }
+      }
+      const referencedPages = [
+        {
+          url: NEWBORN_MATERNITY_PHOTO_REF_PAGE.url,
+          title: NEWBORN_MATERNITY_PHOTO_REF_PAGE.title,
+        },
+      ];
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "newborn_maternity_photo",
+          detectedService: "photography_information",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "newborn-maternity-photo",
+                  intent: "newborn_maternity_photo",
+                  service: "photography_information",
+                  score: 100,
+                },
+              ],
+          matchedSiteUrl: NEWBORN_MATERNITY_PHOTO_REF_PAGE.url,
+          referenceChips: referencedPages,
+          focus: built?.focus || "fixed",
+          useExactAnswer: Boolean(built?.useExactAnswer),
+          rejectedKnowledge: clinicRejected,
+          note: "固定回答。提携・院内運営と案内しない。photographer/ を必須表示",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "newborn_maternity_photo",
+          service: "photography_information",
+          newbornMaternityPhoto: true,
+          useExactAnswer: Boolean(built?.useExactAnswer),
+          matchedSiteUrl: NEWBORN_MATERNITY_PHOTO_REF_PAGE.url,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "newborn_maternity_photo";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = NEWBORN_MATERNITY_PHOTO_REF_PAGE.url;
+        payload.referenceChips = referencedPages;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res
+        .status(200)
+        .json(attachTopicDebug(payload, "newborn_maternity_photo"));
     }
 
     // 女性医師・医師指名（在籍あり・指名不可。曜日は体制表へ・ハードコードしない）

@@ -34,6 +34,7 @@ import {
   isFemaleDoctorQuery,
   isMaleDoctorQuery,
 } from "./female-doctor.js";
+import { isNewbornMaternityPhotoQuery } from "./newborn-maternity-photo.js";
 import { isKidsRoomQuery } from "./site-route-map.js";
 
 /** @typedef {string|null} TopicIntent */
@@ -100,6 +101,9 @@ export function detectStandaloneIntent(userMessage) {
 
   // 女性医師・指名
   if (isFemaleDoctorQuery(msg) || isMaleDoctorQuery(msg)) return "female_doctor";
+
+  // ニューボーン＆マタニティフォト
+  if (isNewbornMaternityPhotoQuery(msg)) return "newborn_maternity_photo";
 
   // 分娩費用
   if (isBirthPricingQuery(msg)) {
@@ -411,6 +415,7 @@ export function clinicKnowledgeIdForIntent(intent) {
     first_visit_fee: "clinic-first-visit-fee",
     four_d_ultrasound: "obstetrics-4d-ultrasound",
     female_doctor: "clinic-female-doctor",
+    newborn_maternity_photo: "newborn-maternity-photo",
     birth_reservation_deposit: "birth-reservation-deposit",
     kids_room: null,
   };

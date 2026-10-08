@@ -1530,6 +1530,71 @@
       "priority": 200,
       "updatedAt": "2026-10-08",
       "enabled": true
+    },
+    {
+      "id": "newborn-maternity-photo",
+      "category": "サービス案内/写真撮影",
+      "intent": "newborn_maternity_photo",
+      "service": "photography_information",
+      "availability": "information_available",
+      "questionPatterns": [
+        "ニューボーンフォトについて教えて",
+        "ニューボーンフォトはありますか",
+        "ニューボーンフォトは撮れますか",
+        "ニューボーンフォトの料金はいくらですか",
+        "ニューボーンフォトの予約方法は",
+        "マタニティフォトについて教えて",
+        "マタニティフォトは撮れますか",
+        "マタニティフォトの料金は",
+        "マタニティフォトの予約方法は",
+        "赤ちゃんの写真撮影はできますか",
+        "新生児の写真を撮ってもらえますか",
+        "出産記念の写真撮影について知りたい",
+        "写真撮影の特別価格について教えて",
+        "フォトグラファーの紹介はありますか"
+      ],
+      "keywords": [
+        "ニューボーンフォト",
+        "ニューボーン",
+        "マタニティフォト",
+        "マタニティ写真",
+        "新生児写真",
+        "赤ちゃんの写真",
+        "出産記念写真",
+        "フォトグラファー",
+        "特別価格"
+      ],
+      "summary": "外部撮影サービスの紹介です。当院提携・院内運営ではありません。当院出産の方は特別価格（ご家族さま1回限り）。問い合わせは案内ページのLINEへ。",
+      "answer": "当院でご出産の方は特別価格（ご家族さま1回限り）にてご案内しております。ご興味のある方は、参照リンク先のLINEからお友だち登録のうえ、「当院でのご出産予定であること」をメッセージに添えて、お気軽にお問い合わせください。",
+      "careSource": "data/newborn-maternity-photo.js",
+      "clinicInformation": {
+        "serviceType": "外部撮影サービスの紹介",
+        "clinicOperated": false,
+        "officialPartnership": false,
+        "specialPrice": {
+          "available": true,
+          "eligibility": "当院でご出産の方",
+          "limit": "ご家族さま1回限り"
+        },
+        "contactMethod": {
+          "type": "LINE",
+          "instructions": "参照リンク先のLINEから友だち登録し、当院での出産予定であることをメッセージに添えて問い合わせる"
+        }
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/photographer/",
+      "relatedSiteLabel": "ニューボーン＆マタニティフォトについて",
+      "responseRules": {
+        "useExactAnswer": true,
+        "avoidPartnershipClaims": true,
+        "avoidClinicOperatedClaims": true,
+        "avoidStrongRecommendations": true,
+        "avoidInventedPricing": true,
+        "avoidUnnecessaryPhoneReferral": true,
+        "alwaysShowRelatedLink": true
+      },
+      "priority": 200,
+      "updatedAt": "2026-10-08",
+      "enabled": true
     }
   ]
 }

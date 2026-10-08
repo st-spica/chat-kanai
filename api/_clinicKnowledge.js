@@ -69,6 +69,7 @@ import {
   isFemaleDoctorQuery,
   isMaleDoctorQuery,
 } from "../data/female-doctor.js";
+import { isNewbornMaternityPhotoQuery } from "../data/newborn-maternity-photo.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -173,6 +174,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "first_visit_fee",
   "four_d_ultrasound",
   "female_doctor",
+  "newborn_maternity_photo",
   "birth_reservation_deposit",
   "birth_advance_payment",
   "birth_hospitalization_cost",
@@ -622,6 +624,11 @@ export function detectClinicIntent(userMessage) {
     return "female_doctor";
   }
 
+  // ニューボーン＆マタニティフォト（外部紹介・固定回答）
+  if (isNewbornMaternityPhotoQuery(msg)) {
+    return "newborn_maternity_photo";
+  }
+
   // 葉酸 / 妊娠中の服薬 / 授乳中の服薬（混同禁止）
   if (isPregnancyFolicAcidQuery(msg)) {
     return "pregnancy_folic_acid";
@@ -1037,6 +1044,20 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["女性医師:対象外質問のため除外"],
         rejected: true,
         rejectReason: "female_doctorは女性医師・指名関連のみ",
+      };
+    }
+  }
+  // ニューボーン／マタニティフォトは対象外（4D・院内撮影ルール等）に流用しない
+  if (
+    item.id === "newborn-maternity-photo" ||
+    itemIntent === "newborn_maternity_photo"
+  ) {
+    if (!isNewbornMaternityPhotoQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["ニューボーンフォト:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "newborn_maternity_photoは該当撮影紹介のみ",
       };
     }
   }

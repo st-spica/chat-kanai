@@ -153,9 +153,18 @@ export function gynecologyPageSupportsQuery(userMessage, pageText) {
 
 /** @param {string} userMessage */
 export function isPhotoRecordingFocusedMessage(userMessage) {
-  return QUERY_NORMALIZERS.photo_recording.pattern.test(
-    String(userMessage || "").trim()
-  );
+  const msg = String(userMessage || "").trim();
+  // ニューボーン／マタニティフォト紹介は院内撮影禁止ページと分離
+  if (
+    /ニューボーン|newborn|マタニティフォト|マタニティ写真|妊婦写真|ベビーフォト|新生児フォト|新生児写真|出産記念写真|フォトグラファー/.test(
+      msg
+    ) ||
+    /(?:赤ちゃん|新生児).{0,12}(?:写真|フォト|撮影)/.test(msg) ||
+    /(?:院内|病院|当院)で(?:撮影|写真).{0,10}(?:してもら|撮ってもら)/.test(msg)
+  ) {
+    return false;
+  }
+  return QUERY_NORMALIZERS.photo_recording.pattern.test(msg);
 }
 
 /** 赤ちゃん・乳児への言及か */
@@ -1044,6 +1053,18 @@ export const SITE_ROUTE_MAP = [
     boost: 200,
   },
   {
+    id: "newborn_maternity_photo",
+    label: "ニューボーン＆マタニティフォト",
+    patterns: [
+      /ニューボーン|newborn|マタニティフォト|マタニティ写真|妊婦写真|ベビーフォト|新生児フォト|新生児写真|出産記念写真|フォトグラファー/,
+      /(?:赤ちゃん|新生児).{0,12}(?:写真|フォト|撮影)/,
+      /特別価格.{0,12}(?:写真|フォト|何回|利用)|(?:写真|フォト).{0,12}特別価格|特別価格は何回/,
+      /(?:院内|病院|当院)で(?:撮影|写真).{0,10}(?:してもら|撮ってもら)/,
+    ],
+    urls: ["https://kanai.or.jp/photographer/"],
+    boost: 300,
+  },
+  {
     id: "photo_recording",
     label: "院内撮影・録音",
     patterns: [QUERY_NORMALIZERS.photo_recording.pattern],
@@ -1308,6 +1329,16 @@ export function matchSiteRoutes(userMessage) {
     // 4D超音波は #ultraimaging 専用。妊婦健診先頭・院内撮影禁止ページに置換しない
     if (/4\s*[DdＤｄ]|４\s*[DdＤｄ]|4次元|四次元|立体エコー|4D超音波|4Dエコー|4D撮影/.test(msg)) {
       if (rule.id === "checkup" || rule.id === "photo_recording") continue;
+    }
+    // ニューボーン／マタニティフォトは photographer 専用。院内撮影禁止ページに置換しない
+    if (
+      /ニューボーン|newborn|マタニティフォト|マタニティ写真|妊婦写真|ベビーフォト|新生児フォト|新生児写真|出産記念写真|フォトグラファー/.test(
+        msg
+      ) ||
+      /(?:赤ちゃん|新生児).{0,12}(?:写真|フォト|撮影)/.test(msg) ||
+      /(?:院内|病院|当院)で(?:撮影|写真).{0,10}(?:してもら|撮ってもら)/.test(msg)
+    ) {
+      if (rule.id === "photo_recording") continue;
     }
     if (rule.id === "hospital_bag" && isNonChildbirthBelongingsQuery(msg)) {
       continue;

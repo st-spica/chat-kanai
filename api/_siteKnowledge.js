@@ -2035,6 +2035,9 @@ export function labelForKnowledgeChunk(c) {
   if (/#ultraimaging/i.test(url)) {
     return "4D超音波撮影について";
   }
+  if (/\/photographer\/?/i.test(url)) {
+    return "ニューボーン＆マタニティフォトについて";
+  }
   if (/#doctor_schedule/i.test(url)) {
     return "診療体制表はこちら";
   }
