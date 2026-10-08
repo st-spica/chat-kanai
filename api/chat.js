@@ -5,6 +5,7 @@ import {
   ATTEND_INFO_PAGE_URL,
   buildTokyoDatetimeSystemPrompt,
   getSiteKnowledgeSnippetSupplement,
+  HOSPITAL_BAG_PAGE_URL,
   isAttendFocusedQuery,
   isGenericKanaiHomeUrl,
   isMeetingFocusedQuery,
@@ -41,8 +42,11 @@ import {
   isGynecologicSurgeryQuery,
   isGynecologyTopicMessage,
   isGynecologyUltrasoundFrequencyQuery,
+  isHospitalBagFullListQuery,
+  isHospitalBagQuery,
   isInfantUrgentSymptomMessage,
   isMotherDistressConsultMessage,
+  isNonChildbirthBelongingsQuery,
   isPrenatalUltrasoundFrequencyQuery,
   isVisitationIntentMessage,
   parseInfantAgeMonths,
@@ -80,6 +84,95 @@ const PRENATAL_CHECKUP_REF_PAGE = {
   url: "https://kanai.or.jp/obstetrics/checkup/",
   title: "妊婦健診について",
 };
+
+const HOSPITAL_BAG_REF_PAGE = {
+  url: HOSPITAL_BAG_PAGE_URL,
+  title: "入院時の持ち物について",
+};
+
+const HOSPITAL_BAG_SUMMARY_ANSWER = [
+  "ご入院の際には、母子健康手帳・健康保険証・診察券、産褥用ショーツ、授乳ブラ、母乳パッド、赤ちゃんの退院時の衣服などをご用意ください。",
+  "",
+  "また、パジャマやタオル、シャンプーなどは当院でご用意しています。",
+  "",
+  "持ち物の詳しい一覧は、以下のページからご確認いただけます。",
+].join("\n");
+
+const HOSPITAL_BAG_PROVIDED_ANSWER =
+  "当院でご用意していますので、持参の必要はありません。";
+
+const HOSPITAL_BAG_BABY_CLOTHES_ANSWER =
+  "赤ちゃんの退院時の衣服（1組）は、ご用意いただく物に含まれます。";
+
+const HOSPITAL_BAG_FULL_LIST_ANSWER = [
+  "【ご用意いただく物（主なもの）】",
+  "・母子健康手帳・健康保険証・診察券",
+  "・予納金仮領収証、筆記用具",
+  "・産褥用ショーツ（4〜5枚）、授乳ブラ、母乳パッド",
+  "・赤ちゃん用ガーゼハンカチ、赤ちゃんの退院時の衣服（1組）",
+  "・マスク、歯みがきセット、コップ、服用している薬",
+  "・間食（必要な方のみ）",
+  "・新生児聴覚検査受検票（大阪市ほか対象市町村の方は必須）",
+  "",
+  "【分娩セット（記名した袋にまとめる）】",
+  "・骨盤ベルト",
+  "・腹帯（予定帝王切開の方のみ）",
+  "・バスタオル1枚、産褥用ショーツ1枚",
+  "",
+  "【当院でご用意している物】",
+  "・病衣（マタニティガウン）、バスタオル・フェイスタオル、箱ティッシュ",
+  "・お産パッド、清浄綿",
+  "・シャンプー・コンディショナー、ボディソープ、ヘアドライヤー、スリッパ",
+  "・赤ちゃん用の入院中の衣服・オムツ・おしりふき・おへそ消毒セットなど",
+  "",
+  "条件付きのものや詳細は、以下のページをご確認ください。",
+].join("\n");
+
+const POSTPARTUM_BELONGINGS_NO_INFO_ANSWER =
+  "産後ケアの持ち物については、現在確認できる情報がありません。詳しくは当院までお問い合わせください。";
+
+/** @returns {{ answer: string, matchedSection: string }|null} */
+function buildHospitalBagAnswer(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (isNonChildbirthBelongingsQuery(msg)) {
+    return {
+      answer: POSTPARTUM_BELONGINGS_NO_INFO_ANSWER,
+      matchedSection: "none",
+    };
+  }
+  if (!isHospitalBagQuery(msg)) return null;
+
+  if (isHospitalBagFullListQuery(msg)) {
+    return {
+      answer: HOSPITAL_BAG_FULL_LIST_ANSWER,
+      matchedSection: "hos_bring",
+    };
+  }
+
+  if (/赤ちゃんの(?:退院時の)?(?:服|衣服)/.test(msg)) {
+    return {
+      answer: HOSPITAL_BAG_BABY_CLOTHES_ANSWER,
+      matchedSection: "hos_bring",
+    };
+  }
+
+  if (
+    /パジャマ|ルームウェア|スリッパ|シャンプー|リンス|コンディショナー|ボディソープ|タオル|ドライヤー|病衣/.test(
+      msg
+    ) &&
+    /持|必要|持参|持って|用意/.test(msg)
+  ) {
+    return {
+      answer: HOSPITAL_BAG_PROVIDED_ANSWER,
+      matchedSection: "hos_bring",
+    };
+  }
+
+  return {
+    answer: HOSPITAL_BAG_SUMMARY_ANSWER,
+    matchedSection: "hos_bring",
+  };
+}
 
 /** 胎嚢未確認のフォローアップか（毎回実施と断定しない） */
 function isBeforeGestationalSacMessage(userMessage) {
@@ -631,6 +724,7 @@ const SYSTEM = `
 ・【診療サービスの対応可否を推測しない（最重要）】「婦人科だからできるはず」「ワクチンページがあるから子供も接種できるはず」「産婦人科だから小児も診られるはず」「分娩を扱うから分娩スタイルも選べるはず」「関連ページがあるから対応しているはず」「一般的な産婦人科では対応している」などの推測は禁止。「できます／対応しています」と答えるには、対象サービスと対象者が一致する明確な院内情報（院内登録情報または公式サイトの該当記述）が必要。情報が確認できないときは「できる／できない」を断定せず、確認できる情報がない旨を伝え当院へ直接問い合わせるよう案内する。妊婦向けワクチンの記載を、お子さま本人への予防接種の根拠にしない。産み分けは「婦人科でご相談いただけます」と案内しない（未実施の院内情報がある場合はそれに従う）。
 ・【婦人科の手術と診察・処方を区別する】当院では婦人科の手術（子宮筋腫・卵巣のう腫・内膜症・子宮摘出など）は行っていない。手術が必要なら対応医療機関への相談を案内する。一方、診察・診断・お薬の相談は婦人科で受けられる。お薬は診察のうえ医師が必要性を判断し、特定の薬の処方を保証しない。「手術」という語だけで中絶など別サービスの登録情報を流用しない。中絶については既存の院内登録情報に従う（このターンで勝手に未実施へ上書きしない）。産科・分娩の処置には婦人科手術の未実施ルールを当てはめない。
 ・【妊婦健診のエコー頻度】院内登録情報を優先する。「毎回行われるわけではない」「医師が必要と判断した場合のみ」などの一般論で上書きしない。胎嚢確認後は毎回の妊婦健診でエコー。胎嚢確認前は毎回実施と断定しない。婦人科診察のエコーには妊婦健診ルールを流用しない。
+・【入院時の持ち物】公式サイトの一覧を優先する。一般的な病院の持ち物を勝手に追加しない。当院でご用意している物（病衣・タオル・シャンプー・スリッパ等）を持参必須と案内しない。「ご用意いただく物」「分娩セット」「当院でご用意している物」を混同しない。産後ケアの持ち物に分娩入院の一覧を流用しない。
 
 【絶対に守る基本原則】
 以下を 必ず守ってください。
@@ -1869,6 +1963,7 @@ function stripPromptingClosings(text) {
 
 function defaultRefPageTitle(url) {
   const u = String(url || "").toLowerCase();
+  if (/#hos_bring/i.test(u)) return "入院時の持ち物について";
   if (/\/obstetrics\/checkup\/?/i.test(u)) return "妊婦健診について";
   if (/\/about\/?/i.test(u)) return "当院について";
   if (/\/beginner\/?/i.test(u)) return "初めての方へ";
@@ -1905,6 +2000,19 @@ function relatedSiteUrlChipFromClinicHits(
         title: "妊婦健診について",
         score: 100,
         reason: "clinic relatedSiteUrl（関連するご案内）",
+      };
+    }
+    // 入院持ち物：アンカー付きURLを保持
+    if (
+      (h.item?.intent === "hospital_bag" ||
+        h.item?.id === "childbirth-hospital-bag") &&
+      isHospitalBagQuery(userMessage)
+    ) {
+      return {
+        url: HOSPITAL_BAG_PAGE_URL,
+        title: "入院時の持ち物について",
+        score: 100,
+        reason: "clinic relatedSiteUrl（入院持ち物）",
       };
     }
 
@@ -2027,6 +2135,7 @@ function guardReferenceChipsByQuestion(pages, userMessage, opts = {}) {
       (/\/gynecology\//i.test(p.url || "") && isGynecologyTopicMessage(msg)) ||
       (/\/obstetrics\/checkup\//i.test(p.url || "") &&
         isPrenatalUltrasoundFrequencyQuery(msg)) ||
+      (/#hos_bring/i.test(p.url || "") && isHospitalBagQuery(msg)) ||
       (/#visit|#assist_birth|#price_birth|\/vaccine\/|\/beginner\/|\/hospitalization\/|\/rsv_bonus\/|\/notpermit\//i.test(
         p.url || ""
       ) &&
@@ -2985,6 +3094,116 @@ export default async function handler(req, res) {
         payload.detectedIntent = "meal_allergy";
         payload.detectedService = "celebration_dinner";
         payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 産後ケアの持ち物：分娩入院一覧を流用しない
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isNonChildbirthBelongingsQuery(userMessage) &&
+      /持ち物|持参|準備|何を持|バッグ/.test(userMessage)
+    ) {
+      const answer = POSTPARTUM_BELONGINGS_NO_INFO_ANSWER;
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "hospital_bag",
+          detectedService: "postpartum_care",
+          matchedClinicKnowledge: [],
+          matchedSiteUrl: null,
+          matchedSection: null,
+          referenceChips: [],
+          note: "産後ケア持ち物に分娩入院一覧を流用しない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: { intent: "hospital_bag", service: "postpartum_care" },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "hospital_bag";
+        payload.matchedClinicKnowledge = [];
+        payload.referenceChips = [];
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 分娩入院の持ち物（公式 #hos_bring を優先。一般論で補完しない）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isHospitalBagQuery(userMessage)
+    ) {
+      const built = buildHospitalBagAnswer(userMessage);
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "childbirth-hospital-bag" ||
+          h.item?.intent === "hospital_bag"
+      );
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim() ||
+          HOSPITAL_BAG_SUMMARY_ANSWER
+      );
+      const referencedPages = [HOSPITAL_BAG_REF_PAGE];
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: clinicDetectedIntent || "hospital_bag",
+          detectedService:
+            clinicDetectedService || "childbirth_hospitalization",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          matchedSiteUrl: HOSPITAL_BAG_PAGE_URL,
+          matchedSection: built?.matchedSection || "hos_bring",
+          referenceChips: referencedPages,
+          rejectedKnowledge: clinicRejected,
+          note: "入院持ち物は公式分類を優先。hospitalizationページは使わない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "hospital_bag",
+          service: "childbirth_hospitalization",
+          hospitalBag: true,
+          matchedSection: built?.matchedSection || "hos_bring",
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "hospital_bag";
+        payload.detectedService = "childbirth_hospitalization";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = HOSPITAL_BAG_PAGE_URL;
+        payload.matchedSection = built?.matchedSection || "hos_bring";
+        payload.referenceChips = referencedPages;
         payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(payload);

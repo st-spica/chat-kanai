@@ -27,7 +27,9 @@ import {
   isGynecologicSurgeryQuery,
   isGynecologyUltrasoundFrequencyQuery,
   isFeeFocusedMessage,
+  isHospitalBagQuery,
   isMotherDistressConsultMessage,
+  isNonChildbirthBelongingsQuery,
   isPhotoRecordingFocusedMessage,
   isPrenatalUltrasoundFrequencyQuery,
   isVisitFocusedMessage,
@@ -115,6 +117,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "meal_allergy",
   "childbirth_bonus_dinner",
   "ultrasound_frequency",
+  "hospital_bag",
 ]);
 
 let memoryCache = {
@@ -256,6 +259,11 @@ function inferItemService(id, category, patterns, relatedUrl) {
   ) {
     return "prenatal_checkup";
   }
+  if (
+    /hospital_bag|childbirth-hospital-bag|入院時の持ち物|hos_bring/.test(hay)
+  ) {
+    return "childbirth_hospitalization";
+  }
   if (/assist_birth|立ち会い|分娩|rsv_bonus|childbirth/.test(hay)) {
     return "delivery";
   }
@@ -304,6 +312,9 @@ function inferItemIntent(id, category, patterns) {
   }
   if (/ultrasound_frequency|エコー|超音波/.test(hay) && /毎回|胎嚢|妊婦健診/.test(hay)) {
     return "ultrasound_frequency";
+  }
+  if (/hospital_bag|持ち物|入院バッグ|陣痛バッグ|hos_bring/.test(hay)) {
+    return "hospital_bag";
   }
   if (/childbirth_bonus_dinner|お祝いディナー|ディナーご招待/.test(hay)) {
     return "childbirth_bonus_dinner";
@@ -515,6 +526,11 @@ export function detectClinicIntent(userMessage) {
     return "baby_care_consultation";
   }
 
+  // 分娩入院の持ち物
+  if (isHospitalBagQuery(msg)) {
+    return "hospital_bag";
+  }
+
   // 妊婦健診のエコー頻度（婦人科エコーは流用しない）
   if (isPrenatalUltrasoundFrequencyQuery(msg)) {
     return "ultrasound_frequency";
@@ -694,6 +710,21 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
       };
     }
   }
+  // 分娩入院の持ち物は産後ケア等に流用しない
+  if (
+    item.id === "childbirth-hospital-bag" ||
+    itemIntent === "hospital_bag"
+  ) {
+    if (isNonChildbirthBelongingsQuery(msg) || !isHospitalBagQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["入院持ち物:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "hospital_bagは分娩入院の持ち物のみ",
+      };
+    }
+  }
+
   // 妊婦健診エコー頻度は婦人科エコー質問に流用しない
   if (
     item.id === "prenatal-checkup-ultrasound-frequency" ||
@@ -1112,6 +1143,14 @@ export function buildClinicRegisteredKnowledgePrompt(hits) {
           "・胎嚢確認後は毎回の妊婦健診でエコー、確認前は毎回実施と断定しない。",
           "・婦人科診察のエコーにはこの情報を使わない。",
           "・「安心して健診を」「成長が楽しみ」などの締めは付けない。",
+        ]
+      : []),
+    ...(hits.some((h) => h.item?.intent === "hospital_bag")
+      ? [
+          "・入院持ち物は公式サイトの分類を守る。「ご用意いただく物」「分娩セット」「当院でご用意している物」を混同しない。",
+          "・当院で用意している物（病衣・タオル・シャンプー・スリッパ等）を持参必須と案内しない。",
+          "・公式サイトにない一般的な持ち物を追加しない。条件付き（予定帝王切開のみ・必要な方のみ・対象市町村のみ）を全員必須にしない。",
+          "・一覧の詳細は公式ページへ案内し、チャットで全部を無理に列挙しなくてよい（全部教えてと求められた場合を除く）。",
         ]
       : []),
     "",

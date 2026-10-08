@@ -224,6 +224,40 @@
       "enabled": true
     },
     {
+      "id": "childbirth-hospital-bag",
+      "category": "産科/分娩・入院",
+      "intent": "hospital_bag",
+      "service": "childbirth_hospitalization",
+      "questionPatterns": [
+        "入院時の持ち物を知りたい",
+        "入院するとき何が必要ですか",
+        "出産の入院準備を教えて",
+        "入院バッグに何を入れたらいい",
+        "陣痛バッグの中身を知りたい",
+        "パジャマは必要ですか",
+        "パジャマは持参する必要がありますか",
+        "スリッパは必要ですか",
+        "シャンプーは持っていきますか",
+        "赤ちゃんの退院時の服は必要ですか",
+        "入院時の持ち物を全部教えて"
+      ],
+      "keywords": [
+        "入院",
+        "持ち物",
+        "入院バッグ",
+        "陣痛バッグ",
+        "パジャマ",
+        "スリッパ",
+        "シャンプー",
+        "退院時の衣服"
+      ],
+      "answer": "ご入院の際には、母子健康手帳・健康保険証・診察券、産褥用ショーツ、授乳ブラ、母乳パッド、赤ちゃんの退院時の衣服などをご用意ください。パジャマやタオル、シャンプーなどは当院でご用意しています。持ち物の詳しい一覧は公式サイトの入院時の持ち物ページからご確認ください。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true,
+      "relatedSiteUrl": "https://kanai.or.jp/obstetrics/childbirth/#hos_bring"
+    },
+    {
       "id": "prenatal-checkup-ultrasound-frequency",
       "category": "産科/妊婦健診",
       "intent": "ultrasound_frequency",

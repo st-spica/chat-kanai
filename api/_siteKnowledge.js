@@ -14,6 +14,7 @@ import {
   isChildVaccinationQuery,
   isDeliveryBenefitsFocusedMessage,
   isGynecologyTopicMessage,
+  isHospitalBagQuery,
   isPhotoRecordingFocusedMessage,
   isVisitFocusedMessage,
   matchGynecologyTopicGroups,
@@ -22,6 +23,9 @@ import {
 } from "../data/site-route-map.js";
 
 const RSV_BONUS_PAGE_URL = "https://kanai.or.jp/obstetrics/rsv_bonus/";
+export const HOSPITAL_BAG_PAGE_URL =
+  "https://kanai.or.jp/obstetrics/childbirth/#hos_bring";
+const HOSPITAL_BAG_PAGE_BARE = "https://kanai.or.jp/obstetrics/childbirth/";
 
 const REDIS_KEY = "chat:site-knowledge:v6";
 
@@ -354,6 +358,37 @@ function stripTagsToText(html) {
     .trim();
 }
 
+/** id を持つ要素をネスト対応で切り出す */
+function extractElementById(html, id) {
+  const re = new RegExp(
+    `<([a-z0-9]+)([^>]*\\bid=["']${id}["'][^>]*)>`,
+    "i"
+  );
+  const m = re.exec(html);
+  if (!m) return null;
+  const tag = m[1].toLowerCase();
+  let i = m.index + m[0].length;
+  let depth = 1;
+  const openRe = new RegExp(`<${tag}\\b[^>]*>`, "gi");
+  const closeRe = new RegExp(`</${tag}>`, "gi");
+  while (i < html.length && depth > 0) {
+    openRe.lastIndex = i;
+    closeRe.lastIndex = i;
+    const open = openRe.exec(html);
+    const close = closeRe.exec(html);
+    if (!close) break;
+    if (open && open.index < close.index) {
+      depth += 1;
+      i = open.index + open[0].length;
+    } else {
+      depth -= 1;
+      i = close.index + close[0].length;
+      if (depth === 0) return html.slice(m.index, i);
+    }
+  }
+  return null;
+}
+
 /** class 名を持つ要素をネスト対応で切り出す */
 function extractElementByClass(html, className) {
   const re = new RegExp(
@@ -471,35 +506,111 @@ function htmlToText(html) {
 }
 
 /**
+ * 見出し・箇条書きの親子関係を残してテキスト化する
+ * （分類見出しが消えてリストだけになるのを防ぐ）
+ */
+function htmlToStructuredText(html) {
+  let h = String(html || "");
+  h = h.replace(/<!--[\s\S]*?-->/g, " ");
+  h = h.replace(/<script[\s\S]*?<\/script>/gi, " ");
+  h = h.replace(/<style[\s\S]*?<\/style>/gi, " ");
+  h = h.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, __, inner) => {
+    const t = stripTagsToText(inner);
+    return t ? `\n\n【${t}】\n` : "\n";
+  });
+  h = h.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, (_, inner) => {
+    const t = stripTagsToText(inner);
+    return t ? `\n${t}\n` : "\n";
+  });
+  h = h.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_, inner) => {
+    const t = stripTagsToText(inner);
+    return t ? `\n・${t}` : "";
+  });
+  h = h.replace(/<br\s*\/?>/gi, "\n");
+  h = h.replace(/<\/(?:div|section|ul|ol|table|tr)>/gi, "\n");
+  h = h.replace(/<[^>]+>/g, " ");
+  h = h
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+  h = h.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").replace(/[ \t]{2,}/g, " ");
+  return h.trim();
+}
+
+/**
+ * 質問に応じてページ内セクションを優先抽出
+ * @param {string} html
+ * @param {string} url
+ * @param {{ focusAnchor?: string, focusHospitalBag?: boolean }} [opts]
+ */
+function extractFocusedHtml(html, url, opts = {}) {
+  const hash = String(opts.focusAnchor || url.split("#")[1] || "").trim();
+  if (hash === "hos_bring" || opts.focusHospitalBag) {
+    const sec =
+      extractElementById(html, "hos_bring") ||
+      extractElementByClass(html, "hos_bring");
+    if (sec && stripTagsToText(sec).length > 80) return sec;
+  }
+  if (hash) {
+    const byId = extractElementById(html, hash);
+    if (byId && stripTagsToText(byId).length > 80) return byId;
+  }
+  return extractMainHtml(html);
+}
+
+/**
  * @param {string} url
  * @param {number} maxChars
- * @param {{ lastmod?: string|null, pageType?: PageType }} [meta]
+ * @param {{ lastmod?: string|null, pageType?: PageType, focusHospitalBag?: boolean, displayUrl?: string, displayTitle?: string }} [meta]
  * @returns {Promise<KnowledgeChunk|null>}
  */
 async function fetchPageChunk(url, maxChars, meta = {}) {
   try {
-    const html = await fetchText(url);
+    const fetchUrl = String(url || "").split("#")[0];
+    const html = await fetchText(fetchUrl);
     const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
-    const title = titleMatch ? titleMatch[1].replace(/\s+/g, " ").trim() : url;
-    const mainHtml = extractMainHtml(html);
-    const h1 = extractHeadings(mainHtml, "h1");
-    const h2 = extractHeadings(mainHtml, "h2");
-    const { publishedAt, modifiedAt } = extractMetaDates(html);
-    const text = htmlToText(mainHtml).slice(0, maxChars);
+    const pageTitle = titleMatch
+      ? titleMatch[1].replace(/\s+/g, " ").trim()
+      : fetchUrl;
+    const focusHospitalBag =
+      Boolean(meta.focusHospitalBag) ||
+      /#hos_bring/i.test(url) ||
+      Boolean(meta.displayUrl && /#hos_bring/i.test(meta.displayUrl));
+    const focusedHtml = extractFocusedHtml(html, url, {
+      focusAnchor: String(url).includes("#") ? String(url).split("#")[1] : "",
+      focusHospitalBag,
+    });
+    const useStructured = focusHospitalBag || /#hos_bring/i.test(url);
+    const text = (
+      useStructured
+        ? htmlToStructuredText(focusedHtml)
+        : htmlToText(focusedHtml)
+    ).slice(0, maxChars);
     if (!text || text.length < 40) return null;
-    const pageType = meta.pageType || classifyPageType(url);
+    const h1 = extractHeadings(focusedHtml, "h1");
+    const h2 = [
+      ...extractHeadings(focusedHtml, "h2"),
+      ...extractHeadings(focusedHtml, "h3"),
+    ].slice(0, 20);
+    const { publishedAt, modifiedAt } = extractMetaDates(html);
+    const pageType = meta.pageType || classifyPageType(fetchUrl);
     const lastmod = meta.lastmod || modifiedAt || publishedAt || null;
+    const outUrl = meta.displayUrl || url;
+    const title = meta.displayTitle || pageTitle;
     return {
-      url,
+      url: outUrl,
       title,
       text,
-      h1,
+      h1: h1.length ? h1 : focusHospitalBag ? ["入院時の持ち物"] : h1,
       h2,
       pageType,
       lastmod,
       publishedAt,
       modifiedAt,
       charCount: text.length,
+      matchedSection: focusHospitalBag ? "hos_bring" : url.split("#")[1] || null,
     };
   } catch (e) {
     console.error("page fetch failed:", url, e?.message || e);
@@ -890,6 +1001,31 @@ const loadAttendPageOnlyState = buildSinglePageState(
   "attendOnly"
 );
 
+async function loadHospitalBagPageOnlyState() {
+  const chunk = await fetchPageChunk(HOSPITAL_BAG_PAGE_URL, Math.max(DEFAULT_MAX_CHARS, 4500), {
+    pageType: "fixed",
+    focusHospitalBag: true,
+    displayUrl: HOSPITAL_BAG_PAGE_URL,
+    displayTitle: "入院時の持ち物について",
+  });
+  const chunks = chunk ? [chunk] : [];
+  return {
+    chunks,
+    referenceUrls: [],
+    knowledgeText: chunks.length
+      ? chunks
+          .map((c) => `【${c.title}】\nURL: ${c.url}\n${c.text}`)
+          .join("\n\n")
+      : `【入院時の持ち物について】\n${HOSPITAL_BAG_PAGE_URL} の本文を取得できませんでした。`,
+    error: chunks.length ? null : "hospital_bag_only_failed",
+    fetchMode: "hospital_bag_only",
+    hospitalBagOnly: true,
+    singlePageOnly: true,
+    singlePageTitle: "入院時の持ち物について",
+    singlePageUrl: HOSPITAL_BAG_PAGE_URL,
+  };
+}
+
 function isSinglePageOnlyState(state) {
   return Boolean(state && state.singlePageOnly === true);
 }
@@ -1251,6 +1387,10 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
     [
       isGynecologyTopicMessage,
       /\/gynecology\/|婦人科|アフターピル|緊急避妊|性感染症|更年期|月経|ブライダルチェック/,
+    ],
+    [
+      isHospitalBagQuery,
+      /入院時の持ち物|#hos_bring|ご用意いただく物|当院でご用意|分娩セット|シャンプー|スリッパ/,
     ],
   ];
   const hayAll = `${hayTitle}\n${hayBody}\n${bareUrl}`;
@@ -1854,6 +1994,10 @@ export function selectEvidenceAndChipUrls(chunks, opts = {}) {
 }
 
 export function labelForKnowledgeChunk(c) {
+  const url = String(c?.url || "");
+  if (/#hos_bring/i.test(url) || c?.matchedSection === "hos_bring") {
+    return "入院時の持ち物について";
+  }
   const title = (c.title || "").trim();
   const pipeParts = title.split(/[｜|]/).map((x) => x.trim()).filter(Boolean);
   if (pipeParts.length >= 2) {
@@ -2013,6 +2157,40 @@ export async function getSiteKnowledgeSnippetSupplement(userMessage, opts = {}) 
             evidenceUrls: [chip],
             chipUrls: [chip],
             candidateUrls: [MEETING_INFO_PAGE_URL],
+            retrievedUrls: built.sourceChunks?.map((c) => c.url) || [],
+            excludedUrls: [],
+          }
+        : undefined,
+    };
+  }
+  // 入院持ち物は #hos_bring 専用（一般論補完を防ぐ。clinic強でもページ根拠を優先）
+  if (isHospitalBagQuery(userMessage)) {
+    const state = await loadHospitalBagPageOnlyState();
+    const built = buildSinglePageSnippet(
+      state,
+      "入院時の持ち物について",
+      HOSPITAL_BAG_PAGE_URL
+    );
+    const chip = {
+      url: HOSPITAL_BAG_PAGE_URL,
+      title: "入院時の持ち物について",
+      score: built.sourceChunks?.[0]?.score || MIN_CHIP_SCORE + 80,
+      reason: "入院持ち物専用セクション",
+    };
+    return {
+      ...built,
+      state,
+      evidenceUrls: [chip],
+      chipUrls: [chip],
+      debug: opts.includeDebug
+        ? {
+            mode: "hospital_bag_only",
+            url: HOSPITAL_BAG_PAGE_URL,
+            matchedSection: "hos_bring",
+            forceRefresh: opts.forceRefresh,
+            evidenceUrls: [chip],
+            chipUrls: [chip],
+            candidateUrls: [HOSPITAL_BAG_PAGE_URL],
             retrievedUrls: built.sourceChunks?.map((c) => c.url) || [],
             excludedUrls: [],
           }

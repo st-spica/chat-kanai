@@ -425,6 +425,62 @@ export function isCelebrationDinnerFoodRequestQuery(userMessage, contextText = "
 }
 
 /**
+ * 産後ケア等、分娩入院以外の持ち物か
+ * @param {string} userMessage
+ */
+export function isNonChildbirthBelongingsQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  return /産後ケア|産後サポート|ショートステイ|産後デイ/.test(msg);
+}
+
+/**
+ * 分娩・出産入院の持ち物／入院バッグ／持参の要否か
+ * 産後ケアの持ち物は含めない
+ * @param {string} userMessage
+ */
+export function isHospitalBagQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg || isNonChildbirthBelongingsQuery(msg)) return false;
+
+  if (
+    /入院時の持ち物|入院の持ち物|入院するとき何が必要|出産の入院準備|入院バッグ|陣痛バッグ|入院準備を|持ち物を知りたい|持ち物を全部|必要な持ち物を全部|持ち物を教えて/.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+  if (
+    /(?:入院|出産|分娩).{0,16}(?:持ち物|準備|何を持|バッグ)|(?:持ち物|何を持|バッグ).{0,16}(?:入院|出産|分娩)/.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+  // 個別品目の持参要否（分娩入院文脈）
+  if (
+    /(?:パジャマ|ルームウェア|スリッパ|シャンプー|リンス|コンディショナー|ボディソープ|タオル|病衣).{0,16}(?:持|必要|持参|持って)|(?:持|必要|持参|持って).{0,16}(?:パジャマ|ルームウェア|スリッパ|シャンプー|リンス|コンディショナー|ボディソープ|タオル)/.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+  if (/赤ちゃんの(?:退院時の)?(?:服|衣服).{0,12}(?:必要|持|持参)/.test(msg)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 持ち物の全一覧希望か
+ * @param {string} userMessage
+ */
+export function isHospitalBagFullListQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!isHospitalBagQuery(msg)) return false;
+  return /全部|すべて|全て|一覧|詳しく|詳細/.test(msg);
+}
+
+/**
  * 産み分け（性別選択）の可否・相談か
  * 「性別はいつ分かる」「エコーで性別を教えて」は含まない
  * @param {string} userMessage
@@ -624,6 +680,10 @@ export function detectClinicService(userMessage) {
   if (isGynecologicSurgeryQuery(msg)) {
     return "gynecologic_surgery";
   }
+  // 分娩入院の持ち物
+  if (isHospitalBagQuery(msg)) {
+    return "childbirth_hospitalization";
+  }
   // 妊婦健診のエコー頻度
   if (isPrenatalUltrasoundFrequencyQuery(msg)) {
     return "prenatal_checkup";
@@ -792,6 +852,17 @@ export const SITE_ROUTE_MAP = [
     boost: 240,
   },
   {
+    id: "hospital_bag",
+    label: "入院時の持ち物",
+    patterns: [
+      /入院時の持ち物|入院の持ち物|入院バッグ|陣痛バッグ|出産の入院準備|入院するとき何が必要|持ち物を知りたい|持ち物を全部/,
+      /(?:パジャマ|スリッパ|シャンプー|退院時の(?:服|衣服)).{0,12}(?:持|必要|持参)/,
+      /(?:入院|出産|分娩).{0,12}(?:持ち物|準備|何を持)/,
+    ],
+    urls: ["https://kanai.or.jp/obstetrics/childbirth/#hos_bring"],
+    boost: 260,
+  },
+  {
     id: "delivery_booking",
     label: "分娩予約",
     patterns: [/分娩予約|出産予約|分娩の予約|お産の予約/],
@@ -892,6 +963,13 @@ export function matchSiteRoutes(userMessage) {
       (isCelebrationDinnerFoodRequestQuery(msg) ||
         isCelebrationDinnerAllergyQuery(msg))
     ) {
+      continue;
+    }
+    // 分娩入院の持ち物は #hos_bring 専用。一般入院・産後ケアルートを付けない
+    if (isHospitalBagQuery(msg)) {
+      if (rule.id === "hospitalization" || rule.id === "aftercare") continue;
+    }
+    if (rule.id === "hospital_bag" && isNonChildbirthBelongingsQuery(msg)) {
       continue;
     }
     for (const re of rule.patterns || []) {
