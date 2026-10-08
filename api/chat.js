@@ -25,7 +25,9 @@ import {
 } from "./_clinicKnowledge.js";
 import {
   detectClinicService,
+  gynecologyPageSupportsQuery,
   isDeliveryBenefitsFocusedMessage,
+  isGynecologyTopicMessage,
   isVisitationIntentMessage,
 } from "../data/site-route-map.js";
 
@@ -1319,6 +1321,58 @@ function defaultRefPageTitle(url) {
 }
 
 /**
+ * clinic-knowledge の relatedSiteUrl を、公式ページ本文が回答を裏付けるときだけチップ候補にする
+ * @returns {{ url: string, title: string, score: number, reason: string } | null}
+ */
+function relatedSiteUrlChipFromClinicHits(
+  clinicHits,
+  sourceChunks,
+  userMessage
+) {
+  for (const h of clinicHits || []) {
+    const rawUrl = String(h?.item?.relatedSiteUrl || "").trim();
+    if (!rawUrl) continue;
+    const url = rewriteLegacyKanaiUrl(rawUrl);
+    if (!url || isGenericKanaiHomeUrl(url)) continue;
+    const bare = url.split("#")[0].replace(/\/+$/, "");
+    const chunk = (sourceChunks || []).find((c) => {
+      const u = rewriteLegacyKanaiUrl(c?.url || "")
+        .split("#")[0]
+        .replace(/\/+$/, "");
+      return u === bare;
+    });
+    if (!chunk) continue;
+    const hay = `${chunk.title || ""}\n${(chunk.h1 || []).join(" ")}\n${chunk.text || ""}`;
+    const answer = String(h?.item?.answer || "");
+    let contentOk = false;
+    if (/\/gynecology/i.test(bare)) {
+      contentOk = gynecologyPageSupportsQuery(userMessage, hay);
+    } else if (answer.length >= 8) {
+      // 回答本文の具体語（3文字以上）がページに一定数あること
+      const keys = answer
+        .replace(/[、。．，,.\s]/g, " ")
+        .split(/\s+/)
+        .map((t) => t.trim())
+        .filter((t) => t.length >= 3 && !/^(です|ます|ください|当院|詳細|ご相談)/.test(t));
+      const hits = keys.filter((k) => hay.includes(k)).length;
+      contentOk = hits >= 2 || (keys.length && keys.some((k) => k.length >= 5 && hay.includes(k)));
+    }
+    if (!contentOk) continue;
+    const title =
+      String(chunk.title || "")
+        .split(/[｜|]/)[0]
+        .trim() || defaultRefPageTitle(url);
+    return {
+      url: bare.endsWith("/") ? bare : `${bare}/`,
+      title,
+      score: Number(chunk.score) || 100,
+      reason: "clinic relatedSiteUrl（本文裏付けあり）",
+    };
+  }
+  return null;
+}
+
+/**
  * 参照チップ用ページを正規化（旧URL置換・TOP除外・最大1件）
  * 並びは情報源の関連度順（先頭優先）を維持する。
  * @param {Array<{ url?: string, title?: string }>} pages
@@ -1394,18 +1448,20 @@ function guardReferenceChipsByQuestion(pages, userMessage, opts = {}) {
   for (const p of pages || []) {
     const hay = `${p.title || ""}\n${p.url || ""}`.toLowerCase();
     const hit = meaningful.some((t) => hay.includes(t.toLowerCase()));
-    // 面会・立ち会い・ワクチン等の正規ルートURLはタイトル語が少なくても許可
+    // 面会・立ち会い・ワクチン・婦人科等の正規ルートURLはタイトル語が少なくても許可
+    // （婦人科ページタイトルは「婦人科」のみで、アフターピル等と語が重ならないため）
     const routeOk =
-      /#visit|#assist_birth|#price_birth|\/vaccine\/|\/beginner\/|\/hospitalization\/|\/rsv_bonus\/|\/notpermit\//i.test(
+      (/\/gynecology\//i.test(p.url || "") && isGynecologyTopicMessage(msg)) ||
+      (/#visit|#assist_birth|#price_birth|\/vaccine\/|\/beginner\/|\/hospitalization\/|\/rsv_bonus\/|\/notpermit\//i.test(
         p.url || ""
       ) &&
-      (isMeetingFocusedQuery(msg) ||
-        isAttendFocusedQuery(msg) ||
-        isPhotoRecordingFocusedQuery(msg) ||
-        isDeliveryBenefitsFocusedMessage(msg) ||
-        /ワクチン|インフルエンザ|予防接種|今日|本日|明日|午後|午前|診療|診察|予約|費用|料金|割引|特典|プレゼント|キャンペーン|ディナー|招待|撮影|写真|動画|録音/.test(
-          msg
-        ));
+        (isMeetingFocusedQuery(msg) ||
+          isAttendFocusedQuery(msg) ||
+          isPhotoRecordingFocusedQuery(msg) ||
+          isDeliveryBenefitsFocusedMessage(msg) ||
+          /ワクチン|インフルエンザ|予防接種|今日|本日|明日|午後|午前|診療|診察|予約|費用|料金|割引|特典|プレゼント|キャンペーン|ディナー|招待|撮影|写真|動画|録音/.test(
+            msg
+          )));
     if (hit || routeOk) {
       kept.push(p);
     } else {
@@ -2267,6 +2323,22 @@ export default async function handler(req, res) {
         }));
       }
 
+      // clinic-knowledge の relatedSiteUrl: 本文が回答を裏付ける場合のみチップ補完
+      if (!referencedPages.length && clinicKnowledgeHits.length) {
+        const relatedChip = relatedSiteUrlChipFromClinicHits(
+          clinicKnowledgeHits,
+          fetchedSourceChunks,
+          userMessage
+        );
+        if (relatedChip) {
+          referencedPages = [{ url: relatedChip.url, title: relatedChip.title }];
+          chipUrls = [relatedChip];
+          if (!evidenceUrls.some((e) => e.url === relatedChip.url)) {
+            evidenceUrls = [...evidenceUrls, relatedChip];
+          }
+        }
+      }
+
       if (clinicSnippet.length > SITE_SNIPPET_MAX_CHARS) {
         clinicSnippet =
           clinicSnippet.slice(0, SITE_SNIPPET_MAX_CHARS) +
@@ -2275,6 +2347,7 @@ export default async function handler(req, res) {
     }
 
     // clinic-knowledgeのみ根拠 / メタ質問 → チップなし
+    // （relatedSiteUrl で本文裏付けチップを付けた場合は evidenceUrls があるので残す）
     if (metaChatHit || (clinicKnowledgeStrong && !evidenceUrls.length)) {
       referencedPages = [];
       chipUrls = [];

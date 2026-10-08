@@ -55,7 +55,101 @@ export const QUERY_NORMALIZERS = {
     pattern:
       /(?:分娩|出産|お産).{0,12}(?:割引|特典|キャンペーン|プレゼント|優待|お得)|(?:割引|特典|キャンペーン|プレゼント|優待|お得).{0,12}(?:分娩|出産|お産)|分娩予約特典|出産特典|分娩特典|出産したら.{0,8}(?:特典|プレゼント)|出産すると.{0,8}(?:特典|プレゼント)|お祝いディナー|お祝いの食事|出産祝いの食事|家族とディナー|夫とディナー|家族も一緒に食べ|ディナーに呼|ディナーを食べ|(?:何人|何名).{0,8}招待|招待.{0,8}(?:何人|何名)|家族.{0,12}ディナー|ディナー.{0,12}(?:家族|夫|招待)|夫.{0,12}ディナー|お祝いディナーご招待/,
   },
+  gynecology: {
+    id: "gynecology",
+    label: "婦人科診療",
+    /**
+     * 婦人科ページ掲載の診療項目（同義語含む）
+     * カテゴリ一致だけではチップにしない（本文裏付けは呼び出し側で確認）
+     */
+    pattern:
+      /婦人科|アフターピル|緊急避妊薬|緊急避妊ピル|緊急避妊|低用量ピル|ピル|ブライダルチェック|性感染症|性病|STI|STD|更年期|生理不順|月経不順|月経困難|月経前緊張|子宮筋腫|内膜症|子宮頸がん|子宮がん検診/i,
+  },
 };
+
+/**
+ * 婦人科トピックの同義語グループ（質問語 ↔ 公式ページ記載）
+ * @type {Array<{ id: string, query: RegExp, page: RegExp, expand: string[] }>}
+ */
+export const GYNECOLOGY_TOPIC_GROUPS = [
+  {
+    id: "emergency_contraception",
+    query: /アフターピル|緊急避妊薬|緊急避妊ピル|緊急避妊/,
+    page: /アフターピル|緊急避妊/,
+    expand: ["アフターピル", "緊急避妊ピル", "緊急避妊薬"],
+  },
+  {
+    id: "sti",
+    query: /性感染症|性病|\bSTI\b|\bSTD\b/i,
+    page: /性感染症|性病|クラミジア|淋菌|トリコモナス|梅毒|HIV|ヒトパピローマ/,
+    expand: ["性感染症", "性病", "STI"],
+  },
+  {
+    id: "menopause",
+    query: /更年期/,
+    page: /更年期/,
+    expand: ["更年期", "更年期障害"],
+  },
+  {
+    id: "menstrual",
+    query: /生理不順|月経不順|月経困難|月経前緊張|生理痛/,
+    page: /月経困難|月経前緊張|月経不順|月経|生理/,
+    expand: ["月経困難症", "月経前緊張症", "月経不順"],
+  },
+  {
+    id: "pill",
+    query: /低用量ピル|(?<!アフター)ピル(?!処方の項目)/,
+    page: /低用量ピル|ピル|アンジュ|マーベロン/,
+    expand: ["ピル", "低用量ピル"],
+  },
+  {
+    id: "bridal_check",
+    query: /ブライダルチェック/,
+    page: /ブライダルチェック/,
+    expand: ["ブライダルチェック"],
+  },
+  {
+    id: "myoma_endometriosis",
+    query: /子宮筋腫|内膜症|卵巣のう腫/,
+    page: /子宮筋腫|内膜症|卵巣のう腫/,
+    expand: ["子宮筋腫", "子宮内膜症"],
+  },
+];
+
+/** @param {string} userMessage */
+export function matchGynecologyTopicGroups(userMessage) {
+  const msg = String(userMessage || "");
+  if (!msg.trim()) return [];
+  return GYNECOLOGY_TOPIC_GROUPS.filter((g) => g.query.test(msg));
+}
+
+/**
+ * 婦人科の診療内容に関する質問か（産後ケア・産科だけの文脈は除外）
+ * @param {string} userMessage
+ */
+export function isGynecologyTopicMessage(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  if (/産後ケア|産後サポート|産後デイ|ショートステイ/.test(msg)) return false;
+  if (QUERY_NORMALIZERS.gynecology.pattern.test(msg)) return true;
+  return matchGynecologyTopicGroups(msg).length > 0;
+}
+
+/**
+ * 公式ページ本文に、質問の婦人科トピックが実際に記載されているか
+ * @param {string} userMessage
+ * @param {string} pageText
+ */
+export function gynecologyPageSupportsQuery(userMessage, pageText) {
+  const hay = String(pageText || "");
+  if (!hay.trim()) return false;
+  const groups = matchGynecologyTopicGroups(userMessage);
+  if (groups.length) {
+    return groups.some((g) => g.page.test(hay));
+  }
+  // 「婦人科」一般質問: ページが婦人科診療の説明であること
+  return /婦人科|ピル|性感染|検診|ブライダル|更年期|月経/.test(hay);
+}
 
 /** @param {string} userMessage */
 export function isPhotoRecordingFocusedMessage(userMessage) {
@@ -80,7 +174,10 @@ export function detectClinicService(userMessage) {
   if (/産前産後教室|産前教室|産後教室|ママフィット|アクティブクラス/.test(msg)) {
     return "prenatal_postnatal_class";
   }
-  if (/婦人科/.test(msg) && !/産科|分娩|出産|お産/.test(msg)) {
+  if (
+    isGynecologyTopicMessage(msg) &&
+    !/産科|分娩|出産|お産/.test(msg)
+  ) {
     return "gynecology";
   }
   if (
@@ -194,7 +291,7 @@ export const SITE_ROUTE_MAP = [
   {
     id: "gynecology",
     label: "婦人科",
-    patterns: [/婦人科|ピル|ブライダルチェック|性感染症|子宮筋腫|内膜症/],
+    patterns: [QUERY_NORMALIZERS.gynecology.pattern],
     urls: ["https://kanai.or.jp/gynecology/"],
     boost: 180,
   },

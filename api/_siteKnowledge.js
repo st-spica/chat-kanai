@@ -9,10 +9,13 @@
 
 import { Redis } from "@upstash/redis";
 import {
+  gynecologyPageSupportsQuery,
   isAttendFocusedMessage,
   isDeliveryBenefitsFocusedMessage,
+  isGynecologyTopicMessage,
   isPhotoRecordingFocusedMessage,
   isVisitFocusedMessage,
+  matchGynecologyTopicGroups,
   matchSiteRoutes,
   preferredUrlsForMessage,
 } from "../data/site-route-map.js";
@@ -680,6 +683,12 @@ export function expandQueryForSearch(userMessage, now = new Date()) {
   if (isPhotoRecordingFocusedMessage(msg)) {
     extras.push("院内撮影禁止", "写真", "動画", "録音", "患者さまへのお願い");
   }
+  // 婦人科: アフターピル↔緊急避妊薬、性病↔性感染症 などの表記ゆれを吸収
+  for (const g of matchGynecologyTopicGroups(msg)) {
+    for (const term of g.expand || []) {
+      if (term && !extras.includes(term)) extras.push(term);
+    }
+  }
   if (!extras.length) return msg;
   return `${msg} ${extras.join(" ")}`.replace(/\s+/g, " ").trim();
 }
@@ -1234,6 +1243,10 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
     [isDeliveryBenefitsFocusedMessage, /分娩予約特典|rsv_bonus|出産費用割引|お祝いディナー|特典|割引|プレゼント/],
     [(m) => /分娩予約/.test(m), /分娩予約|分娩/],
     [(m) => /料金|費用|いくらかか|入院費|自己負担/.test(m), /費用|料金|#price_birth|円/],
+    [
+      isGynecologyTopicMessage,
+      /\/gynecology\/|婦人科|アフターピル|緊急避妊|性感染症|更年期|月経|ブライダルチェック/,
+    ],
   ];
   const hayAll = `${hayTitle}\n${hayBody}\n${bareUrl}`;
   for (const [msgTest, hayRe] of topicPairs) {
@@ -1244,6 +1257,32 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
       reasons.push("トピック一致(+50)");
       break;
     }
+  }
+
+  // 婦人科同義語: 質問語とページ記載の表記差を吸収（性病↔性感染症 等）
+  const gyneGroups = matchGynecologyTopicGroups(originalMsg);
+  let gyneContentHit = false;
+  for (const g of gyneGroups) {
+    if (g.page.test(hayAll)) {
+      gyneContentHit = true;
+      rel += 45;
+      specificHits += 1;
+      reasons.push(`婦人科トピック本文一致:${g.id}(+45)`);
+      break;
+    }
+  }
+  const hasPageContent = Boolean(title.trim() || body.trim());
+  // ルート辞書で婦人科を優先しても、該当診療の記載が無いページは減点
+  if (
+    routeBoost > 0 &&
+    /\/gynecology\//i.test(bareUrl) &&
+    hasPageContent &&
+    gyneGroups.length > 0 &&
+    !gyneContentHit &&
+    !gynecologyPageSupportsQuery(originalMsg, hayAll)
+  ) {
+    score -= routeBoost + 80;
+    reasons.push("婦人科トピック未記載のためルート取消");
   }
 
   // お知らせ本文の具体日付と「今日/明日」質問の整合（先に計算し、投稿ペナルティ判定で使う）
@@ -1265,7 +1304,7 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
 
   // 投稿ページ: 意図一致を厳しく（1語・汎用語のみは原則不採用）
   // ※ URL段階（title/本文なし）ではペナルティしない（本文取得前に候補落ちするのを防ぐ）
-  const hasContent = Boolean(title.trim() || body.trim());
+  const hasContent = hasPageContent;
   if (pageType === "news" && hasContent) {
     // 対象日一致（dateAdj>0）または、日付が取れない鮮度系お知らせのみ「強い意図」
     // 未来の別日休診（dateAdj<0）はここに入れない
@@ -1717,6 +1756,24 @@ export function selectEvidenceAndChipUrls(chunks, opts = {}) {
     }
     // 今日/明日質問で「対象日以外」と判定された投稿は根拠・チップにしない
     const reasons = c.scoreReasons || [];
+    // 婦人科: カテゴリ一致だけでは不可。質問トピックが本文に無い場合は根拠・チップ除外
+    if (
+      /\/gynecology\//i.test(url) &&
+      matchGynecologyTopicGroups(opts.userMessage || "").length > 0
+    ) {
+      const pageHay = `${c.title || ""}\n${(c.h1 || []).join(" ")}\n${c.text || ""}`;
+      if (
+        reasons.some((r) => /婦人科トピック未記載/.test(r)) ||
+        !gynecologyPageSupportsQuery(opts.userMessage || "", pageHay)
+      ) {
+        excluded.push({
+          url,
+          reason: "婦人科ページに該当診療の記載がなく根拠除外",
+          score,
+        });
+        continue;
+      }
+    }
     if (
       pageType === "news" &&
       needsNewsFreshnessQuery(opts.userMessage || "") &&
