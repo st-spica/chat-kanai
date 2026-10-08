@@ -56,10 +56,44 @@ const GENDER_SELECTION_NOT_OFFERED_ANSWER =
   "申し訳ありませんが、当院では産み分けには対応しておりません。産み分けをご希望の場合は、専門の医療機関へご相談ください。";
 
 const CELEBRATION_DINNER_FOOD_REQUEST_ANSWER =
-  "お祝いディナーはあらかじめメニューが決まっているため、苦手な食材によるメニューの変更は原則として承っておりません。\n\nただし、可能な範囲で配慮いたしますので、気になる食材がございましたらスタッフにお伝えください。";
+  "お祝いディナーはあらかじめメニューが決まっているため、苦手な食材による変更は原則として承っておりません。\nただし、可能な範囲で配慮いたしますので、スタッフにお伝えください。";
 
 const CELEBRATION_DINNER_ALLERGY_ANSWER =
   "食物アレルギーについては安全に関わるため、事前にスタッフへご相談ください。対応の可否についてはお約束できません。";
+
+/** 会話履歴からお祝いディナー文脈テキストを作る */
+function celebrationDinnerContextText(safeHistory, userMessage = "") {
+  const chunks = [String(userMessage || "")];
+  for (const h of safeHistory || []) {
+    chunks.push(String(h?.content || ""));
+  }
+  return chunks.join("\n").slice(-4000);
+}
+
+/** 苦手な食材名をざっくり抽出（共感用） */
+function extractDislikedFoodName(userMessage) {
+  const msg = String(userMessage || "").trim();
+  const m = msg.match(
+    /([ぁ-んァ-ヶー一-龥A-Za-z]{2,12}?)(?:が|を|は)?(?:(?:食べれ|食べられ)ない|苦手|嫌い)/
+  );
+  if (!m) return "";
+  const food = String(m[1] || "")
+    .replace(/^(?:私|僕|自分|うち)/, "")
+    .trim();
+  if (!food || food.length > 12) return "";
+  if (/アレルギー|メニュー|ディナー|食事|お祝い/.test(food)) return "";
+  return food;
+}
+
+/** お祝いディナー食材変更の定型回答（必要なら短い共感を先頭に） */
+function buildCelebrationDinnerFoodRequestAnswer(userMessage, baseAnswer) {
+  const body = String(baseAnswer || CELEBRATION_DINNER_FOOD_REQUEST_ANSWER).trim();
+  const food = extractDislikedFoodName(userMessage);
+  if (food) {
+    return `${food}が苦手なのですね。\n\n${body}`;
+  }
+  return body;
+}
 
 const GYNECOLOGIC_SURGERY_NOT_OFFERED_ANSWER =
   "申し訳ありませんが、当院では婦人科の手術は行っておりません。診察やお薬による治療については、当院の婦人科でご相談いただけます。";
@@ -418,10 +452,14 @@ const SYSTEM = `
 ・「できますか？」「相談できますか？」など単純な可否質問には、根拠があるとき最初に結論を述べてよい（例：「はい、ご相談いただけます。」）。前置きや一般論を長く置かない。
 ・【はい・いいえの矛盾禁止（最重要）】「一人で〜？」「〜しかできない？」「〜できないの？」「〜は禁止／無理ですか？」など、肯定・否定の向きが複雑な質問では、機械的に「はい」「いいえ」を付けない。事実を直接説明する。付けた場合は、その後の説明と論理的に一致しているか必ず確認する（例：「一人で食べるの？」に「はい」＋「家族1名招待可」は矛盾）。
 ・院内サービスの案内では、「嬉しいですね」「素敵ですね」「楽しみですね」などの不要な感想を付けない。
+・【不要な締め・感想を付けない（最重要）】必要な情報を伝えたらそこで終える。無理に締めの一文を追加しない。
+  禁止例：「〜できると良いですね」「〜していただけると嬉しいです」「素敵な時間をお過ごしください」「楽しみですね」「良い結果になることを願っています」「少しでもお役に立てれば幸いです」「ご希望に沿えると良いですね」「ご希望に沿ったお料理を楽しんでいただけると良いですね」。
+・回答の基本構成は ①必要なら短い共感 ②質問への直接回答 ③必要な補足のみ。③までで終了する。
 ・根拠（院内登録情報・公式サイト抜粋）がない当院固有の対応可否は断定しない。
 ・通常の相談は原則2〜3文で簡潔に。同じ意味の繰り返し、不要な励まし、一般的なアドバイスの付け足し、内部システムの説明はしない。
 ・医療上の注意喚起・緊急時の案内など安全に必要な情報は省略しない（その場合は文数制限より安全を優先）。
 ・共感は必要なときだけ、相手の言葉に寄せて自然に。毎回の共感は不要。
+・【お祝いディナーの食材】メニューはあらかじめ決まっている。苦手な食材による変更は原則不可。可能な範囲での配慮にとどめる。「食材を外せます」「ご希望に沿った料理を提供できます」など対応保証は禁止。直前にお祝いディナーの話がある場合、食材の苦手・除外希望はその続きとして理解し、話題の聞き直しはしない。
 ・日常的な赤ちゃんの育児相談（夜泣き・睡眠・生活リズム等）では、「いつでも／お気軽にご相談ください」「具体的な状況を教えてください」「当院でサポートします」など、常時相談窓口と誤認される表現は使わない。1ヶ月健診・2ヶ月健診での相談案内を基本とする（体調不良・母親の限界・緊急は除く）。
 ・【診療サービスの対応可否を推測しない（最重要）】「婦人科だからできるはず」「ワクチンページがあるから子供も接種できるはず」「産婦人科だから小児も診られるはず」「分娩を扱うから分娩スタイルも選べるはず」「関連ページがあるから対応しているはず」「一般的な産婦人科では対応している」などの推測は禁止。「できます／対応しています」と答えるには、対象サービスと対象者が一致する明確な院内情報（院内登録情報または公式サイトの該当記述）が必要。情報が確認できないときは「できる／できない」を断定せず、確認できる情報がない旨を伝え当院へ直接問い合わせるよう案内する。妊婦向けワクチンの記載を、お子さま本人への予防接種の根拠にしない。産み分けは「婦人科でご相談いただけます」と案内しない（未実施の院内情報がある場合はそれに従う）。
 ・【婦人科の手術と診察・処方を区別する】当院では婦人科の手術（子宮筋腫・卵巣のう腫・内膜症・子宮摘出など）は行っていない。手術が必要なら対応医療機関への相談を案内する。一方、診察・診断・お薬の相談は婦人科で受けられる。お薬は診察のうえ医師が必要性を判断し、特定の薬の処方を保証しない。「手術」という語だけで中絶など別サービスの登録情報を流用しない。中絶については既存の院内登録情報に従う（このターンで勝手に未実施へ上書きしない）。産科・分娩の処置には婦人科手術の未実施ルールを当てはめない。
@@ -2173,13 +2211,21 @@ function stripContradictoryYesNoLead(text, userMessage) {
   return s.trim();
 }
 
-/** お祝いディナー案内から不要な感想を除去 */
+/** サービス案内から不要な感想・励まし・締めを除去 */
 function stripServiceGushPhrases(text) {
   let s = String(text || "");
   const patterns = [
     /[^。\n]*(?:嬉しい|うれし|素敵|楽しみ)(?:です|ですね|だね|でしょう)[ね]?[。．]?/g,
     /[^。\n]*ご家族でお祝いできるのは[^。\n]*[。．]?/g,
     /[^。\n]*素敵な時間を[^。\n]*[。．]?/g,
+    /[^。\n]*(?:できると|していただけると|沿えると|沿った[^。\n]*と)(?:良い|いい)ですね[。．]?/g,
+    /[^。\n]*ご希望に沿[^\n。]*[。．]?/g,
+    /[^。\n]*楽しんでいただけると(?:良い|いい)ですね[。．]?/g,
+    /[^。\n]*していただけると嬉しいです[。．]?/g,
+    /[^。\n]*良い結果になることを願[^。\n]*[。．]?/g,
+    /[^。\n]*お役に立てれば幸いです[。．]?/g,
+    /[^。\n]*少しでもお役に立てれば[^。\n]*[。．]?/g,
+    /[^。\n]*楽しみですね[。．]?/g,
   ];
   for (const re of patterns) {
     s = s.replace(re, "");
@@ -2617,20 +2663,27 @@ export default async function handler(req, res) {
       }
     }
 
+    const dinnerContextText = celebrationDinnerContextText(safeHistory, userMessage);
+
     // お祝いディナー：苦手食材・メニュー変更（固定メニュー・変更は原則不可。チップなし）
     if (
       !metaChatHit &&
       !casualGreetingOnly &&
-      isCelebrationDinnerFoodRequestQuery(userMessage)
+      isCelebrationDinnerFoodRequestQuery(userMessage, dinnerContextText)
     ) {
-      const ckHit = clinicKnowledgeHits.find(
-        (h) =>
-          h.item?.id === "celebration-dinner-food-request" ||
-          h.item?.intent === "meal_customization"
+      const ckHit =
+        clinicKnowledgeHits.find(
+          (h) =>
+            h.item?.id === "celebration-dinner-food-request" ||
+            h.item?.intent === "meal_customization"
+        ) || null;
+      const answer = stripServiceGushPhrases(
+        buildCelebrationDinnerFoodRequestAnswer(
+          userMessage,
+          String(ckHit?.item?.answer || "").trim() ||
+            CELEBRATION_DINNER_FOOD_REQUEST_ANSWER
+        )
       );
-      const answer =
-        String(ckHit?.item?.answer || "").trim() ||
-        CELEBRATION_DINNER_FOOD_REQUEST_ANSWER;
       if (includeDebug) {
         siteKnowledgeDebug = {
           ...(siteKnowledgeDebug || {}),
@@ -2648,7 +2701,7 @@ export default async function handler(req, res) {
             : [],
           rejectedKnowledge: clinicRejected,
           celebrationDinnerFood: { action: "fixed_no_menu_change", chips: [] },
-          note: "食材変更は原則不可。特典ページに対応範囲の記載がないためチップなし",
+          note: "食材変更は原則不可。感想・締めなし。特典ページに対応範囲の記載がないためチップなし",
         };
       }
       await appendChatLog({
@@ -2680,16 +2733,17 @@ export default async function handler(req, res) {
     if (
       !metaChatHit &&
       !casualGreetingOnly &&
-      isCelebrationDinnerAllergyQuery(userMessage)
+      isCelebrationDinnerAllergyQuery(userMessage, dinnerContextText)
     ) {
       const ckHit = clinicKnowledgeHits.find(
         (h) =>
           h.item?.id === "celebration-dinner-allergy" ||
           h.item?.intent === "meal_allergy"
       );
-      const answer =
+      const answer = stripServiceGushPhrases(
         String(ckHit?.item?.answer || "").trim() ||
-        CELEBRATION_DINNER_ALLERGY_ANSWER;
+          CELEBRATION_DINNER_ALLERGY_ANSWER
+      );
       if (includeDebug) {
         siteKnowledgeDebug = {
           ...(siteKnowledgeDebug || {}),
@@ -3339,8 +3393,8 @@ export default async function handler(req, res) {
 
     const tokyoDatetimePrompt = buildTokyoDatetimeSystemPrompt(userMessage);
     const dinnerIntent =
-      !isCelebrationDinnerFoodRequestQuery(userMessage) &&
-      !isCelebrationDinnerAllergyQuery(userMessage) &&
+      !isCelebrationDinnerFoodRequestQuery(userMessage, dinnerContextText) &&
+      !isCelebrationDinnerAllergyQuery(userMessage, dinnerContextText) &&
       (clinicDetectedIntent === "childbirth_bonus_dinner" ||
         clinicKnowledgeHits.some(
           (h) => h.item?.intent === "childbirth_bonus_dinner"

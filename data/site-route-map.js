@@ -241,35 +241,88 @@ export function isGynecologicMedicationQuery(userMessage) {
   );
 }
 
+/** お祝いディナー／院内食事の話題か（履歴含む） */
+export function mentionsCelebrationDinnerTopic(text) {
+  return /お祝いディナー|(?:お祝い|出産祝い)の食事|ディナーご招待|(?:お祝い)?ディナー|レストランBebe|レストランBébé/.test(
+    String(text || "")
+  );
+}
+
+/**
+ * 苦手・好き嫌い・メニュー変更・特定食材を出したくない等の食事カスタム要望か
+ * （アレルギーは含めない）
+ * @param {string} userMessage
+ */
+export function isFoodDislikeOrRemovalRequest(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg || /アレルギー/.test(msg)) return false;
+  if (
+    /メニュー(?:を)?変更|メニューは?選べ|メニューを?選|食材(?:を|は)?選|食材変更|メニューを?変え/.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+  if (/嫌いな(?:食材|食べ物)|苦手な(?:食材|食べ物)|好き嫌い/.test(msg)) {
+    return true;
+  }
+  if (
+    /抜いてほし|外してほし|除いてほし|使わないで|入れないで|出して(?:欲|ほ)しく(?:ない|無い)|出さないで/.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+  // 「にんじん食べれないので出して欲しくない」など
+  if (
+    /(?:食べれ|食べられ)ない|苦手|嫌い/.test(msg) &&
+    /出して(?:欲|ほ)しく(?:ない|無い)|抜いて|外して|入れないで|使わないで/.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * お祝いディナー等の食物アレルギー確認か（好き嫌い・メニュー変更とは別）
  * @param {string} userMessage
+ * @param {string} [contextText] 直前の会話など（ディナー文脈の補完）
  */
-export function isCelebrationDinnerAllergyQuery(userMessage) {
+export function isCelebrationDinnerAllergyQuery(userMessage, contextText = "") {
   const msg = String(userMessage || "").trim();
   if (!msg || !/アレルギー/.test(msg)) return false;
-  return /(?:お祝い)?ディナー|お祝いの食事|出産祝いの食事|レストラン|入院食|入院中の食事|お食事/.test(
-    msg
-  );
+  // 薬剤・検査など食事以外のアレルギーは除外
+  if (/薬|薬物|造影|麻酔|ヨード|抗生物質|ペニシリン|ラテックス|ワクチン/.test(msg)) {
+    return false;
+  }
+  const ctx = `${msg}\n${String(contextText || "")}`;
+  if (
+    mentionsCelebrationDinnerTopic(ctx) ||
+    /レストラン|入院食|入院中の食事|お食事|食材/.test(ctx)
+  ) {
+    return true;
+  }
+  // 「アレルギーがあるのですが対応できますか」など短い食事アレルギー確認
+  return /対応|避け|できますか|大丈夫/.test(msg);
 }
 
 /**
  * お祝いディナーの苦手食材・好き嫌い・メニュー変更か（アレルギーは含めない）
  * @param {string} userMessage
+ * @param {string} [contextText] 直前の会話など（ディナー文脈の補完）
  */
-export function isCelebrationDinnerFoodRequestQuery(userMessage) {
+export function isCelebrationDinnerFoodRequestQuery(userMessage, contextText = "") {
   const msg = String(userMessage || "").trim();
-  if (!msg || isCelebrationDinnerAllergyQuery(msg)) return false;
-  const foodPref =
-    /苦手な?食材|好き嫌い|嫌いな?(?:食べ物|食材|もの)|苦手な?(?:食べ物|もの)|食材変更|メニュー変更|メニューを?変え|メニューは?選べ|メニューを?選|食材は?選べ|食材を?選|抜いて|使わないで|入れないで/;
-  if (!foodPref.test(msg)) return false;
-  if (/(?:お祝い)?ディナー|お祝いの食事|出産祝いの食事|レストラン/.test(msg)) {
+  if (!msg || isCelebrationDinnerAllergyQuery(msg, contextText)) return false;
+  if (!isFoodDislikeOrRemovalRequest(msg)) return false;
+  const ctx = `${msg}\n${String(contextText || "")}`;
+  if (mentionsCelebrationDinnerTopic(ctx) || /レストラン/.test(ctx)) {
     return true;
   }
-  // ディナー未言及でも、好き嫌い・メニュー変更の可否として院内食事の文脈で扱う
-  return /嫌いな食べ物.{0,20}変更|苦手な食材.{0,20}(?:抜|変更|使わ)|メニューを?変更できますか|メニューは選べますか/.test(
-    msg
-  );
+  // ディナー未言及でも、院内の食事カスタム要望として扱う（当院の確定情報はお祝いディナー）
+  return true;
 }
 
 /**
