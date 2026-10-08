@@ -553,7 +553,17 @@ export function getTokyoNowParts(now = new Date()) {
     { Sun: "日", Mon: "月", Tue: "火", Wed: "水", Thu: "木", Fri: "金", Sat: "土" }[
       weekdayEn
     ] || "";
-  return { year, month, day, hour, minute, weekdayJa, ymd: `${year}-${month}-${day}` };
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return {
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    weekdayJa,
+    ymd: `${year}-${mm}-${dd}`,
+  };
 }
 
 /** @param {{ year: number, month: number, day: number }} d */
@@ -602,6 +612,38 @@ export function buildTokyoDatetimeSystemPrompt(userMessage, now = new Date()) {
  * @param {string} userMessage
  * @param {Date} [now]
  */
+/**
+ * 「休診のお知らせ（本日）」等で、具体日が今日以外の案内を本文から除去する。
+ * トップの診療時間表は残し、誤った休診断定だけを防ぐ。
+ * @param {string} text
+ * @param {Date} [now]
+ */
+export function stripStaleTodayClosedNotices(text, now = new Date()) {
+  const p = getTokyoNowParts(now);
+  const todayO = ymdToOrdinal(p);
+  let out = String(text || "");
+
+  // トップの一覧テaser「休診のお知らせ（本日）」は本文日付が無いことが多い。
+  // 前後120文字に「今日」の具体日が無い場合はタイトルごと除去する。
+  out = out.replace(/休診のお知らせ[（(]本日[）)]/g, (match, offset, whole) => {
+    const window = String(whole).slice(Math.max(0, offset - 120), offset + match.length + 160);
+    const dates = extractMentionedDates(window, p);
+    if (dates.some((d) => ymdToOrdinal(d) === todayO)) return match;
+    return "";
+  });
+
+  out = out.replace(
+    /本日[、,]?\s*\d{1,2}\s*月\s*\d{1,2}\s*日[^\n。]{0,100}休診[^\n。]{0,60}[。\n]?/g,
+    (line) => {
+      const dates = extractMentionedDates(line, p);
+      if (dates.some((d) => ymdToOrdinal(d) === todayO)) return line;
+      return "";
+    }
+  );
+
+  return out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export function expandQueryForSearch(userMessage, now = new Date()) {
   const msg = String(userMessage || "").trim();
   if (!msg) return msg;
@@ -615,12 +657,11 @@ export function expandQueryForSearch(userMessage, now = new Date()) {
   if (/今週/.test(msg)) {
     extras.push(formatJaYmd(today), formatJaYmd(tomorrow), formatJaYmd(dayAfter));
   }
-  // 休診・診療の言い換えを軽く足す（検索ヒット用）
-  if (/診察|診療|診て|開い|やって/.test(msg) && !/休診/.test(msg)) {
+  // 休診語は「休み/休診」を聞かれたときだけ足す（診療予約質問に休診を混ぜない）
+  if (/休み|休診|やってる|開いて/.test(msg)) {
     extras.push("休診", "診療");
-  }
-  if (/休み|休診/.test(msg) && !/診療/.test(msg)) {
-    extras.push("休診", "診療");
+  } else if (/診察|診療|診て/.test(msg)) {
+    extras.push("診療時間", "午前診", "午後診");
   }
   if (!extras.length) return msg;
   return `${msg} ${extras.join(" ")}`.replace(/\s+/g, " ").trim();
@@ -668,8 +709,8 @@ function ymdToOrdinal(d) {
 }
 
 /**
- * 「今日/明日」質問とお知らせ内の具体日付の整合で加減点
- * （お知らせ系ページのみ。トップ等の日付ノイズは対象外）
+ * 「今日/明日」質問と本文内の具体日付の整合で加減点
+ * お知らせだけでなく、トップ等に埋め込まれた「本日＝別日」の休診案内にも適用する
  * @returns {{ points: number, reason: string|null }}
  */
 function datedNoticeAdjustment(userMessage, chunk, nowParts) {
@@ -678,17 +719,16 @@ function datedNoticeAdjustment(userMessage, chunk, nowParts) {
     return { points: 0, reason: null };
   }
   const pageType = chunk.pageType || classifyPageType(chunk.url);
-  if (pageType !== "news") {
-    return { points: 0, reason: null };
-  }
   const hay = `${chunk.title || ""}\n${(chunk.h1 || []).join(" ")}\n${chunk.text || ""}`;
   // 休診・診療系でなければ日付加点しない（教室曜日変更などの誤爆防止）
   if (!/休診|午後診|午前診|夜診|診療|診察|外来/.test(hay)) {
     return { points: 0, reason: null };
   }
+  // 固定ページは、休診お知らせが本文に埋め込まれている場合のみ日付整合を見る
+  if (pageType !== "news" && !/休診のお知らせ|本日[、,]\s*\d{1,2}月/.test(hay)) {
+    return { points: 0, reason: null };
+  }
   const dates = extractMentionedDates(hay, nowParts);
-  if (!dates.length) return { points: 0, reason: null };
-
   const todayO = ymdToOrdinal(nowParts);
   const tomorrowO = ymdToOrdinal(addTokyoDays(nowParts, 1));
   const dayAfterO = ymdToOrdinal(addTokyoDays(nowParts, 2));
@@ -698,9 +738,37 @@ function datedNoticeAdjustment(userMessage, chunk, nowParts) {
   else if (/明後日/.test(msg)) target = dayAfterO;
   else if (/明日/.test(msg)) target = tomorrowO;
 
+  // 「休診のお知らせ（本日）」だが本文の具体日が今日以外
+  // → 診療時間表がある固定ページは減点せず本文サニタイズに任せる（スケジュール根拠を残す）
+  // → それ以外（お知らせ単体など）は大きく減点
+  if (
+    target === todayO &&
+    /休診のお知らせ（本日）|本日[、,]?\s*\d{1,2}\s*月\s*\d{1,2}\s*日/.test(hay)
+  ) {
+    const ordsProbe = dates.map(ymdToOrdinal);
+    if (ordsProbe.length && !ordsProbe.includes(todayO)) {
+      const hasScheduleTable =
+        /診療時間/.test(hay) && /午前診/.test(hay) && /午後診/.test(hay);
+      if (hasScheduleTable) {
+        return {
+          points: 0,
+          reason: "本日表記の休診は対象外（診療時間表は維持・本文除去）",
+        };
+      }
+      return {
+        points: -180,
+        reason: "本日表記の休診だが対象日が今日以外(-180)",
+      };
+    }
+  }
+
+  if (!dates.length) return { points: 0, reason: null };
+
   const ords = dates.map(ymdToOrdinal);
   const maxOrd = Math.max(...ords);
   const minOrd = Math.min(...ords);
+  const hasScheduleTable =
+    /診療時間/.test(hay) && /午前診/.test(hay) && /午後診/.test(hay);
 
   // 対象日と一致するお知らせは高評価
   if (target != null && ords.includes(target)) {
@@ -710,12 +778,21 @@ function datedNoticeAdjustment(userMessage, chunk, nowParts) {
   if (/今週/.test(msg) && maxOrd >= todayO) {
     return { points: 60, reason: `今週内の未来日付お知らせ(+60)` };
   }
-  // 過去日付のみ → 「今日/明日」質問では大きく減点
+  // 過去日付のみ → お知らせ投稿は大きく減点。診療時間表付き固定ページは減点しない
   if (maxOrd < todayO) {
+    if (pageType === "fixed" && hasScheduleTable) {
+      return {
+        points: 0,
+        reason: "過去日付お知らせは無視（診療時間表は維持）",
+      };
+    }
     return { points: -200, reason: `過去日付のお知らせ(-200)` };
   }
   // 今日/明日質問で、日付はあるが対象外の未来日
   if (target != null && minOrd > target && minOrd > todayO) {
+    if (pageType === "fixed" && hasScheduleTable) {
+      return { points: 0, reason: null };
+    }
     return { points: -40, reason: `対象日以外の未来お知らせ(-40)` };
   }
   return { points: 0, reason: null };
@@ -1694,7 +1771,7 @@ export function sourcePagesFromChunks(chunks, opts = {}) {
 export function buildSiteKnowledgeSnippet(
   userMessage,
   state,
-  { includeReferenceUrlList = true } = {}
+  { includeReferenceUrlList = true, now = new Date() } = {}
 ) {
   if (isSinglePageOnlyState(state) && (state.chunks || []).length) {
     const use = state.chunks;
@@ -1719,7 +1796,8 @@ export function buildSiteKnowledgeSnippet(
 
   const parts = use.map((c) => {
     const lm = c.lastmod ? `\n更新: ${c.lastmod}` : "";
-    return `【${labelForKnowledgeChunk(c)}】\nURL: ${c.url}${lm}\nページ種別: ${c.pageType || "other"}\n${c.text}`;
+    const body = stripStaleTodayClosedNotices(c.text || "", now);
+    return `【${labelForKnowledgeChunk(c)}】\nURL: ${c.url}${lm}\nページ種別: ${c.pageType || "other"}\n${body}`;
   });
   let snippet = `【当院公式サイトからの抜粋（関連・鮮度を考慮して選定。これが院内情報の根拠です）】\n\n${parts.join(
     "\n\n---\n\n"
@@ -1833,8 +1911,10 @@ export async function getSiteKnowledgeSnippetSupplement(userMessage, opts = {}) 
     error: built.error,
     fetchMode: built.fetchMode,
   };
+  const now = opts.now instanceof Date ? opts.now : new Date();
   const { snippet, sourceChunks, confidence } = buildSiteKnowledgeSnippet(userMessage, state, {
     includeReferenceUrlList: false,
+    now,
   });
 
   memoryCache = {
