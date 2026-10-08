@@ -3,6 +3,7 @@ import { ratelimit, hasUpstashConfig } from "./_ratelimit.js";
 import { appendChatLog } from "./_chatLog.js";
 import {
   ATTEND_INFO_PAGE_URL,
+  buildTokyoDatetimeSystemPrompt,
   getSiteKnowledgeSnippetSupplement,
   isAttendFocusedQuery,
   isGenericKanaiHomeUrl,
@@ -178,8 +179,9 @@ const SYSTEM = `
   - **一般的な妊娠・出産・症状の相談**（例：つわり、むくみ、不安の整理）は、診断・処方をせず、既存の安全ルールに従って案内してよい（当院固有の制度・時間・可否の断定はしない）。
 - ユーザーの質問は短い1文が多い。当院固有の話題でサイト抜粋が渡されているときは、その内容を最優先で使い、一般論で薄めない・上書きしない。
 - 抜粋に「更新:」やページ種別が付いている場合、**新しい関連情報**（特に休診などのお知らせ）を、古い一般案内より優先して解釈する。
+- 「今日」「本日」「明日」等の日付表現は、別メッセージで渡される【現在日時（Asia/Tokyo）】を唯一の基準にする。現在日時を推測しない。過去日付のお知らせを「今日」の説明に使わない。
 - 【お礼→謝罪は例外のみ】「お問い合わせありがとうございます。大変申し訳ございませんが、…」は、(A) 当院へのクレーム・不満、または (B) 実施していない／お客様の要望に応えられない内容（例：無痛分娩、日曜診療、乳がん検診）のときだけ使う。分娩予約・利用できる制度・診療時間・料金などの通常の案内では謝罪文を書かない（お礼だけ、またはいきなり案内してよい）。「利用可能です」「できます」など案内できる内容の前に謝罪を置かない。
-- サイト抜粋で「実施していない／行っていない／休診」と分かる内容を聞かれたときだけ、冒頭を「お問い合わせありがとうございます。大変申し訳ございませんが、◯◯は実施しておりません。」にする。曖昧にしない。
+- サイト抜粋で「実施していない／行っていない／休診」と分かる内容を聞かれたときだけ、冒頭をお礼→未実施／休診の案内にする。曖昧にしない。
 - 当院固有テーマで公式サイト抜粋に根拠がない場合は、「正確な情報を確認できないため、お手数ですが当院へお電話でお問い合わせください。」と案内する（一般論で埋めない）。
 - 回答内では「院内サイト抜粋」「KNOWLEDGE」などの内部用語は一切出さない。
 - 回答内で「チャットボット」「AI」などと自称しない。必要な場合も「相談窓口としてご案内します」と表現する。
@@ -463,36 +465,49 @@ const COMPLAINT_APOLOGY =
 
 const NOT_OFFERED_THANKS = "お問い合わせありがとうございます。";
 
-/** FAQ上、当院で実施していないことが分かっている内容 */
+/** FAQ上、当院で実施していないことが分かっている内容（文言はサービス種別ごと） */
 const NOT_OFFERED_SERVICES = [
   {
     id: "epidural",
     label: "無痛分娩",
     pattern: /無痛分娩|無痛(?:で)?(?:の)?(?:お産|出産|分娩)|硬膜外麻酔|硬膜外|エピ(?:ジュラル)?/,
+    topicPattern: /無痛分娩|硬膜外|エピ(?:ジュラル)?/,
+    apologyLine: "大変申し訳ございませんが、当院では無痛分娩は行っておりません。",
   },
   {
     id: "sunday",
     label: "日曜診療",
     pattern:
-      /日曜診療|日曜(?:日)?(?:も|に|は)?(?:診療|診察|外来|開院|開い|やって|診て|受診|来院できる)/,
+      /日曜診療|日曜(?:日)?(?:も|に|は)?(?:診療|診察|外来|開院|開い|やって|診て|受診|来院できる)|日曜日は(?:診察|診療)/,
+    topicPattern: /日曜/,
+    apologyLine: "大変申し訳ございませんが、日曜日は休診です。",
   },
   {
     id: "holiday",
     label: "祝日診療",
     pattern:
       /祝日診療|祝日(?:も|に|は)?(?:診療|診察|外来|開院|開い|やって|診て|受診|来院できる)/,
+    topicPattern: /祝日/,
+    apologyLine: "大変申し訳ございませんが、祝日は休診です。",
   },
   {
     id: "breast_cancer_screening",
     label: "乳がん検診",
     pattern: /乳がん検診|乳癌検診|マンモグラフィ|マンモグラフィー/,
+    topicPattern: /乳がん検診|乳癌検診|マンモグラフィ|マンモグラフィー/,
+    apologyLine: "大変申し訳ございませんが、当院では乳がん検診は行っておりません。",
   },
   {
     id: "nursery",
     label: "託児所",
     pattern: /託児所|託児サービス/,
+    topicPattern: /託児所|託児/,
+    apologyLine: "大変申し訳ございませんが、当院には託児所はございません。",
   },
 ];
+
+const FIXED_RULE_AFFIRM_RE =
+  /実施しています|実施しております|ご利用いただけます|ご利用できます|対応しています|対応しております|開設しています|開設しております|行っています|行っております|受け付けています|受付しています|実施中|ご案内しています/;
 
 function detectNotOfferedService(userMessage) {
   const text = String(userMessage || "").trim();
@@ -503,19 +518,80 @@ function detectNotOfferedService(userMessage) {
   return null;
 }
 
-function buildNotOfferedPrompt(label) {
+function buildNotOfferedPrompt(hit) {
+  const label = hit.label;
+  const apology = hit.apologyLine;
   return [
     "【このターン：実施していない内容への回答（最優先）】",
-    `院内情報により、ユーザーが尋ねている「${label}」は当院では実施していないことが分かっています。`,
+    `院内情報により、ユーザーが尋ねている「${label}」は当院では実施していない／該当しないことが分かっています。`,
     "・冒頭は必ず次の2文をこの順番で書く（順番を入れ替えない）。",
     `  1）${NOT_OFFERED_THANKS}`,
-    `  2）大変申し訳ございませんが、${label}は実施しておりません。`,
-    "・謝罪から始めない。お礼→謝罪（＋実施していない旨）の順を守る。",
-    "・実施していないことを曖昧にしない・遠回しにしない。",
-    "・必要なら続けて、休診案内・代替の案内・電話相談など短い補足を書いてよい。",
-    `・良い例：${NOT_OFFERED_THANKS}大変申し訳ございませんが、${label}は実施しておりません。`,
+    `  2）${apology}`,
+    "・謝罪から始めない。お礼→上記2文目の順を守る。",
+    "・実施していないこと／該当しないことを曖昧にしない・遠回しにしない。",
+    "・必要なら続けて、代替の案内・電話相談など短い補足を書いてよい。",
+    `・良い例：${NOT_OFFERED_THANKS}${apology}`,
     "・注意：通常の案内質問（予約方法・制度・診療時間など）ではこのお礼→謝罪テンプレは使わない。このターンだけ例外。",
   ].join("\n");
+}
+
+/**
+ * 固定ルール回答の根拠になっていないURLはチップに出さない。
+ * サービス話題に一致する公式ページだけ残す（なければ空）。
+ */
+function filterReferencedPagesForNotOffered(hit, sourceChunks, referencedPages) {
+  if (!hit) return referencedPages || [];
+  const topicRe = hit.topicPattern || new RegExp(hit.label);
+  const matched = [];
+  const seen = new Set();
+  for (const c of sourceChunks || []) {
+    const hay = `${c.title || ""}\n${c.text || ""}\n${c.url || ""}`;
+    if (!topicRe.test(hay)) continue;
+    const url = rewriteLegacyKanaiUrl(c.url);
+    if (!url || seen.has(url) || isGenericKanaiHomeUrl(url)) continue;
+    // 無関係なお知らせ（例: 休診）だけで固定ルールと無関係なら除外
+    if (hit.id !== "sunday" && hit.id !== "holiday" && /\/news\//i.test(url) && !topicRe.test(hay)) {
+      continue;
+    }
+    seen.add(url);
+    matched.push({
+      url,
+      title: String(c.title || hit.label).replace(/\s+/g, " ").trim() || url,
+    });
+  }
+  // sourceChunks に無くても、既に topic 一致の参照があれば残す
+  if (!matched.length) {
+    for (const p of referencedPages || []) {
+      const url = rewriteLegacyKanaiUrl(p?.url);
+      if (!url || seen.has(url)) continue;
+      if (topicRe.test(`${p.title || ""}\n${url}`)) {
+        seen.add(url);
+        matched.push({ url, title: p.title || hit.label });
+      }
+    }
+  }
+  return matched.slice(0, MAX_REFERENCE_CHIPS);
+}
+
+/**
+ * 固定ルールと公式サイトの肯定表現の矛盾を検知（debug用・患者非表示）
+ */
+function detectFixedRuleConflict(hit, sourceChunks) {
+  if (!hit) return null;
+  const topicRe = hit.topicPattern || new RegExp(hit.label);
+  for (const c of sourceChunks || []) {
+    const hay = `${c.title || ""}\n${c.text || ""}`;
+    if (!topicRe.test(hay)) continue;
+    if (!FIXED_RULE_AFFIRM_RE.test(hay)) continue;
+    return {
+      id: hit.id,
+      label: hit.label,
+      url: c.url,
+      title: c.title || "",
+      note: "公式サイトに肯定表現あり（固定ルールと矛盾の可能性）",
+    };
+  }
+  return null;
 }
 
 function setCors(res, origin) {
@@ -651,10 +727,16 @@ function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
     /ワクチン|インフルエンザ|予防接種|アブリスボ|RSウイルス/,
     /オンライン診療|オンライン|遠隔診療|テレビ電話/i,
     /電話|番号|06[-‐]?6931/i,
-    /今日|明日|午後は診|午前は診/,
+    /今日|本日|明日|明後日|今週|午後は診|午前は診/,
+    /面会|お見舞い|会いに来|会いに行|立ち会|立会い|立ち合い|付き添|分娩室に入れ/,
+    /料金|費用|いくらかか|入院費|自己負担|託児所|無痛分娩|乳がん検診/,
   ];
 
-  return triggers.some((re) => re.test(text));
+  return (
+    triggers.some((re) => re.test(text)) ||
+    isMeetingFocusedQuery(text) ||
+    isAttendFocusedQuery(text)
+  );
 }
 
 /** 当院固有事実が必要な質問か（根拠なし時は一般知識で埋めない） */
@@ -1310,7 +1392,7 @@ function ensureComplaintDetailAskClosing(text, userMessage, safeHistory) {
   return s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-/** 実施していない内容への質問は冒頭を「お礼→謝罪＋未実施」に揃える */
+/** 実施していない内容への質問は冒頭を「お礼→種別ごとの未実施文」に揃える */
 function ensureNotOfferedThanksThenApology(text, userMessage, safeHistory) {
   if (shouldAddComplaintPrompt(userMessage, safeHistory)) return String(text || "");
   if (shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory)) {
@@ -1320,16 +1402,18 @@ function ensureNotOfferedThanksThenApology(text, userMessage, safeHistory) {
   if (!hit) return String(text || "");
 
   let s = flattenHtmlAnswerToPlain(text);
-  const apology = `大変申し訳ございませんが、${hit.label}は実施しておりません。`;
+  const apology = hit.apologyLine;
   const stripOpenings = [
     /お問い合わせありがとうございます。?/g,
     /お問い合わせくださりありがとうございます。?/g,
     /ご質問ありがとうございます。?/g,
-    /大変申し訳ございませんが、[^。\n]{1,40}は実施しておりません。?/g,
-    /大変申し訳ございませんが、[^。\n]{1,40}(?:は|を)(?:実施|行って)(?:しておりません|いません)。?/g,
-    /申し訳ございませんが、[^。\n]{1,40}は実施しておりません。?/g,
-    /当院では[^。\n]{0,20}実施していません。?/g,
-    /当院では[^。\n]{0,20}行っていません。?/g,
+    /大変申し訳ございませんが、[^。\n]{1,80}。?/g,
+    /申し訳ございませんが、[^。\n]{1,80}。?/g,
+    /当院では[^。\n]{0,40}実施していません。?/g,
+    /当院では[^。\n]{0,40}行っていません。?/g,
+    /当院には[^。\n]{0,40}ございません。?/g,
+    /日曜日は休診です。?/g,
+    /祝日は休診です。?/g,
   ];
   for (const re of stripOpenings) {
     s = s.replace(re, "");
@@ -1749,10 +1833,12 @@ export default async function handler(req, res) {
     let referencedPages = [];
     let knowledgeConfidence = "none";
     let siteKnowledgeDebug = null;
+    let fetchedSourceChunks = [];
+    const notOfferedHit = detectNotOfferedService(userMessage);
     const clinicFactual = isClinicSpecificFactualQuery(userMessage, safeHistory);
     const shouldFetchWebKnowledge =
       !casualGreetingOnly &&
-      (!SITE_KNOWLEDGE_GATED || clinicFactual);
+      (!SITE_KNOWLEDGE_GATED || clinicFactual || Boolean(notOfferedHit));
     const forceRefresh = shouldForceSiteKnowledgeRefresh(req);
     const includeDebug = shouldIncludeSiteKnowledgeDebug(req);
 
@@ -1769,6 +1855,7 @@ export default async function handler(req, res) {
         forceRefresh,
         includeDebug,
       });
+      fetchedSourceChunks = sourceChunks || [];
       knowledgeConfidence = confidence || (webSnippet ? "low" : "none");
       if (includeDebug && debug) siteKnowledgeDebug = debug;
 
@@ -1796,6 +1883,57 @@ export default async function handler(req, res) {
       }
     }
 
+    // 固定ルール回答時: 根拠にしていないURLはチップに出さない
+    // 話題一致ページが無い場合はサイト抜粋も渡さない（無関係なお知らせの混入防止）
+    if (notOfferedHit) {
+      referencedPages = filterReferencedPagesForNotOffered(
+        notOfferedHit,
+        fetchedSourceChunks,
+        referencedPages
+      );
+      if (!referencedPages.length) {
+        clinicSnippet = "";
+        knowledgeConfidence = "none";
+      } else {
+        // 一致ページの本文だけを根拠として残す
+        const allow = new Set(referencedPages.map((p) => String(p.url || "").split("#")[0]));
+        const related = (fetchedSourceChunks || []).filter((c) =>
+          allow.has(String(c.url || "").split("#")[0])
+        );
+        if (related.length) {
+          clinicSnippet = [
+            "【当院公式サイトからの抜粋（固定ルール対象に関連するページのみ）】",
+            ...related.map(
+              (c) =>
+                `【${c.title || c.url}】\nURL: ${c.url}\n${c.lastmod ? `更新: ${c.lastmod}\n` : ""}${c.text}`
+            ),
+          ].join("\n\n");
+          if (clinicSnippet.length > SITE_SNIPPET_MAX_CHARS) {
+            clinicSnippet =
+              clinicSnippet.slice(0, SITE_SNIPPET_MAX_CHARS) +
+              "\n\n（以降、文字数制限のため省略しました）";
+          }
+        } else {
+          clinicSnippet = "";
+        }
+      }
+      const conflict = detectFixedRuleConflict(notOfferedHit, fetchedSourceChunks);
+      if (conflict) {
+        console.warn("fixed_rule_conflict", JSON.stringify(conflict));
+        if (includeDebug) {
+          siteKnowledgeDebug = {
+            ...(siteKnowledgeDebug || {}),
+            fixed_rule_conflict: conflict,
+          };
+        }
+      } else if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          fixed_rule_conflict: null,
+        };
+      }
+    }
+
     const knowledgeHitScore = clinicSnippet || referencedPages.length > 0 ? 20 : 0;
     if (shouldSuppressReferencePages(userMessage, safeHistory, knowledgeHitScore)) {
       if (!isAttendFocusedQuery(userMessage) && !isMeetingFocusedQuery(userMessage)) {
@@ -1803,16 +1941,23 @@ export default async function handler(req, res) {
       } else {
         referencedPages = finalizeReferencedPages(referencedPages, userMessage);
       }
-    } else {
+    } else if (!notOfferedHit) {
       referencedPages = finalizeReferencedPages(referencedPages, userMessage);
+    } else {
+      referencedPages = referencedPages.slice(0, MAX_REFERENCE_CHIPS);
     }
     referencedPages = await filterPagesBySitemap(referencedPages);
 
     const needNoEvidencePrompt =
-      clinicFactual && !clinicSnippet && !detectNotOfferedService(userMessage);
+      clinicFactual && !clinicSnippet && !notOfferedHit;
+
+    const tokyoDatetimePrompt = buildTokyoDatetimeSystemPrompt(userMessage);
 
     const messages = [
       { role: "system", content: SYSTEM },
+      ...(tokyoDatetimePrompt
+        ? [{ role: "system", content: tokyoDatetimePrompt }]
+        : []),
       ...(clinicSnippet
         ? [
             {
@@ -1828,7 +1973,7 @@ export default async function handler(req, res) {
         content: buildReferenceLinksSystemPrompt(referencedPages),
       },
       ...(shouldForceRichHtmlForMessage(userMessage, safeHistory) &&
-      !detectNotOfferedService(userMessage) &&
+      !notOfferedHit &&
       clinicSnippet
         ? [{ role: "system", content: RICH_HTML_THIS_TURN }]
         : []),
@@ -1836,13 +1981,11 @@ export default async function handler(req, res) {
         ? [{ role: "system", content: PROMPT_OTHER_HOSPITAL_EXPERIENCE }]
         : shouldAddComplaintPrompt(userMessage, safeHistory)
           ? [{ role: "system", content: PROMPT_COMPLAINT }]
-          : detectNotOfferedService(userMessage)
+          : notOfferedHit
             ? [
                 {
                   role: "system",
-                  content: buildNotOfferedPrompt(
-                    detectNotOfferedService(userMessage).label
-                  ),
+                  content: buildNotOfferedPrompt(notOfferedHit),
                 },
               ]
             : shouldAddShortBackchannelPrompt(userMessage, safeHistory)

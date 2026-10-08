@@ -8,7 +8,12 @@
  */
 
 import { Redis } from "@upstash/redis";
-import { matchSiteRoutes, preferredUrlsForMessage } from "../data/site-route-map.js";
+import {
+  isAttendFocusedMessage,
+  isVisitFocusedMessage,
+  matchSiteRoutes,
+  preferredUrlsForMessage,
+} from "../data/site-route-map.js";
 
 const REDIS_KEY = "chat:site-knowledge:v6";
 
@@ -480,11 +485,204 @@ export function rewriteLegacyKanaiUrl(url) {
 }
 
 export function isMeetingFocusedQuery(userMessage) {
-  return /面会/.test(String(userMessage || "").trim());
+  return isVisitFocusedMessage(userMessage);
 }
 
 export function isAttendFocusedQuery(userMessage) {
-  return /立ち会い/.test(String(userMessage || "").trim());
+  return isAttendFocusedMessage(userMessage);
+}
+
+/** Asia/Tokyo の現在日時パーツ */
+export function getTokyoNowParts(now = new Date()) {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    weekday: "short",
+  });
+  const parts = Object.fromEntries(
+    fmt.formatToParts(now).filter((p) => p.type !== "literal").map((p) => [p.type, p.value])
+  );
+  const year = Number(parts.year);
+  const month = Number(parts.month);
+  const day = Number(parts.day);
+  const hour = Number(parts.hour);
+  const minute = Number(parts.minute);
+  const weekdayEn = String(parts.weekday || "");
+  const weekdayJa =
+    { Sun: "日", Mon: "月", Tue: "火", Wed: "水", Thu: "木", Fri: "金", Sat: "土" }[
+      weekdayEn
+    ] || "";
+  return { year, month, day, hour, minute, weekdayJa, ymd: `${year}-${month}-${day}` };
+}
+
+/** @param {{ year: number, month: number, day: number }} d */
+export function formatJaYmd(d) {
+  return `${d.year}年${d.month}月${d.day}日`;
+}
+
+function addTokyoDays(parts, deltaDays) {
+  // UTC noon で日付加算し、Asia/Tokyo の暦日ずれを避ける
+  const utc = Date.UTC(parts.year, parts.month - 1, parts.day + deltaDays, 12, 0, 0);
+  return getTokyoNowParts(new Date(utc));
+}
+
+/**
+ * 相対日付・明示日付を含む質問か（GPTへ現在日時を渡す対象）
+ * @param {string} userMessage
+ */
+export function needsExplicitTokyoDatetime(userMessage) {
+  const msg = String(userMessage || "");
+  return /今日|本日|明日|明後日|今週|\d{1,2}月\d{1,2}日|\d{4}年\d{1,2}月\d{1,2}日|\d{4}\/\d{1,2}\/\d{1,2}|\d{1,2}\/\d{1,2}/.test(
+    msg
+  );
+}
+
+/**
+ * GPT向け：現在日時を明示する system 文（ユーザー質問文は変更しない）
+ * @param {string} userMessage
+ * @param {Date} [now]
+ */
+export function buildTokyoDatetimeSystemPrompt(userMessage, now = new Date()) {
+  if (!needsExplicitTokyoDatetime(userMessage)) return "";
+  const p = getTokyoNowParts(now);
+  const hh = String(p.hour).padStart(2, "0");
+  const mm = String(p.minute).padStart(2, "0");
+  const wd = p.weekdayJa ? `（${p.weekdayJa}）` : "";
+  return [
+    "【現在日時（Asia/Tokyo。この値を基準に「今日」「明日」等を解釈すること。推測しない）】",
+    `現在日時: ${formatJaYmd(p)}${wd} ${hh}:${mm} JST`,
+    `ユーザーの質問: ${String(userMessage || "").trim()}`,
+  ].join("\n");
+}
+
+/**
+ * 検索スコア用の内部クエリ（ユーザー表示文は変えない）
+ * 例: 「今日の午後は…」→「今日 2026年10月8日 午後 …」
+ * @param {string} userMessage
+ * @param {Date} [now]
+ */
+export function expandQueryForSearch(userMessage, now = new Date()) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return msg;
+  const today = getTokyoNowParts(now);
+  const tomorrow = addTokyoDays(today, 1);
+  const dayAfter = addTokyoDays(today, 2);
+  const extras = [];
+  if (/今日|本日/.test(msg)) extras.push(formatJaYmd(today));
+  if (/明日/.test(msg)) extras.push(formatJaYmd(tomorrow));
+  if (/明後日/.test(msg)) extras.push(formatJaYmd(dayAfter));
+  if (/今週/.test(msg)) {
+    extras.push(formatJaYmd(today), formatJaYmd(tomorrow), formatJaYmd(dayAfter));
+  }
+  // 休診・診療の言い換えを軽く足す（検索ヒット用）
+  if (/診察|診療|診て|開い|やって/.test(msg) && !/休診/.test(msg)) {
+    extras.push("休診", "診療");
+  }
+  if (/休み|休診/.test(msg) && !/診療/.test(msg)) {
+    extras.push("休診", "診療");
+  }
+  if (!extras.length) return msg;
+  return `${msg} ${extras.join(" ")}`.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * タイトル・本文から具体日付を抽出（YYYY年M月D日 / M月D日 / YYYY/MM/DD / M/D）
+ * @param {string} text
+ * @param {{ year: number }} refYear
+ * @returns {Array<{ year: number, month: number, day: number, ymd: string }>}
+ */
+export function extractMentionedDates(text, refYear) {
+  const s = String(text || "");
+  const out = [];
+  const seen = new Set();
+  const push = (y, m, d) => {
+    if (!y || !m || !d || m < 1 || m > 12 || d < 1 || d > 31) return;
+    const ymd = `${y}-${m}-${d}`;
+    if (seen.has(ymd)) return;
+    seen.add(ymd);
+    out.push({ year: y, month: m, day: d, ymd });
+  };
+  for (const m of s.matchAll(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/g)) {
+    push(Number(m[1]), Number(m[2]), Number(m[3]));
+  }
+  // YYYY/MM/DD・YYYY-MM-DD（ドット区切り YYYY.MM.DD は更新日表記が多いので除外）
+  for (const m of s.matchAll(/(\d{4})\s*[\/-]\s*(\d{1,2})\s*[\/-]\s*(\d{1,2})/g)) {
+    push(Number(m[1]), Number(m[2]), Number(m[3]));
+  }
+  for (const m of s.matchAll(/(?<!\d)(\d{1,2})\s*月\s*(\d{1,2})\s*日/g)) {
+    push(Number(refYear.year), Number(m[1]), Number(m[2]));
+  }
+  for (const m of s.matchAll(/(?<!\d)(\d{1,2})\s*\/\s*(\d{1,2})(?!\s*[\/.-]\s*\d)/g)) {
+    push(Number(refYear.year), Number(m[1]), Number(m[2]));
+  }
+  // タイトル用: （11-27） / 11-27（年付き YYYY-MM-DD は上で処理済み）
+  for (const m of s.matchAll(/(?<!\d)(\d{1,2})\s*-\s*(\d{1,2})(?!\d)/g)) {
+    push(Number(refYear.year), Number(m[1]), Number(m[2]));
+  }
+  return out;
+}
+
+function ymdToOrdinal(d) {
+  return d.year * 10000 + d.month * 100 + d.day;
+}
+
+/**
+ * 「今日/明日」質問とお知らせ内の具体日付の整合で加減点
+ * （お知らせ系ページのみ。トップ等の日付ノイズは対象外）
+ * @returns {{ points: number, reason: string|null }}
+ */
+function datedNoticeAdjustment(userMessage, chunk, nowParts) {
+  const msg = String(userMessage || "");
+  if (!/今日|本日|明日|明後日|今週/.test(msg)) {
+    return { points: 0, reason: null };
+  }
+  const pageType = chunk.pageType || classifyPageType(chunk.url);
+  if (pageType !== "news") {
+    return { points: 0, reason: null };
+  }
+  const hay = `${chunk.title || ""}\n${(chunk.h1 || []).join(" ")}\n${chunk.text || ""}`;
+  // 休診・診療系でなければ日付加点しない（教室曜日変更などの誤爆防止）
+  if (!/休診|午後診|午前診|夜診|診療|診察|外来/.test(hay)) {
+    return { points: 0, reason: null };
+  }
+  const dates = extractMentionedDates(hay, nowParts);
+  if (!dates.length) return { points: 0, reason: null };
+
+  const todayO = ymdToOrdinal(nowParts);
+  const tomorrowO = ymdToOrdinal(addTokyoDays(nowParts, 1));
+  const dayAfterO = ymdToOrdinal(addTokyoDays(nowParts, 2));
+
+  let target = null;
+  if (/今日|本日/.test(msg)) target = todayO;
+  else if (/明後日/.test(msg)) target = dayAfterO;
+  else if (/明日/.test(msg)) target = tomorrowO;
+
+  const ords = dates.map(ymdToOrdinal);
+  const maxOrd = Math.max(...ords);
+  const minOrd = Math.min(...ords);
+
+  // 対象日と一致するお知らせは高評価
+  if (target != null && ords.includes(target)) {
+    return { points: 120, reason: `お知らせ日付が質問日と一致(+120)` };
+  }
+  // 今週で、今日以降の日付を含む
+  if (/今週/.test(msg) && maxOrd >= todayO) {
+    return { points: 60, reason: `今週内の未来日付お知らせ(+60)` };
+  }
+  // 過去日付のみ → 「今日/明日」質問では大きく減点
+  if (maxOrd < todayO) {
+    return { points: -200, reason: `過去日付のお知らせ(-200)` };
+  }
+  // 今日/明日質問で、日付はあるが対象外の未来日
+  if (target != null && minOrd > target && minOrd > todayO) {
+    return { points: -40, reason: `対象日以外の未来お知らせ(-40)` };
+  }
+  return { points: 0, reason: null };
 }
 
 export function isGenericKanaiHomeUrl(url) {
@@ -797,10 +995,13 @@ function pageTypeBasePoints(pageType) {
  * 総合スコア（関連度＋種別＋鮮度＋ルート辞書）
  * @returns {{ score: number, reasons: string[] }}
  */
-function scoreChunkForQuery(userMessage, chunk, routeBoostMap) {
-  const msg = String(userMessage || "");
+function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date()) {
+  const originalMsg = String(userMessage || "");
+  const searchMsg = expandQueryForSearch(originalMsg, now);
+  const msg = searchMsg;
   const reasons = [];
   let score = 0;
+  const tokyoNow = getTokyoNowParts(now);
 
   const bareUrl = String(chunk.url || "").split("#")[0];
   const pageType = chunk.pageType || classifyPageType(bareUrl);
@@ -826,7 +1027,7 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap) {
   const hayTitle = `${title}\n${h1}\n${h2}`.toLowerCase();
   const hayBody = body.toLowerCase();
   const tokens = tokenizeUserMessageForScoring(msg);
-  const userLower = msg.toLowerCase();
+  const userLower = originalMsg.toLowerCase();
 
   let rel = 0;
   for (const tok of tokens) {
@@ -862,18 +1063,21 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap) {
 
   // トピックペア（本文中心。ナビ汚染を避けるため body/title のみ）
   const topicPairs = [
-    [/面会/, /面会|#visit|hospitalization/],
-    [/立ち会い/, /立ち会い|#assist_birth|childbirth/],
-    [/里帰り/, /里帰り|#homecoming/],
-    [/インフルエンザ|ワクチン|予防接種/, /ワクチン|インフルエンザ|\/vaccine/],
-    [/子宮頸がん|子宮がん検診/, /子宮頸がん|子宮がん検診|\/gynecology/],
-    [/産後ケア|産後サポート/, /産後ケア|産後サポート|\/aftersupport/],
-    [/休診|診療時間|午後診|午前診/, /休診|診療時間|午前診|午後診|夜診/],
-    [/分娩予約/, /分娩予約|分娩/],
+    [isVisitFocusedMessage, /面会|#visit|hospitalization|お見舞い/],
+    [isAttendFocusedMessage, /立ち会い|立会い|#assist_birth|childbirth/],
+    [(m) => /里帰り/.test(m), /里帰り|#homecoming/],
+    [(m) => /インフルエンザ|ワクチン|予防接種/.test(m), /ワクチン|インフルエンザ|\/vaccine/],
+    [(m) => /子宮頸がん|子宮がん検診/.test(m), /子宮頸がん|子宮がん検診|\/gynecology/],
+    [(m) => /産後ケア|産後サポート/.test(m), /産後ケア|産後サポート|\/aftersupport/],
+    [(m) => /休診|診療時間|午後診|午前診|今日|本日|明日/.test(m), /休診|診療時間|午前診|午後診|夜診/],
+    [(m) => /分娩予約/.test(m), /分娩予約|分娩/],
+    [(m) => /料金|費用|いくらかか|入院費|自己負担/.test(m), /費用|料金|#price_birth|円/],
   ];
   const hayAll = `${hayTitle}\n${hayBody}\n${bareUrl}`;
-  for (const [msgRe, hayRe] of topicPairs) {
-    if (msgRe.test(msg) && hayRe.test(hayAll)) {
+  for (const [msgTest, hayRe] of topicPairs) {
+    const hit =
+      typeof msgTest === "function" ? msgTest(originalMsg) : msgTest.test(originalMsg);
+    if (hit && hayRe.test(hayAll)) {
       rel += 50;
       reasons.push("トピック一致(+50)");
       break;
@@ -900,17 +1104,28 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap) {
     score += 40;
     reasons.push("新しい関連お知らせ(+40)");
   }
-  // 「今日/明日の診療」系は直近の休診お知らせを強く優先
+
+  // お知らせ本文の具体日付と「今日/明日」質問の整合
+  const dateAdj = datedNoticeAdjustment(originalMsg, chunk, tokyoNow);
+  if (dateAdj.reason) {
+    score += dateAdj.points;
+    reasons.push(dateAdj.reason);
+  }
+
+  // 「今日/明日の診療」系は直近の休診お知らせを優先（ただし過去日付は上で減点済み）
   if (
-    /今日|明日|今週|午後は診|午前は診|休診|本日/.test(msg) &&
+    /今日|明日|明後日|今週|午後は診|午前は診|休診|本日/.test(originalMsg) &&
     pageType === "news" &&
-    (/休診/.test(hayBody) || /休診/.test(hayTitle))
+    (/休診/.test(hayBody) || /休診/.test(hayTitle)) &&
+    dateAdj.points >= 0
   ) {
-    score += 160;
-    reasons.push("直近休診お知らせ(+160)");
+    // 対象日一致ならさらに強く、日付なしの新着は控えめ
+    const boost = dateAdj.points > 0 ? 80 : fresh.points >= 70 ? 50 : 10;
+    score += boost;
+    reasons.push(`休診お知らせ加点(+${boost})`);
   }
   // 日付のある臨時質問では、通常の診療時間表だけの固定ページ加点を抑える
-  if (/今日|明日|本日|今週/.test(msg) && pageType === "fixed" && routeBoost > 0) {
+  if (/今日|明日|明後日|本日|今週/.test(originalMsg) && pageType === "fixed" && routeBoost > 0) {
     const cut = Math.floor(routeBoost * 0.55);
     score -= cut;
     reasons.push(`日付特定質問のため固定ルート抑制(-${cut})`);
@@ -928,7 +1143,7 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap) {
     uniqReasons.push(r);
   }
 
-  return { score, reasons: uniqReasons.slice(0, 12) };
+  return { score, reasons: uniqReasons.slice(0, 14) };
 }
 
 function buildRouteBoostMap(userMessage) {
@@ -947,7 +1162,7 @@ function buildRouteBoostMap(userMessage) {
 /**
  * URL段階の事前スコア（本文取得前）
  */
-function scoreUrlEntryForQuery(userMessage, entry, routeBoostMap) {
+function scoreUrlEntryForQuery(userMessage, entry, routeBoostMap, now = new Date()) {
   const stub = {
     url: entry.url,
     title: "",
@@ -957,7 +1172,7 @@ function scoreUrlEntryForQuery(userMessage, entry, routeBoostMap) {
     pageType: entry.pageType || classifyPageType(entry.url),
     lastmod: entry.lastmod,
   };
-  return scoreChunkForQuery(userMessage, stub, routeBoostMap);
+  return scoreChunkForQuery(userMessage, stub, routeBoostMap, now);
 }
 
 async function loadFreshKnowledgeForQuery(
@@ -966,6 +1181,8 @@ async function loadFreshKnowledgeForQuery(
   maxChars = DEFAULT_MAX_CHARS,
   opts = {}
 ) {
+  const now = opts.now instanceof Date ? opts.now : new Date();
+  const searchQuery = expandQueryForSearch(userMessage, now);
   const list = await loadCandidateUrlList(opts);
   const routeBoostMap = buildRouteBoostMap(userMessage);
   const preferred = preferredUrlsForMessage(userMessage).map((u) => u.split("#")[0]);
@@ -992,6 +1209,7 @@ async function loadFreshKnowledgeForQuery(
         scoredCandidates: [],
         fetched: [],
         passedToGpt: [],
+        searchQuery,
         routeMatches: matchSiteRoutes(userMessage).map((r) => r.id),
       },
     };
@@ -999,7 +1217,7 @@ async function loadFreshKnowledgeForQuery(
 
   const preScored = entries
     .map((e) => {
-      const { score, reasons } = scoreUrlEntryForQuery(userMessage, e, routeBoostMap);
+      const { score, reasons } = scoreUrlEntryForQuery(userMessage, e, routeBoostMap, now);
       return { entry: e, score, reasons };
     })
     .sort((a, b) => b.score - a.score);
@@ -1019,10 +1237,10 @@ async function loadFreshKnowledgeForQuery(
     )
   ).filter(Boolean);
 
-  // 本文取得後に再スコア
+  // 本文取得後に再スコア（内部検索クエリ＋元質問の日付整合）
   const rescored = chunks
     .map((c) => {
-      const { score, reasons } = scoreChunkForQuery(userMessage, c, routeBoostMap);
+      const { score, reasons } = scoreChunkForQuery(userMessage, c, routeBoostMap, now);
       return { ...c, score, scoreReasons: reasons };
     })
     .sort((a, b) => (b.score || 0) - (a.score || 0));
@@ -1045,6 +1263,8 @@ async function loadFreshKnowledgeForQuery(
       forceRefresh: Boolean(opts.forceRefresh),
       minSnippetScore: MIN_SNIPPET_SCORE,
       candidateCount: entries.length,
+      searchQuery,
+      tokyoNow: formatJaYmd(getTokyoNowParts(now)),
       routeMatches: matchSiteRoutes(userMessage).map((r) => ({
         id: r.id,
         label: r.label,

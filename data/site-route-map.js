@@ -8,19 +8,66 @@
  * @typedef {{ id: string, label: string, patterns: RegExp[], urls: string[], boost?: number }} SiteRouteRule
  */
 
+/**
+ * 面会・立ち会いなど、表記ゆれ・活用形を吸収する正規化パターン。
+ * ルート辞書と is*Focused 判定の両方から参照する。
+ */
+export const QUERY_NORMALIZERS = {
+  visit: {
+    id: "visit",
+    label: "面会",
+    /**
+     * 会いに来る / お見舞い / 家族は来れますか など
+     * 「夫も一緒に出産」は立ち会い側へ（ここには含めない）
+     */
+    pattern:
+      /面会|お見舞い|見舞いに来|会いに(?:行|来)|(?:家族|夫|旦那|親|父母|母|父|パートナー|主人|赤ちゃん|お子|子供|子ども)[^。\n]{0,16}(?:会える|会えま|会えません|来れる|来れま|来られ|来る|来ます)|入院中に会|(?:赤ちゃん|お子|子供|子ども)に会/,
+  },
+  attend: {
+    id: "attend",
+    label: "立ち会い分娩",
+    pattern:
+      /立ち?会[いえ]|立会い|立ち合い|(?:旦那|夫|パートナー|主人|彼氏)[^。\n]{0,12}一緒[^。\n]{0,12}(?:出産|分娩|お産)|(?:出産|分娩|お産)[^。\n]{0,12}一緒|(?:出産|分娩)に付き添|分娩室に入れ|立ち会(?:える|えます|いできる)/,
+  },
+  fee: {
+    id: "fee",
+    label: "出産費用",
+    pattern:
+      /料金|費用|予納|いくらかか|お金はいくら|自己負担|入院費|分娩費用|出産費用|出産はいくら|費用はいくら/,
+  },
+};
+
+/** @param {string} userMessage */
+export function isAttendFocusedMessage(userMessage) {
+  return QUERY_NORMALIZERS.attend.pattern.test(String(userMessage || "").trim());
+}
+
+/** @param {string} userMessage */
+export function isVisitFocusedMessage(userMessage) {
+  const msg = String(userMessage || "").trim();
+  // 「立ち会えます」等は立ち会い優先（面会の「会える」と混同しない）
+  if (isAttendFocusedMessage(msg)) return false;
+  return QUERY_NORMALIZERS.visit.pattern.test(msg);
+}
+
+/** @param {string} userMessage */
+export function isFeeFocusedMessage(userMessage) {
+  return QUERY_NORMALIZERS.fee.pattern.test(String(userMessage || "").trim());
+}
+
 /** @type {SiteRouteRule[]} */
 export const SITE_ROUTE_MAP = [
   {
     id: "visit",
     label: "面会",
-    patterns: [/面会/],
+    patterns: [QUERY_NORMALIZERS.visit.pattern],
     urls: ["https://kanai.or.jp/obstetrics/hospitalization/#visit"],
     boost: 200,
   },
   {
     id: "attend",
     label: "立ち会い分娩",
-    patterns: [/立ち会い/],
+    patterns: [QUERY_NORMALIZERS.attend.pattern],
     urls: ["https://kanai.or.jp/obstetrics/childbirth/#assist_birth"],
     boost: 200,
   },
@@ -64,7 +111,7 @@ export const SITE_ROUTE_MAP = [
   {
     id: "hours_today",
     label: "本日・直近の診療可否",
-    patterns: [/今日|明日|今週|午後は診|午前は診|本日.*診|休診.*今日|今日.*休診/],
+    patterns: [/今日|本日|明日|明後日|今週|\d{1,2}月\d{1,2}日|午後は診|午前は診|休診.*今日|今日.*休診/],
     // 個別のお知らせ投稿は sitemap+鮮度スコアで拾う（一覧ページは優先しすぎない）
     urls: ["https://kanai.or.jp/beginner/"],
     boost: 80,
@@ -109,10 +156,11 @@ export const SITE_ROUTE_MAP = [
   },
   {
     id: "fee",
-    label: "料金",
-    patterns: [/料金|費用|予納|いくらかか/],
-    urls: ["https://kanai.or.jp/beginner/", "https://kanai.or.jp/obstetrics/childbirth/"],
-    boost: 140,
+    label: "出産費用",
+    patterns: [QUERY_NORMALIZERS.fee.pattern],
+    // 費用表の正式アンカーを最優先（beginner は費用未掲載のため含めない）
+    urls: ["https://kanai.or.jp/obstetrics/childbirth/#price_birth"],
+    boost: 220,
   },
   {
     id: "access",
@@ -137,8 +185,11 @@ export const SITE_ROUTE_MAP = [
 export function matchSiteRoutes(userMessage) {
   const msg = String(userMessage || "");
   if (!msg.trim()) return [];
+  const attendHit = isAttendFocusedMessage(msg);
   const out = [];
   for (const rule of SITE_ROUTE_MAP) {
+    // 立ち会い質問では面会ルートを付けない
+    if (rule.id === "visit" && attendHit) continue;
     for (const re of rule.patterns || []) {
       if (re.test(msg)) {
         out.push({ ...rule, matchedPattern: String(re) });
