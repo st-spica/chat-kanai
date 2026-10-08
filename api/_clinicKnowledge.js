@@ -16,6 +16,8 @@ import {
   isAttendFocusedMessage,
   isBabyIllnessConsultMessage,
   isAbortionQuery,
+  isCelebrationDinnerAllergyQuery,
+  isCelebrationDinnerFoodRequestQuery,
   isChildVaccinationQuery,
   isDailyBabyCareConsultMessage,
   isGenderSelectionQuery,
@@ -105,6 +107,9 @@ export const STRICT_MATCH_INTENTS = new Set([
   "baby_care_consultation",
   "vaccination_availability",
   "service_availability",
+  "meal_customization",
+  "meal_allergy",
+  "childbirth_bonus_dinner",
 ]);
 
 let memoryCache = {
@@ -234,6 +239,13 @@ function inferItemService(id, category, patterns, relatedUrl) {
   }
   if (/gynecology|婦人科/.test(hay)) return "gynecology";
   if (/lesson|教室/.test(hay)) return "prenatal_postnatal_class";
+  if (
+    /celebration_dinner|お祝いディナー|meal_customization|meal_allergy|childbirth_bonus_dinner/.test(
+      hay
+    )
+  ) {
+    return "celebration_dinner";
+  }
   if (/assist_birth|立ち会い|分娩|rsv_bonus|childbirth/.test(hay)) {
     return "delivery";
   }
@@ -270,6 +282,15 @@ function inferItemIntent(id, category, patterns) {
   }
   if (/reception-001|当日予約|reservation_availability/.test(hay)) {
     return "reservation_availability";
+  }
+  if (/meal_allergy|アレルギー/.test(hay) && /ディナー|食事|レストラン/.test(hay)) {
+    return "meal_allergy";
+  }
+  if (
+    /meal_customization|苦手|好き嫌い|メニュー変更|食材変更/.test(hay) &&
+    /ディナー|食事|お祝い/.test(hay)
+  ) {
+    return "meal_customization";
   }
   if (/childbirth_bonus_dinner|お祝いディナー|ディナーご招待/.test(hay)) {
     return "childbirth_bonus_dinner";
@@ -486,7 +507,13 @@ export function detectClinicIntent(userMessage) {
     return "visitation";
   }
 
-  // お祝いディナー（分娩予約特典）
+  // お祝いディナー：アレルギー／食材変更／家族招待を分離
+  if (isCelebrationDinnerAllergyQuery(msg)) {
+    return "meal_allergy";
+  }
+  if (isCelebrationDinnerFoodRequestQuery(msg)) {
+    return "meal_customization";
+  }
   if (
     /お祝いディナー|出産祝いの食事|お祝いの食事/.test(msg) ||
     (/(?:ディナー|食事)/.test(msg) &&
@@ -646,6 +673,49 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["婦人科手術未実施:対象外質問のため除外"],
         rejected: true,
         rejectReason: "gynecologic_surgeryは婦人科手術質問のみ",
+      };
+    }
+  }
+  // お祝いディナー：食材変更／アレルギー／家族招待を相互流用しない
+  if (
+    item.id === "celebration-dinner-food-request" ||
+    itemIntent === "meal_customization"
+  ) {
+    if (!isCelebrationDinnerFoodRequestQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["食材変更:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "meal_customizationは苦手食材・メニュー変更のみ",
+      };
+    }
+  }
+  if (
+    item.id === "celebration-dinner-allergy" ||
+    itemIntent === "meal_allergy"
+  ) {
+    if (!isCelebrationDinnerAllergyQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["アレルギー:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "meal_allergyは食物アレルギー質問のみ",
+      };
+    }
+  }
+  if (
+    item.id === "childbirth_bonus_dinner" ||
+    itemIntent === "childbirth_bonus_dinner"
+  ) {
+    if (
+      isCelebrationDinnerFoodRequestQuery(msg) ||
+      isCelebrationDinnerAllergyQuery(msg)
+    ) {
+      return {
+        score: 0,
+        reasons: ["家族招待:食材変更/アレルギー質問へ流用禁止"],
+        rejected: true,
+        rejectReason: "childbirth_bonus_dinnerは家族招待のみ",
       };
     }
   }
@@ -957,6 +1027,21 @@ export function buildClinicRegisteredKnowledgePrompt(hits) {
           "・「一人で食べるの？」「一人でしか食べられない？」などには、機械的な「はい／いいえ」を付けず、家族1名招待できる事実を直接説明する。",
           "・3名以上など、登録情報を超える追加参加の可否は推測・断定しない。",
           "・『嬉しいですね』『素敵ですね』などの感想は付けない。",
+        ]
+      : []),
+    ...(hits.some((h) => h.item?.intent === "meal_customization")
+      ? [
+          "・お祝いディナーは固定メニュー。苦手な食材・好き嫌いによるメニュー変更は原則不可。",
+          "・可能な範囲での「配慮」にとどめ、変更対応・個別対応を約束しない。",
+          "・「できる限り対応します」「変更できます」「ご安心ください」「ご希望に合わせて」は使わない。",
+          "・公式サイトに無い具体案内（例: 出産後1日目の昼食時に伺う）は追加しない。",
+        ]
+      : []),
+    ...(hits.some((h) => h.item?.intent === "meal_allergy")
+      ? [
+          "・食物アレルギーは好き嫌いと別扱い。安全のため事前にスタッフへ確認を案内する。",
+          "・アレルギー対応が可能とは断定しない。変更・個別対応の約束はしない。",
+          "・「できる限り対応します」「ご安心ください」は使わない。",
         ]
       : []),
     "",

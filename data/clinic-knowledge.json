@@ -128,8 +128,9 @@
     },
     {
       "id": "childbirth_bonus_dinner",
-      "category": "reservation",
+      "category": "分娩予約特典/お祝いディナー",
       "intent": "childbirth_bonus_dinner",
+      "service": "celebration_dinner",
       "questionPatterns": [
         "お祝いディナーは家族と食べられますか",
         "お祝いディナーに家族を呼べますか",
@@ -164,6 +165,56 @@
       "updatedAt": "2026-10-08",
       "enabled": true,
       "relatedSiteUrl": "https://kanai.or.jp/obstetrics/rsv_bonus/"
+    },
+    {
+      "id": "celebration-dinner-food-request",
+      "category": "分娩予約特典/お祝いディナー",
+      "intent": "meal_customization",
+      "service": "celebration_dinner",
+      "questionPatterns": [
+        "お祝いディナーの苦手な食材を抜いてほしい",
+        "お祝いディナーは嫌いな食べ物を変更できますか",
+        "嫌いな食べ物があるのですが変更できますか",
+        "ディナーのメニューを変更できますか",
+        "苦手な食材を使わないでほしい",
+        "お祝いディナーの食材は選べますか",
+        "お祝いディナーのメニューは選べますか",
+        "お祝いディナーはメニューが決まっていますか"
+      ],
+      "keywords": [
+        "お祝いディナー",
+        "苦手な食材",
+        "好き嫌い",
+        "嫌いな食べ物",
+        "メニュー変更",
+        "食材変更"
+      ],
+      "answer": "お祝いディナーはあらかじめメニューが決まっているため、苦手な食材によるメニューの変更は原則として承っておりません。\n\nただし、可能な範囲で配慮いたしますので、気になる食材がございましたらスタッフにお伝えください。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true
+    },
+    {
+      "id": "celebration-dinner-allergy",
+      "category": "分娩予約特典/お祝いディナー",
+      "intent": "meal_allergy",
+      "service": "celebration_dinner",
+      "questionPatterns": [
+        "お祝いディナーでアレルギー対応はできますか",
+        "お祝いディナーの食物アレルギーは大丈夫ですか",
+        "ディナーのアレルギー対応は可能ですか",
+        "アレルギーの食材を避けてもらえますか"
+      ],
+      "keywords": [
+        "お祝いディナー",
+        "アレルギー",
+        "食物アレルギー",
+        "アレルゲン"
+      ],
+      "answer": "食物アレルギーについては安全に関わるため、事前にスタッフへご相談ください。対応の可否についてはお約束できません。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true
     },
     {
       "id": "web_reservation_availability",

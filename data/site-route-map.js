@@ -242,6 +242,37 @@ export function isGynecologicMedicationQuery(userMessage) {
 }
 
 /**
+ * お祝いディナー等の食物アレルギー確認か（好き嫌い・メニュー変更とは別）
+ * @param {string} userMessage
+ */
+export function isCelebrationDinnerAllergyQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg || !/アレルギー/.test(msg)) return false;
+  return /(?:お祝い)?ディナー|お祝いの食事|出産祝いの食事|レストラン|入院食|入院中の食事|お食事/.test(
+    msg
+  );
+}
+
+/**
+ * お祝いディナーの苦手食材・好き嫌い・メニュー変更か（アレルギーは含めない）
+ * @param {string} userMessage
+ */
+export function isCelebrationDinnerFoodRequestQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg || isCelebrationDinnerAllergyQuery(msg)) return false;
+  const foodPref =
+    /苦手な?食材|好き嫌い|嫌いな?(?:食べ物|食材|もの)|苦手な?(?:食べ物|もの)|食材変更|メニュー変更|メニューを?変え|メニューは?選べ|メニューを?選|食材は?選べ|食材を?選|抜いて|使わないで|入れないで/;
+  if (!foodPref.test(msg)) return false;
+  if (/(?:お祝い)?ディナー|お祝いの食事|出産祝いの食事|レストラン/.test(msg)) {
+    return true;
+  }
+  // ディナー未言及でも、好き嫌い・メニュー変更の可否として院内食事の文脈で扱う
+  return /嫌いな食べ物.{0,20}変更|苦手な食材.{0,20}(?:抜|変更|使わ)|メニューを?変更できますか|メニューは選べますか/.test(
+    msg
+  );
+}
+
+/**
  * 産み分け（性別選択）の可否・相談か
  * 「性別はいつ分かる」「エコーで性別を教えて」は含まない
  * @param {string} userMessage
@@ -371,6 +402,15 @@ export function detectClinicService(userMessage) {
   // 婦人科手術（未実施・中絶は別扱い）
   if (isGynecologicSurgeryQuery(msg)) {
     return "gynecologic_surgery";
+  }
+  // お祝いディナー（家族招待・食材変更・アレルギー）
+  if (
+    isCelebrationDinnerAllergyQuery(msg) ||
+    isCelebrationDinnerFoodRequestQuery(msg) ||
+    /お祝いディナー|出産祝いの食事|お祝いの食事/.test(msg) ||
+    (/ディナー/.test(msg) && /(?:家族|夫|旦那|パートナー|招待)/.test(msg))
+  ) {
+    return "celebration_dinner";
   }
   // 日常的な育児相談 → 乳児健診の案内範囲（体調・母親限界は別扱い）
   if (isDailyBabyCareConsultMessage(msg)) {
@@ -613,6 +653,15 @@ export function matchSiteRoutes(userMessage) {
     if (rule.id === "visit" && service === "postpartum_care") continue;
     // お子さまの予防接種は妊婦向けワクチンページを根拠にしない
     if (rule.id === "vaccine" && isChildVaccinationQuery(msg)) continue;
+    // 食材変更・アレルギーは特典ページに対応範囲の記載がないためルート付けしない
+    if (
+      (rule.id === "delivery_reservation_benefits" ||
+        rule.id === "delivery_benefits") &&
+      (isCelebrationDinnerFoodRequestQuery(msg) ||
+        isCelebrationDinnerAllergyQuery(msg))
+    ) {
+      continue;
+    }
     for (const re of rule.patterns || []) {
       if (re.test(msg)) {
         out.push({ ...rule, matchedPattern: String(re) });

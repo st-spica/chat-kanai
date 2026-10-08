@@ -32,6 +32,8 @@ import {
   isDailyBabyCareConsultMessage,
   isDeliveryBenefitsFocusedMessage,
   isAbortionQuery,
+  isCelebrationDinnerAllergyQuery,
+  isCelebrationDinnerFoodRequestQuery,
   isGenderSelectionQuery,
   isGynecologicExamConsultQuery,
   isGynecologicMedicationQuery,
@@ -52,6 +54,12 @@ const CHILD_VACCINATION_NOT_OFFERED_ANSWER =
 
 const GENDER_SELECTION_NOT_OFFERED_ANSWER =
   "申し訳ありませんが、当院では産み分けには対応しておりません。産み分けをご希望の場合は、専門の医療機関へご相談ください。";
+
+const CELEBRATION_DINNER_FOOD_REQUEST_ANSWER =
+  "お祝いディナーはあらかじめメニューが決まっているため、苦手な食材によるメニューの変更は原則として承っておりません。\n\nただし、可能な範囲で配慮いたしますので、気になる食材がございましたらスタッフにお伝えください。";
+
+const CELEBRATION_DINNER_ALLERGY_ANSWER =
+  "食物アレルギーについては安全に関わるため、事前にスタッフへご相談ください。対応の可否についてはお約束できません。";
 
 const GYNECOLOGIC_SURGERY_NOT_OFFERED_ANSWER =
   "申し訳ありませんが、当院では婦人科の手術は行っておりません。診察やお薬による治療については、当院の婦人科でご相談いただけます。";
@@ -2609,6 +2617,124 @@ export default async function handler(req, res) {
       }
     }
 
+    // お祝いディナー：苦手食材・メニュー変更（固定メニュー・変更は原則不可。チップなし）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isCelebrationDinnerFoodRequestQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "celebration-dinner-food-request" ||
+          h.item?.intent === "meal_customization"
+      );
+      const answer =
+        String(ckHit?.item?.answer || "").trim() ||
+        CELEBRATION_DINNER_FOOD_REQUEST_ANSWER;
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: clinicDetectedIntent || "meal_customization",
+          detectedService: clinicDetectedService || "celebration_dinner",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          rejectedKnowledge: clinicRejected,
+          celebrationDinnerFood: { action: "fixed_no_menu_change", chips: [] },
+          note: "食材変更は原則不可。特典ページに対応範囲の記載がないためチップなし",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "meal_customization",
+          service: "celebration_dinner",
+          celebrationDinnerFoodRequest: true,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "meal_customization";
+        payload.detectedService = "celebration_dinner";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // お祝いディナー：食物アレルギー（対応可能と断定しない。チップなし）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isCelebrationDinnerAllergyQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "celebration-dinner-allergy" ||
+          h.item?.intent === "meal_allergy"
+      );
+      const answer =
+        String(ckHit?.item?.answer || "").trim() ||
+        CELEBRATION_DINNER_ALLERGY_ANSWER;
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: clinicDetectedIntent || "meal_allergy",
+          detectedService: clinicDetectedService || "celebration_dinner",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          rejectedKnowledge: clinicRejected,
+          celebrationDinnerAllergy: { action: "fixed_ask_staff", chips: [] },
+          note: "アレルギーは事前確認案内のみ。対応可否は断定しない・チップなし",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "meal_allergy",
+          service: "celebration_dinner",
+          celebrationDinnerAllergy: true,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "meal_allergy";
+        payload.detectedService = "celebration_dinner";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
+    }
+
     // 婦人科手術：未実施（中絶は別登録・変更しない。産科処置には適用しない）
     if (
       !metaChatHit &&
@@ -3213,8 +3339,12 @@ export default async function handler(req, res) {
 
     const tokyoDatetimePrompt = buildTokyoDatetimeSystemPrompt(userMessage);
     const dinnerIntent =
-      clinicDetectedIntent === "childbirth_bonus_dinner" ||
-      clinicKnowledgeHits.some((h) => h.item?.intent === "childbirth_bonus_dinner");
+      !isCelebrationDinnerFoodRequestQuery(userMessage) &&
+      !isCelebrationDinnerAllergyQuery(userMessage) &&
+      (clinicDetectedIntent === "childbirth_bonus_dinner" ||
+        clinicKnowledgeHits.some(
+          (h) => h.item?.intent === "childbirth_bonus_dinner"
+        ));
     const reservationIntentGuard =
       webReserveAvailIntent && (webReserveHasClinic || webReserveHasSite)
         ? [
