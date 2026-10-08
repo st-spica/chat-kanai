@@ -25,6 +25,7 @@ import {
 } from "./_clinicKnowledge.js";
 import {
   detectClinicService,
+  detectInfantAgeMonths,
   detectVaccinationAudience,
   gynecologyPageSupportsQuery,
   isBabyIllnessConsultMessage,
@@ -39,8 +40,11 @@ import {
   isGynecologicMedicationQuery,
   isGynecologicSurgeryQuery,
   isGynecologyTopicMessage,
+  isInfantUrgentSymptomMessage,
   isMotherDistressConsultMessage,
   isVisitationIntentMessage,
+  parseInfantAgeMonths,
+  resolveBabyCareGuidanceRoute,
 } from "../data/site-route-map.js";
 
 const WEB_RESERVATION_NO_INFO_ANSWER =
@@ -93,6 +97,134 @@ function buildCelebrationDinnerFoodRequestAnswer(userMessage, baseAnswer) {
     return `${food}が苦手なのですね。\n\n${body}`;
   }
   return body;
+}
+
+function formatInfantAgeLabel(ageMonths) {
+  const age = Number(ageMonths);
+  if (!Number.isFinite(age)) return "";
+  if (age === 12) return "生後12ヶ月（約1歳）";
+  if (age === 18) return "生後18ヶ月（1歳半）";
+  return `生後${age}ヶ月`;
+}
+
+function babyCareTopicEmpathy(userMessage, safeHistory = []) {
+  const text = recentUserText(userMessage, safeHistory);
+  if (/夜泣き/.test(text)) return "夜泣きについてお悩みなのですね。";
+  if (/睡眠|寝な|寝てくれ|眠れ|寝かし/.test(text)) {
+    return "赤ちゃんの睡眠についてお悩みなのですね。";
+  }
+  if (/授乳|おっぱい|ミルク/.test(text)) {
+    return "授乳についてお悩みなのですね。";
+  }
+  return "育児についてお悩みなのですね。";
+}
+
+function priorAssistantGuidedInfantCheckup(safeHistory) {
+  return (safeHistory || []).some(
+    (h) =>
+      h &&
+      h.role === "assistant" &&
+      /1ヶ月健診|2ヶ月健診/.test(String(h.content || ""))
+  );
+}
+
+function priorUserHadDailyBabyCare(safeHistory) {
+  return (safeHistory || []).some(
+    (h) =>
+      h &&
+      h.role === "user" &&
+      isDailyBabyCareConsultMessage(String(h.content || ""))
+  );
+}
+
+/** 月齢の訂正フォロー（直前が健診案内の育児相談など） */
+function isBabyCareAgeFollowUpMessage(userMessage, safeHistory) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  if (isBabyIllnessConsultMessage(msg) || isMotherDistressConsultMessage(msg)) {
+    return false;
+  }
+  if (isDailyBabyCareConsultMessage(msg)) return false;
+  const age = parseInfantAgeMonths(msg);
+  if (age == null) return false;
+  if (
+    !priorAssistantGuidedInfantCheckup(safeHistory) &&
+    !priorUserHadDailyBabyCare(safeHistory)
+  ) {
+    return false;
+  }
+  // 「もう6ヶ月なんです」など、月齢の補足・訂正
+  return (
+    /もう|なんです|になります|になる|です$|ですが/.test(msg) ||
+    msg.length <= 40
+  );
+}
+
+/**
+ * 日常育児相談の月齢別定型回答
+ * @returns {{ answer: string, route: string, ageMonths: number|null }|null}
+ */
+function buildBabyCareConsultAnswer(userMessage, safeHistory = []) {
+  const context = celebrationDinnerContextText(safeHistory, userMessage);
+  const ageMonths = detectInfantAgeMonths(userMessage, context);
+  const route = resolveBabyCareGuidanceRoute(ageMonths);
+  const empathy = babyCareTopicEmpathy(userMessage, safeHistory);
+  const isCorrection =
+    isBabyCareAgeFollowUpMessage(userMessage, safeHistory) &&
+    priorAssistantGuidedInfantCheckup(safeHistory) &&
+    route === "external";
+
+  if (isCorrection) {
+    const label = formatInfantAgeLabel(ageMonths);
+    return {
+      answer: [
+        "失礼いたしました。",
+        `${label}のお子さまでしたら、お住まいの自治体の保健センターや小児科などにご相談ください。`,
+      ].join("\n"),
+      route: "external_correction",
+      ageMonths,
+    };
+  }
+
+  if (route === "ask_age") {
+    return {
+      answer: [
+        empathy,
+        "ご案内先は月齢によって異なりますので、赤ちゃんは現在、生後何ヶ月でしょうか？",
+      ].join("\n"),
+      route,
+      ageMonths: null,
+    };
+  }
+
+  if (route === "checkup") {
+    let checkupLine =
+      "1ヶ月健診や2ヶ月健診の際に、医師やスタッフへご相談いただけます。";
+    if (ageMonths === 1) {
+      checkupLine =
+        "生後1ヶ月でしたら、1ヶ月健診の際に医師やスタッフへご相談いただけます。";
+    } else if (ageMonths === 2) {
+      // 2ヶ月健診が終わったとは決めつけず、健診時の相談として案内
+      checkupLine =
+        "生後2ヶ月でしたら、2ヶ月健診の際に医師やスタッフへご相談いただけます。";
+    }
+    return {
+      answer: [empathy, checkupLine].join("\n"),
+      route,
+      ageMonths,
+    };
+  }
+
+  // external
+  const label = formatInfantAgeLabel(ageMonths);
+  return {
+    answer: [
+      empathy,
+      `${label}のお子さまについては、お住まいの自治体の保健センターや小児科などでご相談いただけます。`,
+    ].join("\n"),
+    route,
+    ageMonths,
+  };
 }
 
 const GYNECOLOGIC_SURGERY_NOT_OFFERED_ANSWER =
@@ -460,7 +592,7 @@ const SYSTEM = `
 ・医療上の注意喚起・緊急時の案内など安全に必要な情報は省略しない（その場合は文数制限より安全を優先）。
 ・共感は必要なときだけ、相手の言葉に寄せて自然に。毎回の共感は不要。
 ・【お祝いディナーの食材】メニューはあらかじめ決まっている。苦手な食材による変更は原則不可。可能な範囲での配慮にとどめる。「食材を外せます」「ご希望に沿った料理を提供できます」など対応保証は禁止。直前にお祝いディナーの話がある場合、食材の苦手・除外希望はその続きとして理解し、話題の聞き直しはしない。
-・日常的な赤ちゃんの育児相談（夜泣き・睡眠・生活リズム等）では、「いつでも／お気軽にご相談ください」「具体的な状況を教えてください」「当院でサポートします」など、常時相談窓口と誤認される表現は使わない。1ヶ月健診・2ヶ月健診での相談案内を基本とする（体調不良・母親の限界・緊急は除く）。
+・日常的な赤ちゃんの育児相談（夜泣き・睡眠・生活リズム等）では、「いつでも／お気軽にご相談ください」「具体的な状況を教えてください」「当院でサポートします」など、常時相談窓口と誤認される表現は使わない。月齢を認識し、1・2ヶ月健診の対象時期なら健診時相談を案内し、それ以降（目安:生後3ヶ月〜）は自治体の保健センターや小児科などを案内する。過ぎた健診をこれから使える相談先として案内しない。月齢不明で案内先の判断に必要なときだけ簡潔に月齢を確認する（体調不良・母親の限界・緊急は除く）。
 ・【診療サービスの対応可否を推測しない（最重要）】「婦人科だからできるはず」「ワクチンページがあるから子供も接種できるはず」「産婦人科だから小児も診られるはず」「分娩を扱うから分娩スタイルも選べるはず」「関連ページがあるから対応しているはず」「一般的な産婦人科では対応している」などの推測は禁止。「できます／対応しています」と答えるには、対象サービスと対象者が一致する明確な院内情報（院内登録情報または公式サイトの該当記述）が必要。情報が確認できないときは「できる／できない」を断定せず、確認できる情報がない旨を伝え当院へ直接問い合わせるよう案内する。妊婦向けワクチンの記載を、お子さま本人への予防接種の根拠にしない。産み分けは「婦人科でご相談いただけます」と案内しない（未実施の院内情報がある場合はそれに従う）。
 ・【婦人科の手術と診察・処方を区別する】当院では婦人科の手術（子宮筋腫・卵巣のう腫・内膜症・子宮摘出など）は行っていない。手術が必要なら対応医療機関への相談を案内する。一方、診察・診断・お薬の相談は婦人科で受けられる。お薬は診察のうえ医師が必要性を判断し、特定の薬の処方を保証しない。「手術」という語だけで中絶など別サービスの登録情報を流用しない。中絶については既存の院内登録情報に従う（このターンで勝手に未実施へ上書きしない）。産科・分娩の処置には婦人科手術の未実施ルールを当てはめない。
 
@@ -786,16 +918,18 @@ const PROMPT_SHORT_BACKCHANNEL = [
   "・禁止の共感宣言（理解できます・そのお気持ちは理解できます・自然なことです・アドバイス 等）は使わない。",
 ].join("\n");
 
-/** 日常的な育児相談（夜泣き・睡眠等 → 健診時案内） */
+/** 日常的な育児相談（夜泣き・睡眠等 → 月齢に応じた案内） */
 const PROMPT_BABY_CARE_CONSULTATION = [
-  "【このターン：日常的な育児相談（最優先）】",
+  "【このターン：日常的な育児相談（最優先・月齢別）】",
   "ユーザーは赤ちゃんの夜泣き・睡眠・寝かしつけ・生活リズム・授乳など、日常的な育児の悩みを話しています。",
-  "・院内登録情報の方針に従い、1ヶ月健診・2ヶ月健診のときに医師やスタッフへ相談できる旨を案内する。",
-  "・登録文をそのまま貼らず、相手の言葉に寄せた短い共感を先に置く。",
-  "・当院がチャット／電話で常時の育児相談を受け付けているように受け取られる表現は禁止。",
-  "  NG：「いつでもご相談ください」「お気軽にご相談ください」「具体的な状況を教えてください」「当院でサポートいたします」「ぜひご相談ください」",
-  "・良い例の骨格：共感（夜なかなか寝てくれないと、ご自身も休めずお辛いですよね）→健診時相談案内→無理をなさらないで、の一文。",
-  "・診断・睡眠指導の具体的指示はしない。緊急サインがあれば健診案内より救急・受診を優先（このテンプレより緊急判定が上）。",
+  "・月齢を必ず確認する（生後半年=6ヶ月、100日≈3ヶ月、もうすぐ1歳≈12ヶ月、1歳半=18ヶ月など）。",
+  "・生後1〜2ヶ月（2ヶ月健診の終了は決めつけない）: 1ヶ月健診・2ヶ月健診の際に相談できる旨を案内。",
+  "・生後3ヶ月以降: 1・2ヶ月健診は案内しない。自治体の保健センターや小児科などを案内。",
+  "・月齢不明で案内先判断に必要なら「赤ちゃんは現在、生後何ヶ月でしょうか？」と簡潔に確認。決めつけて健診案内しない。",
+  "・直前で健診を案内したあとに、より大きい月齢の訂正があったら「失礼いたしました」と訂正し、適切な相談先へ切り替える。",
+  "・登録文をそのまま貼らず、相手の言葉に寄せた短い共感を先に置く。必要な情報で終える。励ましの締めは付けない。",
+  "・当院がチャット／電話で常時の育児相談窓口である表現は禁止。",
+  "・診断・睡眠指導の具体的指示はしない。緊急・体調不良は健診案内より救急・受診を優先。",
 ].join("\n");
 
 /** 赤ちゃんの体調相談（健診待ち禁止） */
@@ -1081,7 +1215,10 @@ function detectEmergency(text) {
     "胎動が少ない", "胎動ない", "胎動減少",
     "失神", "耐えられない痛み"
   ];
-  return keywords.some(k => t.includes(k.toLowerCase()));
+  if (keywords.some((k) => t.includes(k.toLowerCase()))) return true;
+  // 乳児の呼吸苦・重篤サインは緊急優先
+  if (isInfantUrgentSymptomMessage(text)) return true;
+  return false;
 }
 
 /**
@@ -2226,6 +2363,11 @@ function stripServiceGushPhrases(text) {
     /[^。\n]*お役に立てれば幸いです[。．]?/g,
     /[^。\n]*少しでもお役に立てれば[^。\n]*[。．]?/g,
     /[^。\n]*楽しみですね[。．]?/g,
+    /[^。\n]*しっかり相談できると(?:良い|いい)ですね[。．]?/g,
+    /[^。\n]*安心できると(?:良い|いい)ですね[。．]?/g,
+    /[^。\n]*無理をなさらずお過ごしください[。．]?/g,
+    /[^。\n]*健やかな成長を願っています[。．]?/g,
+    /[^。\n]*無理をなさず[^。\n]*[。．]?/g,
   ];
   for (const re of patterns) {
     s = s.replace(re, "");
@@ -2787,6 +2929,68 @@ export default async function handler(req, res) {
         payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(payload);
+    }
+
+    // 日常育児相談：月齢に応じて健診／保健センター・小児科へ（過ぎた健診は案内しない）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      !isBabyIllnessConsultMessage(userMessage) &&
+      !isMotherDistressConsultMessage(userMessage) &&
+      !isChildVaccinationQuery(userMessage) &&
+      (isDailyBabyCareConsultMessage(userMessage) ||
+        isBabyCareAgeFollowUpMessage(userMessage, safeHistory))
+    ) {
+      const built = buildBabyCareConsultAnswer(userMessage, safeHistory);
+      const answer = stripServiceGushPhrases(String(built?.answer || "").trim());
+      if (answer) {
+        if (includeDebug) {
+          siteKnowledgeDebug = {
+            ...(siteKnowledgeDebug || {}),
+            detectedIntent: "baby_care_consultation",
+            detectedService: clinicDetectedService || "infant_checkup",
+            infantAgeMonths: built.ageMonths,
+            babyCareRoute: built.route,
+            matchedClinicKnowledge: clinicKnowledgeHits
+              .filter((h) => h.item?.intent === "baby_care_consultation")
+              .map((h) => ({
+                id: h.item.id,
+                intent: h.item.intent,
+                service: h.item.service,
+                score: h.score,
+              })),
+            rejectedKnowledge: clinicRejected,
+            note: "育児相談は月齢別案内。励まし締めなし",
+          };
+        }
+        await appendChatLog({
+          message: userMessage,
+          answer,
+          clientId,
+          meta: {
+            intent: "baby_care_consultation",
+            service: "infant_checkup",
+            infantAgeMonths: built.ageMonths,
+            babyCareRoute: built.route,
+          },
+        });
+        const payload = {
+          answer,
+          emergency: false,
+          referencedPages: [],
+        };
+        if (includeDebug) {
+          payload.debug = siteKnowledgeDebug;
+          payload.detectedIntent = "baby_care_consultation";
+          payload.detectedService = "infant_checkup";
+          payload.infantAgeMonths = built.ageMonths;
+          payload.babyCareRoute = built.route;
+          payload.matchedClinicKnowledge =
+            payload.debug.matchedClinicKnowledge;
+          payload.rejectedKnowledge = clinicRejected;
+        }
+        return res.status(200).json(payload);
+      }
     }
 
     // 婦人科手術：未実施（中絶は別登録・変更しない。産科処置には適用しない）

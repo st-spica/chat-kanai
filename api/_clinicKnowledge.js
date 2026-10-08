@@ -20,6 +20,7 @@ import {
   isCelebrationDinnerFoodRequestQuery,
   isChildVaccinationQuery,
   isDailyBabyCareConsultMessage,
+  detectInfantAgeMonths,
   isGenderSelectionQuery,
   isGynecologicExamConsultQuery,
   isGynecologicMedicationQuery,
@@ -29,6 +30,7 @@ import {
   isPhotoRecordingFocusedMessage,
   isVisitFocusedMessage,
   isVisitationIntentMessage,
+  resolveBabyCareGuidanceRoute,
   QUERY_NORMALIZERS,
 } from "../data/site-route-map.js";
 
@@ -773,6 +775,31 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         rejectReason: "日常育児相談ではない",
       };
     }
+    // 過ぎた健診案内の流用禁止（生後3ヶ月以降は保健センター等へ）
+    const ageMonths = detectInfantAgeMonths(msg);
+    const route = resolveBabyCareGuidanceRoute(ageMonths);
+    const answerMentionsCheckup = /1ヶ月健診|2ヶ月健診/.test(
+      String(item.answer || "")
+    );
+    if (answerMentionsCheckup && route === "external") {
+      return {
+        score: 0,
+        reasons: ["育児相談:月齢が健診案内対象外"],
+        rejected: true,
+        rejectReason: "3ヶ月以降に1・2ヶ月健診案内を使わない",
+      };
+    }
+    if (
+      item.id === "baby-care-consultation-external" &&
+      route !== "external"
+    ) {
+      return {
+        score: 0,
+        reasons: ["外部相談先:健診対象月齢のため除外"],
+        rejected: true,
+        rejectReason: "baby-care-externalは3ヶ月以降のみ",
+      };
+    }
   }
 
   let score = 0;
@@ -1017,7 +1044,8 @@ export function buildClinicRegisteredKnowledgePrompt(hits) {
     "・回答内に「院内登録情報」「FAQ」などの内部用語は出さないでください。",
     ...(hasBabyCare
       ? [
-          "・育児相談の登録情報は、そのまま一文で貼り付けず、相手の言葉に寄せた短い共感のあとに健診時相談へ自然につなげてください。",
+          "・育児相談は月齢で案内先を変える。1〜2ヶ月は健診時相談、3ヶ月以降は保健センター・小児科。過ぎた健診を案内しない。",
+          "・登録文をそのまま貼らず、短い共感のあとに案内する。励ましの締めは付けない。",
           "・「いつでも／お気軽にご相談ください」「具体的な状況を教えてください」「当院でサポートします」は使わないでください。",
         ]
       : []),

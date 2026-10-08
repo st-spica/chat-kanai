@@ -160,7 +160,106 @@ export function isPhotoRecordingFocusedMessage(userMessage) {
 
 /** 赤ちゃん・乳児への言及か */
 function mentionsInfant(msg) {
-  return /赤ちゃん|新生児|乳児|生後|子ども|子供|お子さん/.test(msg);
+  return /赤ちゃん|新生児|乳児|生後|子ども|子供|お子さん|お子さま|お子様/.test(msg);
+}
+
+const KANJI_MONTH = {
+  一: 1,
+  二: 2,
+  三: 3,
+  四: 4,
+  五: 5,
+  六: 6,
+  七: 7,
+  八: 8,
+  九: 9,
+  十: 10,
+};
+
+/**
+ * 文言から赤ちゃんの月齢（ヶ月）を推定する。不明なら null。
+ * 生後半年→6、生後100日→約3、もうすぐ1歳→約12、1歳半→18 など。
+ * @param {string} text
+ * @returns {number|null}
+ */
+export function parseInfantAgeMonths(text) {
+  const t = String(text || "");
+  if (!t.trim()) return null;
+
+  if (/1歳半|一歳半/.test(t)) return 18;
+  if (/(?:もうすぐ|まもなく|もうすぐで)\s*1歳|1歳手前/.test(t)) return 12;
+
+  const ageYears = t.match(/(?:^|[^0-9])(\d{1,2})\s*歳(?!半)/);
+  if (ageYears) {
+    const y = parseInt(ageYears[1], 10);
+    if (y >= 0 && y <= 5) return y * 12;
+  }
+  if (/一歳(?!半)/.test(t)) return 12;
+
+  if (
+    /生後\s*半年|半年になる|半年です|半年なん|半年の赤ちゃん|赤ちゃん.{0,8}半年/.test(t)
+  ) {
+    return 6;
+  }
+
+  const monthNum = t.match(
+    /(?:生後\s*)?(\d{1,2})\s*(?:か|カ|ヶ|箇)?\s*月/
+  );
+  if (monthNum) {
+    const m = parseInt(monthNum[1], 10);
+    if (m >= 0 && m <= 60) return m;
+  }
+
+  const monthKanji = t.match(
+    /(?:生後\s*)?([一二三四五六七八九十])\s*(?:か|カ|ヶ|箇)?\s*月/
+  );
+  if (monthKanji && KANJI_MONTH[monthKanji[1]] != null) {
+    return KANJI_MONTH[monthKanji[1]];
+  }
+
+  const days = t.match(/生後\s*(\d{1,3})\s*日/);
+  if (days) {
+    const d = parseInt(days[1], 10);
+    if (d >= 0 && d <= 800) return Math.max(0, Math.round(d / 30));
+  }
+
+  const mou = t.match(/もう\s*(\d{1,2})\s*(?:か|カ|ヶ|箇)?\s*月/);
+  if (mou) {
+    const m = parseInt(mou[1], 10);
+    if (m >= 0 && m <= 60) return m;
+  }
+
+  return null;
+}
+
+/**
+ * 現在メッセージを優先し、なければ文脈から月齢を取る。
+ * @param {string} userMessage
+ * @param {string} [contextText]
+ * @returns {number|null}
+ */
+export function detectInfantAgeMonths(userMessage, contextText = "") {
+  const fromMsg = parseInfantAgeMonths(userMessage);
+  if (fromMsg != null) return fromMsg;
+  return parseInfantAgeMonths(contextText);
+}
+
+/**
+ * 日常育児相談の案内先
+ * - checkup: 1・2ヶ月健診時の相談（生後2ヶ月は健診済みと決めつけない）
+ * - external: 保健センター・小児科など
+ * - ask_age: 月齢確認が必要
+ * @param {number|null|undefined} ageMonths
+ * @returns {"checkup"|"external"|"ask_age"}
+ */
+export function resolveBabyCareGuidanceRoute(ageMonths) {
+  if (ageMonths == null || !Number.isFinite(Number(ageMonths))) {
+    return "ask_age";
+  }
+  const age = Number(ageMonths);
+  // 生後2ヶ月までは健診対象時期として案内（終了済みとは断定しない）
+  if (age <= 2) return "checkup";
+  return "external";
 }
 
 const CHILD_AUDIENCE_RE =
@@ -356,7 +455,19 @@ export function isGenderSelectionQuery(userMessage) {
 export function isBabyIllnessConsultMessage(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg || !mentionsInfant(msg)) return false;
-  return /熱|発熱|ひきつけ|けいれん|痙攣|吐[いたく]|嘔吐|下痢|血便|発疹|黄疸|呼吸|ミルクを飲まない|母乳を飲まない|顔色が悪|元気がない|ぐったり|泣き止まない.*熱|水分が取れ/.test(
+  return /熱|発熱|ひきつけ|けいれん|痙攣|吐[いたく]|嘔吐|下痢|血便|発疹|黄疸|呼吸|息苦|息が苦|ミルクを飲まない|母乳を飲まない|顔色が悪|元気がない|ぐったり|泣き止まない.*熱|水分が取れ/.test(
+    msg
+  );
+}
+
+/**
+ * 乳児の緊急性が高い呼吸・意識などの訴えか
+ * @param {string} userMessage
+ */
+export function isInfantUrgentSymptomMessage(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg || !mentionsInfant(msg)) return false;
+  return /息苦|息が苦|呼吸しづら|呼吸困難|呼吸が速|顔色が悪|ぐったり|けいれん|痙攣|ひきつけ|意識/.test(
     msg
   );
 }
