@@ -104,6 +104,11 @@ import {
   isLaborHospitalContactQuery,
   laborContactContextText,
 } from "../data/labor-contact.js";
+import {
+  answerMatchesIntent,
+  clinicKnowledgeIdForIntent,
+  resolveConversationTopic,
+} from "../data/conversation-topic.js";
 
 const WEB_RESERVATION_NO_INFO_ANSWER =
   "WEB予約について確認できる情報がありません。お手数ですが、当院へお電話でお問い合わせください。";
@@ -3116,9 +3121,47 @@ export default async function handler(req, res) {
 
     const safeHistory = sanitizeHistory(history);
     const includeDebugEarly = shouldIncludeSiteKnowledgeDebug(req);
+    // 最新メッセージ優先で話題を解決（履歴で別意図を上書きしない）
+    const topicResolution = resolveConversationTopic(
+      userMessage,
+      safeHistory
+    );
+    const allowStructuredIntent = (intentName) => {
+      if (!topicResolution?.detectedIntent) return true;
+      return topicResolution.detectedIntent === intentName;
+    };
+    const attachTopicDebug = (payload, intentName) => {
+      if (!payload || typeof payload !== "object") return payload;
+      payload.latestUserMessage = topicResolution?.latestUserMessage || userMessage;
+      payload.previousIntent = topicResolution?.previousIntent ?? null;
+      payload.isTopicChange = Boolean(topicResolution?.isTopicChange);
+      if (intentName) payload.detectedIntent = intentName;
+      const ckId = clinicKnowledgeIdForIntent(intentName || topicResolution?.detectedIntent);
+      if (ckId && !payload.matchedClinicKnowledge) {
+        payload.matchedClinicKnowledge = [
+          { id: ckId, intent: intentName, score: 100 },
+        ];
+      }
+      if (payload.debug && typeof payload.debug === "object") {
+        payload.debug.latestUserMessage = payload.latestUserMessage;
+        payload.debug.previousIntent = payload.previousIntent;
+        payload.debug.isTopicChange = payload.isTopicChange;
+        payload.debug.continuingUrgent = Boolean(
+          topicResolution?.continuingUrgent
+        );
+      }
+      return payload;
+    };
+    const passesIntentConsistency = (answer, intentName) =>
+      answerMatchesIntent(
+        answer,
+        intentName || topicResolution?.detectedIntent,
+        userMessage
+      );
 
     // 骨盤位文脈の緊急症状は、通常のさかご説明より受診・連絡を優先
     if (
+      allowStructuredIntent("breech_presentation_consultation") &&
       isBreechPresentationQuery(
         userMessage,
         breechContextText(safeHistory, userMessage)
@@ -3128,7 +3171,13 @@ export default async function handler(req, res) {
         userMessage,
         safeHistory
       );
-      if (breechUrgent?.medicalSafetyLevel === "urgent") {
+      if (
+        breechUrgent?.medicalSafetyLevel === "urgent" &&
+        passesIntentConsistency(
+          breechUrgent.answer,
+          "breech_presentation_consultation"
+        )
+      ) {
         const answer = stripServiceGushPhrases(
           String(breechUrgent.answer || "").trim()
         );
@@ -3172,12 +3221,15 @@ export default async function handler(req, res) {
             note: "骨盤位文脈の緊急症状。受診・連絡を優先",
           };
         }
-        return res.status(200).json(payload);
+        return res
+          .status(200)
+          .json(attachTopicDebug(payload, "breech_presentation_consultation"));
       }
     }
 
     // 体重管理文脈の緊急症状（頭痛・視覚異常など）は生活アドバイスより受診優先
     if (
+      allowStructuredIntent("pregnancy_weight_management") &&
       isPregnancyWeightQuery(
         userMessage,
         pregnancyWeightContextText(safeHistory, userMessage)
@@ -3187,7 +3239,13 @@ export default async function handler(req, res) {
         userMessage,
         safeHistory
       );
-      if (weightUrgent?.medicalSafetyLevel === "urgent") {
+      if (
+        weightUrgent?.medicalSafetyLevel === "urgent" &&
+        passesIntentConsistency(
+          weightUrgent.answer,
+          "pregnancy_weight_management"
+        )
+      ) {
         const answer = stripServiceGushPhrases(
           String(weightUrgent.answer || "").trim()
         );
@@ -3234,24 +3292,29 @@ export default async function handler(req, res) {
             note: "体重管理文脈の緊急症状。受診・連絡を優先",
           };
         }
-        return res.status(200).json(payload);
+        return res
+          .status(200)
+          .json(attachTopicDebug(payload, "pregnancy_weight_management"));
       }
     }
 
     // 陣痛・破水・出血・胎動減少は一般説明より病院連絡を優先
     if (
-      isLaborHospitalContactQuery(
+      allowStructuredIntent("labor_hospital_contact") &&
+      (isLaborHospitalContactQuery(
         userMessage,
         laborContactContextText(safeHistory, userMessage)
-      )
+      ) ||
+        topicResolution?.continuingUrgent)
     ) {
       const laborBuilt = buildLaborHospitalContactAnswer(
         userMessage,
         safeHistory
       );
       if (
-        laborBuilt?.medicalSafetyLevel === "urgent" ||
-        laborBuilt?.medicalSafetyLevel === "contact_now"
+        (laborBuilt?.medicalSafetyLevel === "urgent" ||
+          laborBuilt?.medicalSafetyLevel === "contact_now") &&
+        passesIntentConsistency(laborBuilt.answer, "labor_hospital_contact")
       ) {
         const answer = stripServiceGushPhrases(
           String(laborBuilt.answer || "").trim()
@@ -3297,7 +3360,9 @@ export default async function handler(req, res) {
             note: "陣痛連絡。破水・出血・胎動・閾値到達は連絡優先",
           };
         }
-        return res.status(200).json(payload);
+        return res
+          .status(200)
+          .json(attachTopicDebug(payload, "labor_hospital_contact"));
       }
     }
 
@@ -3654,6 +3719,7 @@ export default async function handler(req, res) {
     if (
       !metaChatHit &&
       !casualGreetingOnly &&
+      allowStructuredIntent("breech_presentation_consultation") &&
       isBreechPresentationQuery(
         userMessage,
         breechContextText(safeHistory, userMessage)
@@ -3669,6 +3735,10 @@ export default async function handler(req, res) {
         String(built?.answer || "").trim() ||
           String(ckHit?.item?.answer || "").trim()
       );
+      if (
+        answer &&
+        passesIntentConsistency(answer, "breech_presentation_consultation")
+      ) {
       const safety = built?.medicalSafetyLevel || "information";
       const isUrgent = safety === "urgent";
       const gestationalWeek =
@@ -3727,17 +3797,22 @@ export default async function handler(req, res) {
         payload.medicalSafetyLevel = safety;
         payload.rejectedKnowledge = clinicRejected;
       }
-      return res.status(200).json(payload);
+      return res
+        .status(200)
+        .json(attachTopicDebug(payload, "breech_presentation_consultation"));
+      }
     }
 
     // 陣痛の病院連絡タイミング（初産10分／経産15分。緊急は連絡優先）
     if (
       !metaChatHit &&
       !casualGreetingOnly &&
-      isLaborHospitalContactQuery(
+      allowStructuredIntent("labor_hospital_contact") &&
+      (isLaborHospitalContactQuery(
         userMessage,
         laborContactContextText(safeHistory, userMessage)
-      )
+      ) ||
+        topicResolution?.continuingUrgent)
     ) {
       const ckHit = clinicKnowledgeHits.find(
         (h) =>
@@ -3749,6 +3824,7 @@ export default async function handler(req, res) {
         String(built?.answer || "").trim() ||
           String(ckHit?.item?.answer || "").trim()
       );
+      if (answer && passesIntentConsistency(answer, "labor_hospital_contact")) {
       const safety = built?.medicalSafetyLevel || "information";
       const isUrgent = safety === "urgent";
       const parity = built?.parity ?? null;
@@ -3811,13 +3887,17 @@ export default async function handler(req, res) {
         payload.medicalSafetyLevel = safety;
         payload.rejectedKnowledge = clinicRejected;
       }
-      return res.status(200).json(payload);
+      return res
+        .status(200)
+        .json(attachTopicDebug(payload, "labor_hospital_contact"));
+      }
     }
 
     // 妊娠中の体重管理（BMI別目安。個別減量目標・責める表現は禁止）
     if (
       !metaChatHit &&
       !casualGreetingOnly &&
+      allowStructuredIntent("pregnancy_weight_management") &&
       isPregnancyWeightQuery(
         userMessage,
         pregnancyWeightContextText(safeHistory, userMessage)
@@ -3833,6 +3913,10 @@ export default async function handler(req, res) {
         String(built?.answer || "").trim() ||
           String(ckHit?.item?.answer || "").trim()
       );
+      if (
+        answer &&
+        passesIntentConsistency(answer, "pregnancy_weight_management")
+      ) {
       const safety = built?.medicalSafetyLevel || "information";
       const isUrgent = safety === "urgent";
       const prePregnancyBMI =
@@ -3896,7 +3980,10 @@ export default async function handler(req, res) {
         payload.medicalSafetyLevel = safety;
         payload.rejectedKnowledge = clinicRejected;
       }
-      return res.status(200).json(payload);
+      return res
+        .status(200)
+        .json(attachTopicDebug(payload, "pregnancy_weight_management"));
+      }
     }
 
     // 葉酸サプリ（服薬一般・授乳中と分離）
@@ -4077,6 +4164,7 @@ export default async function handler(req, res) {
     if (
       !metaChatHit &&
       !casualGreetingOnly &&
+      allowStructuredIntent("morning_sickness_consultation") &&
       isMorningSicknessQuery(
         userMessage,
         celebrationDinnerContextText(safeHistory, userMessage)

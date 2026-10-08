@@ -25,12 +25,21 @@ export function mentionsBreechTopic(text) {
 export function isBreechPresentationQuery(userMessage, contextText = "") {
   const msg = String(userMessage || "").trim();
   if (!msg) return false;
+  // 明確な別話題は履歴があっても骨盤位にしない
+  if (
+    (/体重|太り|BMI|ダイエット|何\s*(?:kg|キロ)|陣痛|予約金|分娩費用|キッズルーム|つわり/.test(
+      msg
+    ) &&
+      !mentionsBreechTopic(msg))
+  ) {
+    return false;
+  }
   if (mentionsBreechTopic(msg)) return true;
   const ctx = String(contextText || "");
   if (!mentionsBreechTopic(ctx)) return false;
   // 直前が骨盤位相談で、週数・帝王切開時期・体操などだけ続く
   return (
-    /(?:妊娠)?\d{1,2}\s*週|何週|体操|外回転|帝王切開|自然分娩|普通分娩|治ら|不安|破水|出血|腹痛|胎動|張り/.test(
+    /(?:妊娠)?\d{1,2}\s*週|何週|体操|外回転|帝王切開|自然分娩|普通分娩|治ら/.test(
       msg
     ) && msg.length <= 40
   );
@@ -67,6 +76,16 @@ export function breechContextText(safeHistory, userMessage = "") {
   return parts.join("\n").slice(-4000);
 }
 
+/** ユーザー発話のみ（AI回答の週数目安を患者状態と誤認しない） */
+export function breechUserTurnsText(safeHistory, userMessage = "") {
+  const parts = [];
+  for (const h of safeHistory || []) {
+    if (h?.role === "user") parts.push(String(h.content || ""));
+  }
+  if (userMessage) parts.push(String(userMessage));
+  return parts.join("\n").slice(-4000);
+}
+
 /**
  * @param {string} msg
  */
@@ -85,10 +104,13 @@ function isUrgentBreechRelated(msg) {
 export function buildBreechPresentationAnswer(userMessage, safeHistory = []) {
   const msg = String(userMessage || "").trim();
   const ctx = breechContextText(safeHistory, userMessage);
-  if (!isBreechPresentationQuery(msg, ctx)) return null;
+  const userCtx = breechUserTurnsText(safeHistory, userMessage);
+  if (!isBreechPresentationQuery(msg, ctx) && !isBreechPresentationQuery(msg, userCtx)) {
+    return null;
+  }
 
   const week =
-    parseGestationalWeek(msg) ?? parseGestationalWeek(ctx) ?? null;
+    parseGestationalWeek(msg) ?? parseGestationalWeek(userCtx) ?? null;
 
   // 緊急症状（骨盤位文脈でも通常説明より優先）
   if (isUrgentBreechRelated(msg)) {

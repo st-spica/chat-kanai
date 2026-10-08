@@ -43,6 +43,13 @@ export function isPregnancyWeightQuery(userMessage, contextText = "") {
   if (/つわり|悪阻/.test(msg) && !/ダイエット|BMI|何(?:kg|キロ)|増えすぎ|太りすぎ/.test(msg)) {
     return false;
   }
+  // 陣痛・逆子など明確な別話題は履歴があっても体重にしない
+  if (
+    (/陣痛|破水|さかご|逆子|骨盤位|予約金|キッズルーム/.test(msg) &&
+      !mentionsPregnancyWeightTopic(msg))
+  ) {
+    return false;
+  }
 
   if (mentionsPregnancyWeightTopic(msg)) {
     // 妊娠・マタニティ文脈、または体重増加目安の明示
@@ -79,6 +86,16 @@ export function pregnancyWeightContextText(safeHistory, userMessage = "") {
     }
   }
   parts.push(String(userMessage || ""));
+  return parts.join("\n").slice(-4000);
+}
+
+/** ユーザー発話のみ */
+export function pregnancyWeightUserTurnsText(safeHistory, userMessage = "") {
+  const parts = [];
+  for (const h of safeHistory || []) {
+    if (h?.role === "user") parts.push(String(h.content || ""));
+  }
+  if (userMessage) parts.push(String(userMessage));
   return parts.join("\n").slice(-4000);
 }
 
@@ -326,8 +343,9 @@ export function buildPregnancyWeightAnswer(userMessage, safeHistory = []) {
   const ctx = pregnancyWeightContextText(safeHistory, userMessage);
   if (!isPregnancyWeightQuery(msg, ctx)) return null;
 
+  const userCtx = pregnancyWeightUserTurnsText(safeHistory, userMessage);
   let bmi = parsePrePregnancyBMI(msg);
-  if (bmi == null && mentionsPregnancyWeightTopic(ctx)) {
+  if (bmi == null && mentionsPregnancyWeightTopic(userCtx)) {
     const short = msg.match(
       /^\s*(?:BMI\s*)?(\d{1,2}(?:\.\d+)?)\s*(?:です|でした|だよ|だね)?\s*$/i
     );
@@ -336,8 +354,8 @@ export function buildPregnancyWeightAnswer(userMessage, safeHistory = []) {
       if (Number.isFinite(v) && v >= 12 && v <= 45) bmi = Math.round(v * 10) / 10;
     }
   }
-  if (bmi == null && mentionsPregnancyWeightTopic(ctx)) {
-    bmi = parsePrePregnancyBMI(ctx);
+  if (bmi == null && mentionsPregnancyWeightTopic(userCtx)) {
+    bmi = parsePrePregnancyBMI(userCtx);
   }
 
   // 緊急症状（体重文脈でも受診優先）

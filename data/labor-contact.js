@@ -49,6 +49,19 @@ export function mentionsLaborContactTopic(text) {
 }
 
 /**
+ * 明確な別話題（体重・逆子・費用など）なら陣痛扱いにしない
+ * @param {string} msg
+ */
+function isClearOtherTopicMessage(msg) {
+  return (
+    (/体重|太り|太っ|BMI|ダイエット|何\s*(?:kg|キロ)|増えすぎ|セーフ/.test(msg) &&
+      !/陣痛|破水/.test(msg)) ||
+    (/さかご|逆子|骨盤位|外回転/.test(msg) && !/陣痛/.test(msg)) ||
+    /キッズルーム|予約金|分娩費用|入院費|つわり|悪阻|葉酸/.test(msg)
+  );
+}
+
+/**
  * @param {string} userMessage
  * @param {string} [contextText]
  */
@@ -58,19 +71,24 @@ export function isLaborHospitalContactQuery(userMessage, contextText = "") {
 
   // 骨盤位文脈の破水等は breech 側へ
   if (/さかご|逆子|骨盤位|外回転/.test(msg)) return false;
-  // 体重文脈の頭痛等は weight 側へ
-  if (/体重|BMI|ダイエット/.test(msg) && !/陣痛|破水/.test(msg)) return false;
+  // 体重など明確な別話題は履歴があっても陣痛にしない
+  if (isClearOtherTopicMessage(msg)) return false;
 
   if (mentionsLaborContactTopic(msg)) return true;
 
   const ctx = String(contextText || "");
   if (!mentionsLaborContactTopic(ctx)) return false;
 
-  // 直前が陣痛相談で、初産/経産・間隔だけ続く
+  // 直前が陣痛相談で、初産/経産・間隔・恐れの短い続きのみ
+  // ※ msg.length だけで広く拾わない（話題変更の誤検知防止）
   return (
-    (/初産|経産|初めて|2人目|3人目|一人目|ふたりめ|\d+\s*分|間隔|規則|不規則/.test(msg) ||
-      msg.length <= 30) &&
-    msg.length <= 40
+    (/初産|経産|初めての(?:ご)?出産|2人目|3人目|一人目|ふたりめ|\d+\s*分\s*(?:間隔|おき)|間隔です|規則的|不規則/.test(
+      msg
+    ) ||
+      /怖い|不安|行けない|行きたくない|迷って|どうしよう|でも.{0,8}(?:病院|行く|連絡)/.test(
+        msg
+      )) &&
+    msg.length <= 60
   );
 }
 
@@ -86,6 +104,20 @@ export function laborContactContextText(safeHistory, userMessage = "") {
     }
   }
   parts.push(String(userMessage || ""));
+  return parts.join("\n").slice(-4000);
+}
+
+/**
+ * ユーザー発話のみ（アシスタントの「初産婦は10分間隔」等を状態と誤認しない）
+ * @param {Array<{role?:string,content?:string}>} safeHistory
+ * @param {string} userMessage
+ */
+export function laborUserTurnsText(safeHistory, userMessage = "") {
+  const parts = [];
+  for (const h of safeHistory || []) {
+    if (h?.role === "user") parts.push(String(h.content || ""));
+  }
+  if (userMessage) parts.push(String(userMessage));
   return parts.join("\n").slice(-4000);
 }
 
@@ -226,11 +258,60 @@ function callNowAnswer(leadLines, parity, interval, level = /** @type {LaborSafe
 export function buildLaborHospitalContactAnswer(userMessage, safeHistory = []) {
   const msg = String(userMessage || "").trim();
   const ctx = laborContactContextText(safeHistory, userMessage);
-  if (!isLaborHospitalContactQuery(msg, ctx)) return null;
+  const userCtx = laborUserTurnsText(safeHistory, userMessage);
+  if (!isLaborHospitalContactQuery(msg, ctx) && !isLaborHospitalContactQuery(msg, userCtx)) {
+    // 緊急継続（直前ユーザーが破水等）は履歴参照で通す
+    const priorUsers = laborUserTurnsText(safeHistory, "");
+    if (
+      !(
+        /怖い|不安|行けない|でも.{0,8}病院/.test(msg) &&
+        /破水|出血が多|胎動が(?:少|ない|減)/.test(priorUsers)
+      )
+    ) {
+      return null;
+    }
+  }
 
-  const parity = parseParity(msg) ?? parseParity(ctx);
+  // 初産/間隔はユーザー発話からのみ（AI目安文の「10分間隔」を患者状態としない）
+  const parity = parseParity(msg) ?? parseParity(userCtx);
   const interval =
-    parseContractionInterval(msg) ?? parseContractionInterval(ctx);
+    parseContractionInterval(msg) ?? parseContractionInterval(userCtx);
+
+  // 直前の破水等が続き、恐れ・迷いだけの発言 → 連絡優先を維持
+  if (
+    !hasRupture(msg) &&
+    !hasHeavyBleeding(msg) &&
+    !hasDecreasedFetalMovement(msg) &&
+    /怖い|不安|行けない|行きたくない|迷って|どうしよう|でも.{0,8}(?:病院|行く|連絡)/.test(
+      msg
+    ) &&
+    /破水|出血が多|胎動が(?:少|ない|減)/.test(userCtx)
+  ) {
+    if (/破水/.test(userCtx)) {
+      return {
+        answer: [
+          "破水の疑いがある状況は続いているため、不安でも病院へのご連絡を優先してください。",
+          "陣痛がなくても、すぐに当院へお電話ください。",
+          "清潔なナプキンを当て、入浴やビデの使用は控えてください。",
+          "",
+          `当院：${CLINIC_PHONE}`,
+        ].join("\n"),
+        intent: "labor_hospital_contact",
+        parity,
+        contractionInterval: interval,
+        medicalSafetyLevel: "urgent",
+      };
+    }
+    return callNowAnswer(
+      [
+        "先ほどお伝えいただいた症状は、まだ確認が必要な可能性があります。",
+        "不安なときでも、チャットを続けず当院へお電話ください。",
+      ],
+      parity,
+      interval,
+      "urgent"
+    );
+  }
 
   // 生命危険 → 119
   if (isLifeThreatening(msg)) {

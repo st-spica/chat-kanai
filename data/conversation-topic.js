@@ -1,0 +1,395 @@
+/**
+ * 会話の話題解決：最新メッセージ優先・話題変更検出・緊急継続
+ *
+ * 履歴は同一話題のフォローアップ補助にのみ使い、
+ * 別意図の最新質問を過去知識で上書きしない。
+ */
+
+import {
+  isBreechPresentationQuery,
+  mentionsBreechTopic,
+} from "./pregnancy-breech.js";
+import {
+  isPregnancyWeightQuery,
+  mentionsPregnancyWeightTopic,
+} from "./pregnancy-weight.js";
+import {
+  isLaborHospitalContactQuery,
+  mentionsLaborContactTopic,
+} from "./labor-contact.js";
+import { isMorningSicknessQuery } from "./morning-sickness.js";
+import {
+  isPregnancyFolicAcidQuery,
+  isPregnancyMedicationQuery,
+  isBreastfeedingMedicationQuery,
+} from "./pregnancy-medication.js";
+import {
+  detectBirthPricingIntent,
+  isBirthPricingQuery,
+} from "./birth-pricing.js";
+import { isKidsRoomQuery } from "./site-route-map.js";
+
+/** @typedef {string|null} TopicIntent */
+
+/**
+ * @param {Array<{role?:string,content?:string}>} safeHistory
+ * @returns {string|null}
+ */
+export function getLastUserMessage(safeHistory) {
+  const list = Array.isArray(safeHistory) ? safeHistory : [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i]?.role === "user" && String(list[i].content || "").trim()) {
+      return String(list[i].content).trim();
+    }
+  }
+  return null;
+}
+
+/**
+ * ユーザー発話のみ連結（アシスタントの目安文から数値を拾わない）
+ * @param {Array<{role?:string,content?:string}>} safeHistory
+ * @param {string} [userMessage]
+ */
+export function userTurnsText(safeHistory, userMessage = "") {
+  const parts = [];
+  for (const h of safeHistory || []) {
+    if (h?.role === "user") parts.push(String(h.content || ""));
+  }
+  if (userMessage) parts.push(String(userMessage));
+  return parts.join("\n").slice(-4000);
+}
+
+/**
+ * 最新メッセージ単体で成立する意図（履歴なし）
+ * @param {string} userMessage
+ * @returns {TopicIntent}
+ */
+export function detectStandaloneIntent(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return null;
+
+  // 明示参照は最優先
+  if (/さっきの.{0,12}(?:逆子|さかご|骨盤位)|(?:逆子|さかご).{0,8}話/.test(msg)) {
+    return "breech_presentation_consultation";
+  }
+  if (/さっきの.{0,12}(?:体重|BMI)|(?:体重|BMI).{0,8}話/.test(msg)) {
+    return "pregnancy_weight_management";
+  }
+  if (/さっきの.{0,12}陣痛|陣痛.{0,8}話/.test(msg)) {
+    return "labor_hospital_contact";
+  }
+
+  // キッズルーム等の施設（産科緊急と混同しにくい）
+  if (isKidsRoomQuery(msg)) return "kids_room";
+
+  // 分娩費用
+  if (isBirthPricingQuery(msg)) {
+    return detectBirthPricingIntent(msg) || "birth_pricing_overview";
+  }
+
+  // 骨盤位キーワードが最新文にある
+  if (mentionsBreechTopic(msg)) return "breech_presentation_consultation";
+
+  // 体重（太り・何キロ等）。陣痛・破水が同居する場合は産科緊急優先
+  if (
+    mentionsPregnancyWeightTopic(msg) &&
+    isPregnancyWeightQuery(msg, "") &&
+    !/陣痛|破水/.test(msg)
+  ) {
+    return "pregnancy_weight_management";
+  }
+
+  // 陣痛・破水・胎動・出血など（最新文にトピックがある場合のみ）
+  if (mentionsLaborContactTopic(msg) && isLaborHospitalContactQuery(msg, "")) {
+    return "labor_hospital_contact";
+  }
+
+  // つわり
+  if (isMorningSicknessQuery(msg, "")) return "morning_sickness_consultation";
+
+  // 葉酸 / 服薬
+  if (isPregnancyFolicAcidQuery(msg)) return "pregnancy_folic_acid";
+  if (isBreastfeedingMedicationQuery(msg)) {
+    return "breastfeeding_medication_consultation";
+  }
+  if (isPregnancyMedicationQuery(msg, "")) {
+    return "pregnancy_medication_consultation";
+  }
+
+  return null;
+}
+
+/**
+ * @param {string} msg
+ * @param {TopicIntent} previousIntent
+ */
+export function isFollowUpForIntent(msg, previousIntent) {
+  const m = String(msg || "").trim();
+  if (!m || !previousIntent) return false;
+
+  if (previousIntent === "pregnancy_weight_management") {
+    return (
+      (/^\s*(?:BMI\s*)?\d{1,2}(?:\.\d+)?\s*(?:です|でした)?\s*$/i.test(m) ||
+        /BMI|身長|妊娠前|普通体重|低体重|肥満/.test(m) ||
+        /(?:kg|キロ|ｃｍ|cm)/i.test(m)) &&
+      m.length <= 50 &&
+      !mentionsLaborContactTopic(m) &&
+      !mentionsBreechTopic(m)
+    );
+  }
+
+  if (previousIntent === "breech_presentation_consultation") {
+    return (
+      /(?:妊娠)?\d{1,2}\s*週|何週|体操|外回転|帝王切開|自然分娩|治ら/.test(m) &&
+      m.length <= 50 &&
+      !mentionsPregnancyWeightTopic(m) &&
+      !isBirthPricingQuery(m) &&
+      !isKidsRoomQuery(m)
+    );
+  }
+
+  if (previousIntent === "labor_hospital_contact") {
+    return (
+      (/初産|経産|初めて|2人目|3人目|一人目|\d+\s*分\s*(?:間隔|おき)|間隔です/.test(
+        m
+      ) ||
+        isHesitationOrFearMessage(m)) &&
+      m.length <= 60 &&
+      !mentionsPregnancyWeightTopic(m) &&
+      !mentionsBreechTopic(m) &&
+      !isKidsRoomQuery(m) &&
+      !isBirthPricingQuery(m)
+    );
+  }
+
+  if (previousIntent === "morning_sickness_consultation") {
+    return (
+      /(?:水|水分|飲め|食べ|吐|におい|便秘|休め|いつまで)/.test(m) &&
+      m.length <= 50 &&
+      !isBirthPricingQuery(m)
+    );
+  }
+
+  return false;
+}
+
+/**
+ * @param {string} msg
+ */
+export function isHesitationOrFearMessage(msg) {
+  return /怖い|不安|行けない|行きたくない|迷って|どうしよう|でも.{0,8}(?:病院|行く|連絡)/.test(
+    String(msg || "")
+  );
+}
+
+/**
+ * 直前ユーザー発話が緊急産科症状か
+ * @param {string} text
+ */
+export function isObstetricUrgentUserText(text) {
+  const t = String(text || "");
+  return (
+    /破水|胎動が(?:少|ない|減)|胎動減少|大量出血|出血が多|生理以上|意識がもうろう|呼吸困難/.test(
+      t
+    )
+  );
+}
+
+/**
+ * @param {string} userMessage
+ * @param {Array<{role?:string,content?:string}>} safeHistory
+ */
+export function isContinuingUrgentContext(userMessage, safeHistory) {
+  const msg = String(userMessage || "").trim();
+  const lastUser = getLastUserMessage(safeHistory);
+  if (!lastUser || !isObstetricUrgentUserText(lastUser)) return false;
+  // 新しい明確な別話題なら継続しない
+  const standalone = detectStandaloneIntent(msg);
+  if (
+    standalone &&
+    standalone !== "labor_hospital_contact" &&
+    standalone !== "breech_presentation_consultation"
+  ) {
+    return false;
+  }
+  // 恐れ・迷い・短い確認は緊急継続
+  if (isHesitationOrFearMessage(msg)) return true;
+  if (msg.length <= 25 && !detectStandaloneIntent(msg)) return true;
+  return false;
+}
+
+/**
+ * @param {string} userMessage
+ * @param {Array<{role?:string,content?:string}>} safeHistory
+ */
+export function resolveConversationTopic(userMessage, safeHistory = []) {
+  const msg = String(userMessage || "").trim();
+  const previousUser = getLastUserMessage(safeHistory);
+  const previousIntent = previousUser
+    ? detectStandaloneIntent(previousUser)
+    : null;
+
+  // 緊急症状の継続（破水のあと「怖い」など）
+  if (isContinuingUrgentContext(msg, safeHistory)) {
+    const urgentIntent = previousIntent || "labor_hospital_contact";
+    return {
+      latestUserMessage: msg,
+      previousIntent,
+      detectedIntent: urgentIntent,
+      isTopicChange: false,
+      continuingUrgent: true,
+      useHistory: true,
+    };
+  }
+
+  // 最新メッセージ単体の意図を最優先
+  const standalone = detectStandaloneIntent(msg);
+  if (standalone) {
+    return {
+      latestUserMessage: msg,
+      previousIntent,
+      detectedIntent: standalone,
+      isTopicChange: Boolean(
+        previousIntent && previousIntent !== standalone
+      ),
+      continuingUrgent: false,
+      useHistory: previousIntent === standalone,
+    };
+  }
+
+  // 同一話題のフォローアップ
+  if (previousIntent && isFollowUpForIntent(msg, previousIntent)) {
+    return {
+      latestUserMessage: msg,
+      previousIntent,
+      detectedIntent: previousIntent,
+      isTopicChange: false,
+      continuingUrgent: false,
+      useHistory: true,
+    };
+  }
+
+  // モジュール側の文脈フォロー（厳格化した各 is*Query に委譲）
+  if (isBreechPresentationQuery(msg, userTurnsText(safeHistory, msg))) {
+    return {
+      latestUserMessage: msg,
+      previousIntent,
+      detectedIntent: "breech_presentation_consultation",
+      isTopicChange: previousIntent !== "breech_presentation_consultation",
+      continuingUrgent: false,
+      useHistory: true,
+    };
+  }
+  if (isPregnancyWeightQuery(msg, userTurnsText(safeHistory, msg))) {
+    return {
+      latestUserMessage: msg,
+      previousIntent,
+      detectedIntent: "pregnancy_weight_management",
+      isTopicChange: previousIntent !== "pregnancy_weight_management",
+      continuingUrgent: false,
+      useHistory: true,
+    };
+  }
+  if (isLaborHospitalContactQuery(msg, userTurnsText(safeHistory, msg))) {
+    return {
+      latestUserMessage: msg,
+      previousIntent,
+      detectedIntent: "labor_hospital_contact",
+      isTopicChange: previousIntent !== "labor_hospital_contact",
+      continuingUrgent: false,
+      useHistory: true,
+    };
+  }
+
+  return {
+    latestUserMessage: msg,
+    previousIntent,
+    detectedIntent: null,
+    isTopicChange: Boolean(previousIntent),
+    continuingUrgent: false,
+    useHistory: false,
+  };
+}
+
+/**
+ * 回答が意図と明らかに食い違う場合 false
+ * @param {string} answer
+ * @param {TopicIntent} intent
+ * @param {string} userMessage
+ */
+export function answerMatchesIntent(answer, intent, userMessage) {
+  const a = String(answer || "");
+  const msg = String(userMessage || "");
+  if (!intent || !a) return true;
+
+  // 緊急案内は削除しない
+  if (
+    /すぐに(?:当院へ)?お電話|今すぐお電話|119|破水したかもしれない/.test(a) &&
+    /破水|出血|胎動|意識|息苦/.test(msg + a)
+  ) {
+    return true;
+  }
+
+  if (intent === "pregnancy_weight_management") {
+    if (
+      /陣痛が\d+分間隔|連絡の目安に達して|初産婦は10分|経産婦は15分/.test(a) &&
+      !/体重|BMI|キロ|太/.test(a)
+    ) {
+      return false;
+    }
+  }
+
+  if (intent === "labor_hospital_contact") {
+    if (
+      /体重増加の目安|BMI18\.5|ダイエット|マタニティヨーガ/.test(a) &&
+      !/陣痛|破水|連絡|入院/.test(a)
+    ) {
+      return false;
+    }
+  }
+
+  if (intent === "breech_presentation_consultation") {
+    if (
+      /陣痛が\d+分間隔|体重増加の目安|分娩予約金/.test(a) &&
+      !/さかご|逆子|骨盤位|外回転/.test(a)
+    ) {
+      return false;
+    }
+  }
+
+  if (
+    intent === "birth_reservation_deposit" ||
+    intent === "birth_pricing_overview" ||
+    String(intent).startsWith("birth_")
+  ) {
+    if (/陣痛が\d+分|さかご|つわりが辛い/.test(a) && !/予約金|費用|円/.test(a)) {
+      return false;
+    }
+  }
+
+  if (intent === "kids_room") {
+    if (/陣痛|体重増加|さかご|つわり/.test(a) && !/キッズ|お子さま|お子様/.test(a)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * clinic-knowledge id の目安
+ * @param {TopicIntent} intent
+ */
+export function clinicKnowledgeIdForIntent(intent) {
+  const map = {
+    labor_hospital_contact: "labor-hospital-contact-timing",
+    pregnancy_weight_management: "pregnancy-weight-gain",
+    breech_presentation_consultation: "pregnancy-breech-presentation",
+    morning_sickness_consultation: "pregnancy-morning-sickness",
+    pregnancy_medication_consultation: "pregnancy-medication-consultation",
+    pregnancy_folic_acid: "pregnancy-folic-acid",
+    birth_reservation_deposit: "birth-reservation-deposit",
+    kids_room: null,
+  };
+  return map[intent] ?? null;
+}
