@@ -27,6 +27,7 @@ import {
   detectBirthPricingIntent,
   isBirthPricingQuery,
 } from "./birth-pricing.js";
+import { isHomecomingDeliveryQuery } from "./homecoming-delivery.js";
 import { isKidsRoomQuery } from "./site-route-map.js";
 
 /** @typedef {string|null} TopicIntent */
@@ -81,6 +82,9 @@ export function detectStandaloneIntent(userMessage) {
 
   // キッズルーム等の施設（産科緊急と混同しにくい）
   if (isKidsRoomQuery(msg)) return "kids_room";
+
+  // 里帰り出産（妊婦健診一般・分娩予約一般より先）
+  if (isHomecomingDeliveryQuery(msg)) return "homecoming_delivery";
 
   // 分娩費用
   if (isBirthPricingQuery(msg)) {
@@ -388,6 +392,7 @@ export function clinicKnowledgeIdForIntent(intent) {
     morning_sickness_consultation: "pregnancy-morning-sickness",
     pregnancy_medication_consultation: "pregnancy-medication-consultation",
     pregnancy_folic_acid: "pregnancy-folic-acid",
+    homecoming_delivery: "obstetrics-homecoming-delivery",
     birth_reservation_deposit: "birth-reservation-deposit",
     kids_room: null,
   };

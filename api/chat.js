@@ -109,6 +109,11 @@ import {
   clinicKnowledgeIdForIntent,
   resolveConversationTopic,
 } from "../data/conversation-topic.js";
+import {
+  buildHomecomingDeliveryAnswer,
+  HOMECOMING_REF_PAGE,
+  isHomecomingDeliveryQuery,
+} from "../data/homecoming-delivery.js";
 
 const WEB_RESERVATION_NO_INFO_ANSWER =
   "WEB予約について確認できる情報がありません。お手数ですが、当院へお電話でお問い合わせください。";
@@ -4357,6 +4362,88 @@ export default async function handler(req, res) {
         payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(payload);
+    }
+
+    // 里帰り出産（33週6日・紹介状・分娩予約。リンクは #homecoming を維持）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      allowStructuredIntent("homecoming_delivery") &&
+      isHomecomingDeliveryQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "obstetrics-homecoming-delivery" ||
+          h.item?.intent === "homecoming_delivery"
+      );
+      const built = buildHomecomingDeliveryAnswer(userMessage);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      const referencedPages = built?.referencedPages?.length
+        ? built.referencedPages
+        : [HOMECOMING_REF_PAGE];
+      // 表示URLの #homecoming を落とさない
+      const pages = referencedPages.map((p) => ({
+        url: String(p.url || HOMECOMING_REF_PAGE.url),
+        title: String(p.title || HOMECOMING_REF_PAGE.title),
+      }));
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "homecoming_delivery",
+          detectedService: "obstetrics",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "obstetrics-homecoming-delivery",
+                  intent: "homecoming_delivery",
+                  service: "obstetrics",
+                  score: 100,
+                },
+              ],
+          matchedSiteUrl: HOMECOMING_REF_PAGE.url,
+          referenceChips: pages,
+          rejectedKnowledge: clinicRejected,
+          note: "里帰り出産は checkup/#homecoming。妊婦健診先頭URLに置換しない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "homecoming_delivery",
+          service: "obstetrics",
+          homecoming: true,
+          matchedSiteUrl: HOMECOMING_REF_PAGE.url,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: pages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "homecoming_delivery";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = HOMECOMING_REF_PAGE.url;
+        payload.referenceChips = pages;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res
+        .status(200)
+        .json(attachTopicDebug(payload, "homecoming_delivery"));
     }
 
     // 分娩料金（予約金・予納金・入院費・割引）：確定データから生成（推測禁止）

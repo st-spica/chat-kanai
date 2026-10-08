@@ -1290,6 +1290,45 @@
       "priority": 200,
       "updatedAt": "2026-10-08",
       "enabled": true
+    },
+    {
+      "id": "obstetrics-homecoming-delivery",
+      "category": "出産/里帰り出産",
+      "intent": "homecoming_delivery",
+      "service": "obstetrics",
+      "target": "pregnant_patient",
+      "availability": "information",
+      "questionPatterns": [
+        "里帰り出産はいつまでに受診すればいいですか",
+        "里帰り出産は何週までですか",
+        "里帰り出産の予約方法は？",
+        "里帰り出産に紹介状は必要ですか",
+        "里帰り分娩の手続きについて教えて",
+        "里帰り出産の手続きは家族でもできますか"
+      ],
+      "keywords": [
+        "里帰り",
+        "里帰り出産",
+        "里帰り分娩",
+        "33週6日",
+        "紹介状",
+        "分娩予約"
+      ],
+      "summary": "里帰り出産をご希望の場合は、妊娠33週6日までに紹介状を持参して当院を受診してください。事前の分娩予約（本人または家族が来院）と、初回受診時の電話予約が必要です。",
+      "answer": "里帰り出産をご希望の場合は、妊娠33週6日までに紹介状を持参して当院を受診してください。事前に分娩予約のお手続きも必要です。初回受診の際は、診察時間内にお電話で診察予約をお取りください。詳細は確定データ（data/homecoming-delivery.js）に基づき案内します。",
+      "careSource": "data/homecoming-delivery.js",
+      "officialUrl": "https://kanai.or.jp/obstetrics/checkup/#homecoming",
+      "clinicInformation": {
+        "firstVisitDeadline": "妊娠33週6日まで",
+        "referralLetterRequired": true,
+        "deliveryReservationRequired": true,
+        "deliveryReservationBy": "本人または家族が来院して手続き",
+        "firstVisitPhoneReservationRequired": true,
+        "description": "里帰り出産の初回受診は妊娠33週6日まで。紹介状持参。事前の分娩予約が必要。初回受診は電話で診察予約。"
+      },
+      "priority": 200,
+      "updatedAt": "2026-10-08",
+      "enabled": true
     }
   ]
 }

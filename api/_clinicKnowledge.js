@@ -62,6 +62,7 @@ import {
 import { isBreechPresentationQuery } from "../data/pregnancy-breech.js";
 import { isPregnancyWeightQuery } from "../data/pregnancy-weight.js";
 import { isLaborHospitalContactQuery } from "../data/labor-contact.js";
+import { isHomecomingDeliveryQuery } from "../data/homecoming-delivery.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -162,6 +163,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "breech_presentation_consultation",
   "pregnancy_weight_management",
   "labor_hospital_contact",
+  "homecoming_delivery",
   "birth_reservation_deposit",
   "birth_advance_payment",
   "birth_hospitalization_cost",
@@ -591,6 +593,11 @@ export function detectClinicIntent(userMessage) {
     return "labor_hospital_contact";
   }
 
+  // 里帰り出産（妊婦健診一般と混同しない）
+  if (isHomecomingDeliveryQuery(msg)) {
+    return "homecoming_delivery";
+  }
+
   // 葉酸 / 妊娠中の服薬 / 授乳中の服薬（混同禁止）
   if (isPregnancyFolicAcidQuery(msg)) {
     return "pregnancy_folic_acid";
@@ -953,6 +960,20 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["陣痛連絡:対象外質問のため除外"],
         rejected: true,
         rejectReason: "labor_hospital_contactは陣痛・破水・出血・胎動関連のみ",
+      };
+    }
+  }
+  // 里帰り出産は対象外に流用しない
+  if (
+    item.id === "obstetrics-homecoming-delivery" ||
+    itemIntent === "homecoming_delivery"
+  ) {
+    if (!isHomecomingDeliveryQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["里帰り出産:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "homecoming_deliveryは里帰り出産関連のみ",
       };
     }
   }

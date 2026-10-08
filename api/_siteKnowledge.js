@@ -2001,6 +2001,9 @@ export function labelForKnowledgeChunk(c) {
   if (/#price_birth/i.test(url)) {
     return "分娩料金について";
   }
+  if (/#homecoming/i.test(url)) {
+    return "里帰り出産について";
+  }
   if (/#doctor_schedule/i.test(url)) {
     return "診療体制表はこちら";
   }

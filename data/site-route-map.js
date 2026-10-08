@@ -1060,9 +1060,10 @@ export const SITE_ROUTE_MAP = [
   {
     id: "homecoming",
     label: "里帰り出産",
-    patterns: [/里帰り/],
-    urls: ["https://kanai.or.jp/obstetrics/childbirth/#homecoming"],
-    boost: 200,
+    patterns: [/里帰り|里帰り出産|里帰り分娩/],
+    // 公式アンカーは checkup ページ。#homecoming を削除・置換しない
+    urls: ["https://kanai.or.jp/obstetrics/checkup/#homecoming"],
+    boost: 280,
   },
   {
     id: "vaccine",
@@ -1280,6 +1281,10 @@ export function matchSiteRoutes(userMessage) {
     // 分娩入院の持ち物は #hos_bring 専用。一般入院・産後ケアルートを付けない
     if (isHospitalBagQuery(msg)) {
       if (rule.id === "hospitalization" || rule.id === "aftercare") continue;
+    }
+    // 里帰り出産は checkup/#homecoming 専用。妊婦健診先頭・分娩予約一般に置換しない
+    if (/里帰り/.test(msg)) {
+      if (rule.id === "checkup" || rule.id === "delivery_booking") continue;
     }
     if (rule.id === "hospital_bag" && isNonChildbirthBelongingsQuery(msg)) {
       continue;
