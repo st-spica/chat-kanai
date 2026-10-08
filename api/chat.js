@@ -11,6 +11,7 @@ import {
   filterPagesBySitemap,
   rewriteLegacyKanaiUrl,
   sourcePagesFromChunks,
+  peekSiteKnowledgeStatus,
 } from "./_siteKnowledge.js";
 
 /** 参照チップは最大1件 */
@@ -171,11 +172,15 @@ const SYSTEM = `
 - 相談に答えるような、寄り添った文章で話す。
 - 危険サインが疑われる場合は、一般説明を最小限にして「至急受診／救急」誘導を最優先する。
 - 個人情報（氏名、住所、電話番号、保険番号など）を求めない。入力されたら控えるよう促す。
-- 院内情報は、別メッセージで与えられる**当院公式サイトのページ本文の抜粋（URL付き）**に基づいて回答し、根拠がないことは断言しない。
-- ユーザーの質問は短い1文が多い。サイト抜粋が渡されているときは、その内容を最優先で使い、一般論で薄めない。
+- 【院内固有情報と一般相談の分離（最重要）】
+  - **当院固有の情報**（診療時間・休診・予約方法・分娩予約・面会・立ち会い・入院・費用・医師・ワクチン・教室・設備・当院独自のサービス／ルール など）は、このターンで渡される**公式サイト抜粋に根拠がある場合のみ**答える。
+  - 抜粋に根拠がない当院固有の質問では、GPT自身の一般知識・推測・「一般的な産婦人科では」「通常は」などの補完は**禁止**。確認できない旨を伝え、当院への電話相談へ案内する。
+  - **一般的な妊娠・出産・症状の相談**（例：つわり、むくみ、不安の整理）は、診断・処方をせず、既存の安全ルールに従って案内してよい（当院固有の制度・時間・可否の断定はしない）。
+- ユーザーの質問は短い1文が多い。当院固有の話題でサイト抜粋が渡されているときは、その内容を最優先で使い、一般論で薄めない・上書きしない。
+- 抜粋に「更新:」やページ種別が付いている場合、**新しい関連情報**（特に休診などのお知らせ）を、古い一般案内より優先して解釈する。
 - 【お礼→謝罪は例外のみ】「お問い合わせありがとうございます。大変申し訳ございませんが、…」は、(A) 当院へのクレーム・不満、または (B) 実施していない／お客様の要望に応えられない内容（例：無痛分娩、日曜診療、乳がん検診）のときだけ使う。分娩予約・利用できる制度・診療時間・料金などの通常の案内では謝罪文を書かない（お礼だけ、またはいきなり案内してよい）。「利用可能です」「できます」など案内できる内容の前に謝罪を置かない。
 - サイト抜粋で「実施していない／行っていない／休診」と分かる内容を聞かれたときだけ、冒頭を「お問い合わせありがとうございます。大変申し訳ございませんが、◯◯は実施しておりません。」にする。曖昧にしない。
-- 公式サイトの抜粋に明確な情報がないテーマについては、情報がないと断定せず、「当院サイトに記載がないため、詳細は電話で相談してほしい」ことを丁寧に伝える（必要に応じて一般的な背景説明を短く添える程度にとどめる）。
+- 当院固有テーマで公式サイト抜粋に根拠がない場合は、「正確な情報を確認できないため、お手数ですが当院へお電話でお問い合わせください。」と案内する（一般論で埋めない）。
 - 回答内では「院内サイト抜粋」「KNOWLEDGE」などの内部用語は一切出さない。
 - 回答内で「チャットボット」「AI」などと自称しない。必要な場合も「相談窓口としてご案内します」と表現する。
 - 相手が感情を示したときは短く受け止め、不安を言語化・整理する手助けをする。推測で感情を代弁しない。次の行動を「患者主体」で返す。
@@ -380,10 +385,20 @@ script, style, iframe, onclick、data-*、id は使わない。
 カード内の a.chat-pill 等で当院ページへ誘導してよい。**本文末に URL の箇条書きは書かない**（チップに任せる）。
 
 【院内情報（システム専用。ユーザー向けの回答テキストには、この名称を出さない）】
-このあと別の system メッセージとして与えられる「当院公式サイトのページ本文の抜粋（URL付き）」を主な根拠として回答を作成すること。短い質問でも、抜粋にあればその内容を核にして簡潔に伝える。抜粋にないことは推測で断言しない。
+このあと別の system メッセージとして「当院公式サイトのページ本文の抜粋（URL・更新日付き）」が渡される場合がある。
+- **当院固有の事実**は、その抜粋に書かれている内容だけを根拠にする。抜粋が無い／該当記述が無いときは推測せず、電話問い合わせを案内する。
+- 抜粋があるときは短い質問でもその内容を核にして簡潔に伝える。一般論で薄めない。
 - ユーザー発話に「面会」が含まれるときは、そのターンの抜粋は**面会ページ（${MEETING_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
 - ユーザー発話に「立ち会い」が含まれるときは、そのターンの抜粋は**立ち会い分娩ページ（${ATTEND_INFO_PAGE_URL}）の内容のみ**である。他の院内ページの情報や推測を混ぜない。
 `.trim();
+
+const PROMPT_NO_CLINIC_EVIDENCE = [
+  "【このターン：当院固有情報の根拠なし（最優先）】",
+  "ユーザーの質問は当院の制度・時間・予約・サービス等の固有情報に関するものですが、今回は公式サイト抜粋から十分な根拠を取得できませんでした。",
+  "・一般知識や推測で診療時間・休診・予約可否・料金・面会・ワクチン等を答えない。",
+  "・「一般的な産婦人科では」「通常は」などの補完も禁止。",
+  "・丁寧に、正確な情報を確認できないため当院へお電話でお問い合わせほしい旨を案内する。",
+].join("\n");
 
 /** このターンだけリッチHTMLを強く指示（モデルがプレーン文に逃げるのを防ぐ） */
 const RICH_HTML_THIS_TURN = [
@@ -633,11 +648,35 @@ function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
     /教室|産前教室|産後|面会|立ち会い分娩|立ち会い|入院|個室|レストラン/i,
     /母乳ケア|妊婦健診|乳児健診|健診枠|検診|スケジュール|時間割|枠|空き状況/,
     /里帰り|分娩|出産|産科|婦人科|産後ケア/,
+    /ワクチン|インフルエンザ|予防接種|アブリスボ|RSウイルス/,
     /オンライン診療|オンライン|遠隔診療|テレビ電話/i,
     /電話|番号|06[-‐]?6931/i,
+    /今日|明日|午後は診|午前は診/,
   ];
 
   return triggers.some((re) => re.test(text));
+}
+
+/** 当院固有事実が必要な質問か（根拠なし時は一般知識で埋めない） */
+function isClinicSpecificFactualQuery(userMessage, safeHistory) {
+  return shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory);
+}
+
+/** 開発用: URL一覧キャッシュ無視（患者向けUIからは使わない） */
+function shouldForceSiteKnowledgeRefresh(req) {
+  const token = String(process.env.SITE_KNOWLEDGE_REFRESH_TOKEN || "").trim();
+  if (!token) return false;
+  const header = String(req.headers["x-site-knowledge-refresh"] || "").trim();
+  return header.length > 0 && header === token;
+}
+
+function shouldIncludeSiteKnowledgeDebug(req) {
+  const debugOn = ["1", "true", "yes"].includes(
+    String(process.env.SITE_KNOWLEDGE_DEBUG || "").toLowerCase().trim()
+  );
+  if (!debugOn) return false;
+  // シークレット一致時のみレスポンスに載せる（患者画面に出さない）
+  return shouldForceSiteKnowledgeRefresh(req) || isValidChatApiSecret(req);
 }
 
 /**
@@ -1490,7 +1529,8 @@ async function pipeOpenAIStreamNdjson(
   userMessage,
   referencedPages,
   safeHistory = [],
-  clientId = "anonymous"
+  clientId = "anonymous",
+  siteKnowledgeDebug = null
 ) {
   let fullAnswer = "";
   let finishReason = null;
@@ -1545,6 +1585,9 @@ async function pipeOpenAIStreamNdjson(
   if (referencedPages && referencedPages.length > 0) {
     writeNdjsonLine(res, { type: "references", pages: referencedPages });
   }
+  if (siteKnowledgeDebug) {
+    writeNdjsonLine(res, { type: "siteKnowledgeDebug", debug: siteKnowledgeDebug });
+  }
   writeNdjsonLine(res, { type: "done", text: trimmed });
   return trimmed;
 }
@@ -1578,7 +1621,7 @@ export default async function handler(req, res) {
 
     // デプロイ確認用（詳細は出さない）
     if (req.method === "GET") {
-      return res.status(200).json({
+      const payload = {
         ok: true,
         hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
         hasChatApiSecret: Boolean(getChatApiSecret()),
@@ -1590,7 +1633,11 @@ export default async function handler(req, res) {
         ),
         hasResend: Boolean(process.env.RESEND_API_KEY),
         hasCronSecret: Boolean(process.env.CRON_SECRET),
-      });
+      };
+      if (shouldIncludeSiteKnowledgeDebug(req)) {
+        payload.siteKnowledge = peekSiteKnowledgeStatus();
+      }
+      return res.status(200).json(payload);
     }
 
     if (req.method !== "POST") {
@@ -1700,31 +1747,45 @@ export default async function handler(req, res) {
 
     let clinicSnippet = "";
     let referencedPages = [];
+    let knowledgeConfidence = "none";
+    let siteKnowledgeDebug = null;
+    const clinicFactual = isClinicSpecificFactualQuery(userMessage, safeHistory);
     const shouldFetchWebKnowledge =
       !casualGreetingOnly &&
-      (!SITE_KNOWLEDGE_GATED || shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory));
+      (!SITE_KNOWLEDGE_GATED || clinicFactual);
+    const forceRefresh = shouldForceSiteKnowledgeRefresh(req);
+    const includeDebug = shouldIncludeSiteKnowledgeDebug(req);
 
     if (shouldFetchWebKnowledge) {
       const attendFocused = isAttendFocusedQuery(userMessage);
       const meetingFocused = isMeetingFocusedQuery(userMessage);
 
-      // 抜粋に載せたチャンク＝返答の情報源。チップも同一URLにする
-      const { snippet: webSnippet, sourceChunks } = await getSiteKnowledgeSnippetSupplement(
-        userMessage
-      );
-      if (webSnippet) {
+      const {
+        snippet: webSnippet,
+        sourceChunks,
+        confidence,
+        debug,
+      } = await getSiteKnowledgeSnippetSupplement(userMessage, {
+        forceRefresh,
+        includeDebug,
+      });
+      knowledgeConfidence = confidence || (webSnippet ? "low" : "none");
+      if (includeDebug && debug) siteKnowledgeDebug = debug;
+
+      // 低関連のみのときは根拠として渡さない
+      if (webSnippet && knowledgeConfidence !== "none") {
         clinicSnippet = webSnippet;
       }
 
-      if (attendFocused) {
+      if (attendFocused && clinicSnippet) {
         referencedPages = [
           { url: ATTEND_INFO_PAGE_URL, title: "立ち会い分娩について" },
         ];
-      } else if (meetingFocused) {
+      } else if (meetingFocused && clinicSnippet) {
         referencedPages = [
           { url: MEETING_INFO_PAGE_URL, title: "面会について" },
         ];
-      } else {
+      } else if (clinicSnippet) {
         referencedPages = sourcePagesFromChunks(sourceChunks);
       }
 
@@ -1735,9 +1796,8 @@ export default async function handler(req, res) {
       }
     }
 
-    const knowledgeHitScore = clinicSnippet || referencedPages.length > 0 ? 20 : 0; // 抜粋 or チップあり
+    const knowledgeHitScore = clinicSnippet || referencedPages.length > 0 ? 20 : 0;
     if (shouldSuppressReferencePages(userMessage, safeHistory, knowledgeHitScore)) {
-      // 面会・立ち会いの事実案内は抑制しない
       if (!isAttendFocusedQuery(userMessage) && !isMeetingFocusedQuery(userMessage)) {
         referencedPages = [];
       } else {
@@ -1746,12 +1806,13 @@ export default async function handler(req, res) {
     } else {
       referencedPages = finalizeReferencedPages(referencedPages, userMessage);
     }
-    // 最新 sitemap に無い URL はチップに出さない
     referencedPages = await filterPagesBySitemap(referencedPages);
+
+    const needNoEvidencePrompt =
+      clinicFactual && !clinicSnippet && !detectNotOfferedService(userMessage);
 
     const messages = [
       { role: "system", content: SYSTEM },
-      // 院内情報（公式サイトURL抜粋）
       ...(clinicSnippet
         ? [
             {
@@ -1759,13 +1820,16 @@ export default async function handler(req, res) {
               content: clinicSnippet,
             },
           ]
-        : []),
+        : needNoEvidencePrompt
+          ? [{ role: "system", content: PROMPT_NO_CLINIC_EVIDENCE }]
+          : []),
       {
         role: "system",
         content: buildReferenceLinksSystemPrompt(referencedPages),
       },
       ...(shouldForceRichHtmlForMessage(userMessage, safeHistory) &&
-      !detectNotOfferedService(userMessage)
+      !detectNotOfferedService(userMessage) &&
+      clinicSnippet
         ? [{ role: "system", content: RICH_HTML_THIS_TURN }]
         : []),
       ...(shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory)
@@ -1833,7 +1897,8 @@ export default async function handler(req, res) {
           userMessage,
           referencedPages,
           safeHistory,
-          clientId
+          clientId,
+          siteKnowledgeDebug
         );
         res.end();
       } catch (streamErr) {
@@ -1889,7 +1954,12 @@ export default async function handler(req, res) {
       clientId,
     });
 
-    return res.status(200).json({ answer, emergency: false, referencedPages });
+    const payload = { answer, emergency: false, referencedPages };
+    if (siteKnowledgeDebug) {
+      payload.siteKnowledgeDebug = siteKnowledgeDebug;
+      payload.knowledgeConfidence = knowledgeConfidence;
+    }
+    return res.status(200).json(payload);
   } catch (e) {
     const detail = e?.message || String(e);
     const status = e?.status ?? e?.response?.status;
