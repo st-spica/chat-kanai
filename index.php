@@ -36,7 +36,7 @@ if ($consul_ai_base === '' || $consul_ai_base === '.') {
 add_filter(
   'pre_get_document_title',
   static function () {
-    return 'AIお悩み相談';
+    return 'ご質問・ご意見 AIチャットサポート';
   },
   20
 );

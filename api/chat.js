@@ -205,7 +205,9 @@ const SYSTEM = `
   NG：「専門の医師が相談に乗ってくれます」「病院に問い合わせることも選択肢です」「サポートを受けられると良いですね」
   OK：「当院の婦人科でご相談いただけます」「詳しくは当院までお問い合わせください」
 ・「〜してくれます」「〜することも選択肢の一つです」「〜すると良いでしょう」「〜できると良いですね」「〜してみるのも一つの方法です」「専門家に相談することが大切です」「適切なサポートを受けられます」は原則使わない。
-・「できますか？」「相談できますか？」などの可否質問には、根拠があるとき最初に結論を述べる（例：「はい、ご相談いただけます。」）。前置きや一般論を長く置かない。
+・「できますか？」「相談できますか？」など単純な可否質問には、根拠があるとき最初に結論を述べてよい（例：「はい、ご相談いただけます。」）。前置きや一般論を長く置かない。
+・【はい・いいえの矛盾禁止（最重要）】「一人で〜？」「〜しかできない？」「〜できないの？」「〜は禁止／無理ですか？」など、肯定・否定の向きが複雑な質問では、機械的に「はい」「いいえ」を付けない。事実を直接説明する。付けた場合は、その後の説明と論理的に一致しているか必ず確認する（例：「一人で食べるの？」に「はい」＋「家族1名招待可」は矛盾）。
+・院内サービスの案内では、「嬉しいですね」「素敵ですね」「楽しみですね」などの不要な感想を付けない。
 ・根拠（院内登録情報・公式サイト抜粋）がない当院固有の対応可否は断定しない。
 ・通常の相談は原則2〜3文で簡潔に。同じ意味の繰り返し、不要な励まし、一般的なアドバイスの付け足し、内部システムの説明はしない。
 ・医療上の注意喚起・緊急時の案内など安全に必要な情報は省略しない（その場合は文数制限より安全を優先）。
@@ -1934,6 +1936,45 @@ function stripBannedEmpathyPhrases(text) {
   return s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+/** 肯定・否定の向きが複雑な質問か（機械的な「はい／いいえ」を避ける） */
+function isComplexPolarityQuestion(userMessage) {
+  const msg = String(userMessage || "");
+  return /一人で|しか(?:食べ|でき|いけ)|できないの|できないですか|禁止ですか|無理ですか|だけ(?:です|なの|なの？)|のみ/.test(
+    msg
+  );
+}
+
+/**
+ * 複雑な極性の質問で、説明と矛盾しうる冒頭の「はい／いいえ」を外す
+ */
+function stripContradictoryYesNoLead(text, userMessage) {
+  let s = String(text || "").trim();
+  if (!s || !isComplexPolarityQuestion(userMessage)) return s;
+  // 「はい、家族1名招待」のような矛盾パターンを除去
+  if (/^はい[。、,.．]?\s*/.test(s) && /ご家族様?\s*1\s*名|家族.{0,6}招待|1名をご招待/.test(s)) {
+    s = s.replace(/^はい[。、,.．]?\s*/, "");
+  }
+  if (/^いいえ[。、,.．]?\s*/.test(s) && /ご家族様?\s*1\s*名|家族.{0,6}招待|1名をご招待/.test(s)) {
+    // 「一人でしか食べられない？」への「いいえ」は内容と一致し得るが、事実直説を優先
+    s = s.replace(/^いいえ[。、,.．]?\s*/, "");
+  }
+  return s.trim();
+}
+
+/** お祝いディナー案内から不要な感想を除去 */
+function stripServiceGushPhrases(text) {
+  let s = String(text || "");
+  const patterns = [
+    /[^。\n]*(?:嬉しい|うれし|素敵|楽しみ)(?:です|ですね|だね|でしょう)[ね]?[。．]?/g,
+    /[^。\n]*ご家族でお祝いできるのは[^。\n]*[。．]?/g,
+    /[^。\n]*素敵な時間を[^。\n]*[。．]?/g,
+  ];
+  for (const re of patterns) {
+    s = s.replace(re, "");
+  }
+  return s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function stripComplaintEmpathyPhrases(text, userMessage, safeHistory) {
   if (!shouldAddComplaintPrompt(userMessage, safeHistory)) return String(text || "");
   let s = String(text || "");
@@ -1960,23 +2001,31 @@ function stripComplaintEmpathyPhrases(text, userMessage, safeHistory) {
 }
 
 function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory = []) {
-  return stripMisplacedThanksApologyOnNormalQuestions(
-    ensureNotOfferedThanksThenApology(
-      ensureComplaintDetailAskClosing(
-        ensureComplaintThanksThenApology(
-          stripMisplacedKanaiApology(
-            stripComplaintEmpathyPhrases(
-              stripBannedEmpathyPhrases(
-                stripIrrelevantModelClosing(
-                  stripFalseReferenceLinkMention(
-                    fixGoryoshoConnective(
-                      stripNextActionLeadIn(
-                        normalizeLegacyTwoLayerAnswer(text)
+  return stripContradictoryYesNoLead(
+    stripServiceGushPhrases(
+      stripMisplacedThanksApologyOnNormalQuestions(
+        ensureNotOfferedThanksThenApology(
+          ensureComplaintDetailAskClosing(
+            ensureComplaintThanksThenApology(
+              stripMisplacedKanaiApology(
+                stripComplaintEmpathyPhrases(
+                  stripBannedEmpathyPhrases(
+                    stripIrrelevantModelClosing(
+                      stripFalseReferenceLinkMention(
+                        fixGoryoshoConnective(
+                          stripNextActionLeadIn(
+                            normalizeLegacyTwoLayerAnswer(text)
+                          )
+                        ),
+                        referencedPages
                       )
-                    ),
-                    referencedPages
-                  )
-                )
+                    )
+                  ),
+                  userMessage,
+                  safeHistory
+                ),
+                userMessage,
+                safeHistory
               ),
               userMessage,
               safeHistory
@@ -1989,12 +2038,9 @@ function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory
         ),
         userMessage,
         safeHistory
-      ),
-      userMessage,
-      safeHistory
+      )
     ),
-    userMessage,
-    safeHistory
+    userMessage
   );
 }
 
@@ -2757,6 +2803,9 @@ export default async function handler(req, res) {
       !notOfferedHit;
 
     const tokyoDatetimePrompt = buildTokyoDatetimeSystemPrompt(userMessage);
+    const dinnerIntent =
+      clinicDetectedIntent === "childbirth_bonus_dinner" ||
+      clinicKnowledgeHits.some((h) => h.item?.intent === "childbirth_bonus_dinner");
     const reservationIntentGuard =
       webReserveAvailIntent && (webReserveHasClinic || webReserveHasSite)
         ? [
@@ -2786,7 +2835,22 @@ export default async function handler(req, res) {
                     "【このターン：予約キャンセル】キャンセル手順だけを案内してください。",
                 },
               ]
-            : [];
+            : dinnerIntent
+              ? [
+                  {
+                    role: "system",
+                    content: [
+                      "【このターン：お祝いディナー（分娩予約特典）】",
+                      "・確定情報: ご出産された患者さまのほかに、ご家族様1名をご招待いただける。",
+                      "・「一人で食べるの？」「一人でしか食べられない？」などには「はい／いいえ」を機械的に付けず、上記事実を直接説明する。",
+                      "・「家族と食べられる？」「2人で食べられる？」→ 患者さま＋ご家族様1名で案内してよい。",
+                      "・「3人で食べられる？」→ 確認できる招待はご家族様1名までと案内し、追加参加の可否は推測しない。",
+                      "・質問の言い回しで人数・特典内容を変えない。感想（嬉しい／素敵／楽しみ）は付けない。",
+                      "・参照があるときは分娩予約特典ページへ案内してよい（本文末にURL箇条書きは書かない）。",
+                    ].join("\n"),
+                  },
+                ]
+              : [];
 
     const messages = [
       { role: "system", content: SYSTEM },
