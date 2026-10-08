@@ -27,9 +27,13 @@ import {
   isGynecologicSurgeryQuery,
   isGynecologyUltrasoundFrequencyQuery,
   isFeeFocusedMessage,
+  isChildAccompaniedVisitQuery,
+  isChildcareRequestQuery,
+  isChildPatientExamQuery,
   isEveningConsultationHoursQuery,
   isEveningConsultationReservationQuery,
   isHospitalBagQuery,
+  isKidsRoomQuery,
   isMotherDistressConsultMessage,
   isNonChildbirthBelongingsQuery,
   isPhotoRecordingFocusedMessage,
@@ -121,6 +125,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "childbirth_bonus_dinner",
   "ultrasound_frequency",
   "hospital_bag",
+  "child_accompanied_visit",
 ]);
 
 let memoryCache = {
@@ -515,6 +520,11 @@ export function detectClinicIntent(userMessage) {
     return "vaccination_availability";
   }
 
+  // お子さま同伴・キッズルーム（託児・本人診察とは分離）
+  if (isChildAccompaniedVisitQuery(msg) || isKidsRoomQuery(msg)) {
+    return "child_accompanied_visit";
+  }
+
   // 産み分け（未実施）
   if (isGenderSelectionQuery(msg)) {
     return "service_availability";
@@ -767,6 +777,25 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["診療時間:対象外質問のため除外"],
         rejected: true,
         rejectReason: "clinic_hoursは診療時間・休診質問のみ",
+      };
+    }
+  }
+  // お子さま同伴・キッズルームは同伴／施設質問以外に流用しない
+  if (
+    item.id === "child-accompanied-visit" ||
+    itemIntent === "child_accompanied_visit"
+  ) {
+    if (
+      !isChildAccompaniedVisitQuery(msg) ||
+      isChildcareRequestQuery(msg) ||
+      isChildPatientExamQuery(msg) ||
+      isChildVaccinationQuery(msg)
+    ) {
+      return {
+        score: 0,
+        reasons: ["お子さま同伴:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "child_accompanied_visitは同伴・キッズルームのみ",
       };
     }
   }

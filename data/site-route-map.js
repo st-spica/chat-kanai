@@ -291,6 +291,77 @@ export function isChildVaccinationQuery(userMessage) {
   return detectVaccinationAudience(userMessage) === "child";
 }
 
+const CHILD_ACCOMPANY_AUDIENCE_RE =
+  /子供|子ども|こども|お子さま|お子様|お子さん|赤ちゃん|乳児|幼児|上の子|子連れ/;
+
+const KIDS_ROOM_RE =
+  /キッズ(?:ルーム|スペース)|子供が(?:遊べ|待て)|子どもが(?:遊べ|待て)|こどもが(?:遊べ|待て)|(?:子供|子ども|こども)が遊べる(?:場所|ところ)|待てる場所/;
+
+const CHILD_ACCOMPANY_ACTION_RE =
+  /連れ|一緒に(?:来|行|受診|病院)|同伴|子連れ|連れて行|連れてき|連れて来|連れてって|連れていって/;
+
+/**
+ * キッズルーム／キッズスペースの有無の質問か
+ * @param {string} userMessage
+ */
+export function isKidsRoomQuery(userMessage) {
+  return KIDS_ROOM_RE.test(String(userMessage || ""));
+}
+
+/**
+ * スタッフ託児・診察中の預かりなど（同伴・キッズルームとは別）
+ * @param {string} userMessage
+ */
+export function isChildcareRequestQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  if (
+    !CHILD_ACCOMPANY_AUDIENCE_RE.test(msg) &&
+    !/キッズ|託児/.test(msg)
+  ) {
+    return false;
+  }
+  return /預か|託児|保育士|見て(?:て|い)て|見守って|(?:に|を)預ける|預かり/.test(
+    msg
+  );
+}
+
+/**
+ * お子さま本人の診察・診療可否（同伴来院とは別）
+ * @param {string} userMessage
+ */
+export function isChildPatientExamQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  if (isChildVaccinationQuery(msg)) return false;
+  if (CHILD_ACCOMPANY_ACTION_RE.test(msg) || isKidsRoomQuery(msg)) return false;
+  if (isChildcareRequestQuery(msg)) return false;
+  if (!CHILD_ACCOMPANY_AUDIENCE_RE.test(msg) && !/小児/.test(msg)) return false;
+  return /診察|診て(?:もらえ|もらえる|くれ)|診療|受診|小児科/.test(msg);
+}
+
+/**
+ * お子さま同伴での来院／キッズルーム案内か
+ * （予防接種・本人診察・託児預かり・育児相談とは分離）
+ * @param {string} userMessage
+ */
+export function isChildAccompaniedVisitQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  if (isChildVaccinationQuery(msg)) return false;
+  if (isChildcareRequestQuery(msg)) return false;
+  if (isChildPatientExamQuery(msg)) return false;
+  if (isDailyBabyCareConsultMessage(msg) && !CHILD_ACCOMPANY_ACTION_RE.test(msg)) {
+    return false;
+  }
+  if (isBabyIllnessConsultMessage(msg) && !CHILD_ACCOMPANY_ACTION_RE.test(msg)) {
+    return false;
+  }
+  if (isKidsRoomQuery(msg)) return true;
+  if (!CHILD_ACCOMPANY_AUDIENCE_RE.test(msg)) return false;
+  return CHILD_ACCOMPANY_ACTION_RE.test(msg);
+}
+
 /** 中絶・人工妊娠中絶の可否質問か（婦人科手術の一般ルールとは別扱い） */
 export function isAbortionQuery(userMessage) {
   const msg = String(userMessage || "").trim();
@@ -789,6 +860,10 @@ export function detectClinicService(userMessage) {
   if (isEveningConsultationReservationQuery(msg)) {
     return "evening_consultation";
   }
+  // お子さま同伴・キッズルーム（託児・本人診察・予防接種とは分離）
+  if (isChildAccompaniedVisitQuery(msg)) {
+    return "outpatient_visit";
+  }
   // 診療時間・休診（確定データ）
   if (
     /診療時間|診察時間|休診|午前診|午後診|夜診|第[1-5]土曜|何時から|何時まで/.test(
@@ -985,6 +1060,17 @@ export const SITE_ROUTE_MAP = [
       "https://kanai.or.jp/obstetrics/rsv_bonus/",
     ],
     boost: 200,
+  },
+  {
+    id: "child_accompanied_visit",
+    label: "お子さま同伴・キッズルーム",
+    patterns: [
+      /子連れ|連れて行|連れてき|連れて来|上の子を連れ|赤ちゃんを連れ/,
+      /(?:子供|子ども|こども|お子さま|お子様|赤ちゃん).{0,12}(?:一緒|連れ|同伴)/,
+      /キッズ(?:ルーム|スペース)|遊べる(?:場所|ところ)|待てる場所/,
+    ],
+    urls: ["https://kanai.or.jp/facilities/"],
+    boost: 250,
   },
   {
     id: "hospitalization",

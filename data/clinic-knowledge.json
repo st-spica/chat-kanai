@@ -123,6 +123,36 @@
       }
     },
     {
+      "id": "child-accompanied-visit",
+      "category": "施設案内/お子さま同伴",
+      "intent": "child_accompanied_visit",
+      "service": "outpatient_visit",
+      "questionPatterns": [
+        "子どもを連れて行っても大丈夫ですか",
+        "子供と一緒に受診できますか",
+        "子連れでも大丈夫ですか",
+        "赤ちゃんを連れて行ってもいいですか",
+        "上の子を連れて行けますか",
+        "子どもと一緒に病院に行けますか",
+        "子供が遊べる場所はありますか",
+        "キッズルームはありますか"
+      ],
+      "keywords": [
+        "子ども",
+        "子供",
+        "子連れ",
+        "赤ちゃん",
+        "上の子",
+        "同伴",
+        "キッズルーム"
+      ],
+      "answer": "お子さまと一緒にご来院いただけます。当院にはキッズルームもございますので、お子さま連れの方もご利用いただけます。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true,
+      "relatedSiteUrl": "https://kanai.or.jp/facilities/"
+    },
+    {
       "id": "other-081",
       "category": "その他",
       "intent": "photo_recording_policy",

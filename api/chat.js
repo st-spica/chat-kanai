@@ -37,6 +37,10 @@ import {
   isAbortionQuery,
   isCelebrationDinnerAllergyQuery,
   isCelebrationDinnerFoodRequestQuery,
+  isChildAccompaniedVisitQuery,
+  isChildcareRequestQuery,
+  isChildPatientExamQuery,
+  isKidsRoomQuery,
   isGenderSelectionQuery,
   isGynecologicExamConsultQuery,
   isGynecologicMedicationQuery,
@@ -74,6 +78,49 @@ const CHILD_VACCINATION_NOT_OFFERED_ANSWER =
 
 const GENDER_SELECTION_NOT_OFFERED_ANSWER =
   "申し訳ありませんが、当院では産み分けには対応しておりません。産み分けをご希望の場合は、専門の医療機関へご相談ください。";
+
+const FACILITIES_REF_PAGE = {
+  url: "https://kanai.or.jp/facilities/",
+  title: "院内施設のご案内",
+};
+
+const CHILD_ACCOMPANY_HINT_RE =
+  /連れ|一緒|同伴|子連れ|連れて行|連れてき|連れて来|上の子/;
+
+const CHILD_ACCOMPANIED_VISIT_ANSWER = [
+  "はい、お子さまと一緒にご来院いただけます。",
+  "当院にはキッズルームもございますので、お子さま連れの方もご利用いただけます。",
+  "",
+  "院内の設備については、以下のページをご覧ください。",
+].join("\n");
+
+const KIDS_ROOM_AVAILABLE_ANSWER = [
+  "はい、当院にはキッズルームがございます。",
+  "院内の設備については、以下のページをご覧ください。",
+].join("\n");
+
+const CHILDCARE_NOT_OFFERED_ANSWER = [
+  "申し訳ありませんが、スタッフによるお子さまのお預かりや託児サービスは行っておりません。",
+  "なお、院内にはキッズルームがございます。",
+].join("\n");
+
+const CHILD_PATIENT_EXAM_NO_INFO_ANSWER =
+  "お子さまご本人の診察・診療については、現在確認できる情報がありません。当院は産婦人科です。詳しくは当院までお問い合わせください。";
+
+/**
+ * @param {string} userMessage
+ * @returns {{ answer: string, focus: string }|null}
+ */
+function buildChildAccompaniedVisitAnswer(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (isKidsRoomQuery(msg) && !CHILD_ACCOMPANY_HINT_RE.test(msg)) {
+    return { answer: KIDS_ROOM_AVAILABLE_ANSWER, focus: "kids_room" };
+  }
+  if (isChildAccompaniedVisitQuery(msg)) {
+    return { answer: CHILD_ACCOMPANIED_VISIT_ANSWER, focus: "accompany" };
+  }
+  return null;
+}
 
 const CELEBRATION_DINNER_FOOD_REQUEST_ANSWER =
   "お祝いディナーはあらかじめメニューが決まっているため、苦手な食材による変更は原則として承っておりません。\nただし、可能な範囲で配慮いたしますので、スタッフにお伝えください。";
@@ -813,6 +860,7 @@ const SYSTEM = `
 ・【入院時の持ち物】公式サイトの一覧を優先する。一般的な病院の持ち物を勝手に追加しない。当院でご用意している物（病衣・タオル・シャンプー・スリッパ等）を持参必須と案内しない。「ご用意いただく物」「分娩セット」「当院でご用意している物」を混同しない。産後ケアの持ち物に分娩入院の一覧を流用しない。
 ・【夜診の予約】夜診は予約不可・受付順。電話予約や事前予約が可能と案内しない。妊婦健診・WEB予約・初診予約の可否を夜診に流用しない。締切や診療時間など不要な条件を付け足さない。診療時間表を勝手に付け足さない。
 ・【診療時間・休診】曜日別の確定データ以外から推測しない。一般的な病院の時間をコピーしたり、別曜日の枠を流用したりしない。第3・第5土曜日は休診。火曜に午後診・夜診はない。木・金に夜診はない。臨時休診は通常予定と混同しない。
+・【お子さま同伴・キッズルーム】お子さま連れの来院は可能。院内にキッズルームあり。診療内容・時間帯による制限や「事前電話確認」を勝手に付け足さない。キッズルームを理由にスタッフ託児・診察中の預かり・分娩時同伴・入院宿泊まで対応可能と推測しない。お子さま本人の診察・予防接種と同伴案内を混同しない。
 
 【絶対に守る基本原則】
 以下を 必ず守ってください。
@@ -3717,6 +3765,165 @@ export default async function handler(req, res) {
         payload.availability = "unavailable";
         payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
         payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // お子さま同伴・キッズルーム（託児・本人診察・予防接種とは分離）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      !isChildVaccinationQuery(userMessage) &&
+      !isChildcareRequestQuery(userMessage) &&
+      !isChildPatientExamQuery(userMessage) &&
+      isChildAccompaniedVisitQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "child-accompanied-visit" ||
+          h.item?.intent === "child_accompanied_visit"
+      );
+      const built = buildChildAccompaniedVisitAnswer(userMessage);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim() ||
+          CHILD_ACCOMPANIED_VISIT_ANSWER
+      );
+      const referencedPages = [FACILITIES_REF_PAGE];
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "child_accompanied_visit",
+          detectedService: "outpatient_visit",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          rejectedKnowledge: clinicRejected,
+          referenceChips: referencedPages,
+          childAccompaniedFocus: built?.focus || null,
+          note: "お子さま同伴・キッズルームは施設紹介を案内。託児は断定しない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "child_accompanied_visit",
+          service: "outpatient_visit",
+          childAccompaniedVisit: true,
+          childAccompaniedFocus: built?.focus || null,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "child_accompanied_visit";
+        payload.detectedService = "outpatient_visit";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.rejectedKnowledge = clinicRejected;
+        payload.referenceChips = referencedPages;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 診察中の預かり・スタッフ託児は肯定しない（キッズルーム案内とは分離）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isChildcareRequestQuery(userMessage)
+    ) {
+      const answer = stripServiceGushPhrases(CHILDCARE_NOT_OFFERED_ANSWER);
+      const referencedPages = [FACILITIES_REF_PAGE];
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "service_availability",
+          detectedService: "childcare",
+          availability: "unavailable",
+          matchedClinicKnowledge: [],
+          rejectedKnowledge: clinicRejected,
+          referenceChips: referencedPages,
+          note: "託児・預かりは未実施。同伴可否へ流用しない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "service_availability",
+          service: "childcare",
+          availability: "unavailable",
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "service_availability";
+        payload.detectedService = "childcare";
+        payload.availability = "unavailable";
+        payload.matchedClinicKnowledge = [];
+        payload.rejectedKnowledge = clinicRejected;
+        payload.referenceChips = referencedPages;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // お子さま本人の診察は同伴案内と混同しない
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isChildPatientExamQuery(userMessage)
+    ) {
+      const answer = stripServiceGushPhrases(CHILD_PATIENT_EXAM_NO_INFO_ANSWER);
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "service_availability",
+          detectedService: "pediatric_care",
+          matchedClinicKnowledge: [],
+          rejectedKnowledge: clinicRejected,
+          referenceChips: [],
+          note: "お子さま本人の診療は同伴・キッズルーム案内を流用しない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "service_availability",
+          service: "pediatric_care",
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "service_availability";
+        payload.detectedService = "pediatric_care";
+        payload.matchedClinicKnowledge = [];
+        payload.rejectedKnowledge = clinicRejected;
+        payload.referenceChips = [];
       }
       return res.status(200).json(payload);
     }
