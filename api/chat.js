@@ -66,6 +66,13 @@ import {
   CLINIC_HOURS_REF_PAGE,
   isClinicHoursQuery,
 } from "../data/clinic-hours.js";
+import {
+  buildBirthPricingAnswer,
+  BIRTH_PRICING_REF_PAGE,
+  detectBirthPricingDrift,
+  isBirthPricingQuery,
+  isPostpartumCareFeeQuery,
+} from "../data/birth-pricing.js";
 
 const WEB_RESERVATION_NO_INFO_ANSWER =
   "WEB予約について確認できる情報がありません。お手数ですが、当院へお電話でお問い合わせください。";
@@ -861,6 +868,7 @@ const SYSTEM = `
 ・【夜診の予約】夜診は予約不可・受付順。電話予約や事前予約が可能と案内しない。妊婦健診・WEB予約・初診予約の可否を夜診に流用しない。締切や診療時間など不要な条件を付け足さない。診療時間表を勝手に付け足さない。
 ・【診療時間・休診】曜日別の確定データ以外から推測しない。一般的な病院の時間をコピーしたり、別曜日の枠を流用したりしない。第3・第5土曜日は休診。火曜に午後診・夜診はない。木・金に夜診はない。臨時休診は通常予定と混同しない。
 ・【お子さま同伴・キッズルーム】お子さま連れの来院は可能。院内にキッズルームあり。診療内容・時間帯による制限や「事前電話確認」を勝手に付け足さない。キッズルームを理由にスタッフ託児・診察中の預かり・分娩時同伴・入院宿泊まで対応可能と推測しない。お子さま本人の診察・予防接種と同伴案内を混同しない。
+・【分娩料金】予約金（10,000円）と予納金（100,000円／300,000円）を混同しない。予約金のうち5,000円は入院費への精算であり「5,000円のみ返金不可」と誤解釈しない。金額は確定データ以外から推測しない。産後ケア料金に分娩料金を流用しない。きょうだい割引・パパママ割引は分娩料金ページの制度であり、分娩予約特典ページと混同しない。
 
 【絶対に守る基本原則】
 以下を 必ず守ってください。
@@ -1667,8 +1675,12 @@ function shouldForceRichHtmlForMessage(userMessage, safeHistory) {
   }
   const text = chunks.join("\n").slice(-4000);
 
-  // 診療時間は確定データからプログラム生成するため、GPTのリッチHTML生成を強制しない
-  if (isClinicHoursQuery(userMessage) || isEveningConsultationReservationQuery(userMessage)) {
+  // 診療時間・分娩料金は確定データからプログラム生成するため、GPTのリッチHTML生成を強制しない
+  if (
+    isClinicHoursQuery(userMessage) ||
+    isEveningConsultationReservationQuery(userMessage) ||
+    isBirthPricingQuery(userMessage)
+  ) {
     return false;
   }
 
@@ -2105,7 +2117,9 @@ function stripPromptingClosings(text) {
 function defaultRefPageTitle(url) {
   const u = String(url || "").toLowerCase();
   if (/#hos_bring/i.test(u)) return "入院時の持ち物について";
+  if (/#price_birth/i.test(u)) return "分娩料金について";
   if (/\/obstetrics\/checkup\/?/i.test(u)) return "妊婦健診について";
+  if (/\/facilities\/?/i.test(u)) return "院内施設のご案内";
   if (/\/about\/?/i.test(u)) return "当院について";
   if (/\/beginner\/?/i.test(u)) return "初めての方へ";
   if (/\/visit|\/gai/i.test(u)) return "外来のご案内";
@@ -2155,6 +2169,21 @@ function relatedSiteUrlChipFromClinicHits(
         score: 100,
         reason: "clinic relatedSiteUrl（入院持ち物）",
       };
+    }
+    // 分娩料金：#price_birth を保持
+    if (
+      String(h.item?.intent || "").startsWith("birth_") ||
+      String(h.item?.id || "").startsWith("birth-") ||
+      /#price_birth/i.test(url)
+    ) {
+      if (isBirthPricingQuery(userMessage) && !isPostpartumCareFeeQuery(userMessage)) {
+        return {
+          url: BIRTH_PRICING_REF_PAGE.url,
+          title: BIRTH_PRICING_REF_PAGE.title,
+          score: 100,
+          reason: "clinic relatedSiteUrl（分娩料金）",
+        };
+      }
     }
 
     const chunk = (sourceChunks || []).find((c) => {
@@ -3083,7 +3112,10 @@ export default async function handler(req, res) {
         clinicKnowledgeStrong =
           Boolean(ck.strong) ||
           isClinicKnowledgeStrong(clinicTopScore, clinicKnowledgeHits);
-        registeredClinicPrompt = buildClinicRegisteredKnowledgePrompt(clinicKnowledgeHits);
+        registeredClinicPrompt = buildClinicRegisteredKnowledgePrompt(
+          clinicKnowledgeHits,
+          userMessage
+        );
         if (includeDebug) {
           siteKnowledgeDebug = {
             ...(siteKnowledgeDebug || {}),
@@ -3358,6 +3390,82 @@ export default async function handler(req, res) {
         payload.scheduleData = built?.scheduleData || null;
         payload.referenceChips = referencedPages;
         payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 分娩料金（予約金・予納金・入院費・割引）：確定データから生成（推測禁止）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      !isPostpartumCareFeeQuery(userMessage) &&
+      isBirthPricingQuery(userMessage)
+    ) {
+      const built = buildBirthPricingAnswer(userMessage);
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "birth-pricing" ||
+          h.item?.intent === built?.intent ||
+          String(h.item?.intent || "").startsWith("birth_")
+      );
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim()
+      );
+      const referencedPages = built?.referencedPages?.length
+        ? built.referencedPages
+        : [BIRTH_PRICING_REF_PAGE];
+      // 取得済みサイト抜粋があれば金額ずれを検出（回答は確定データを維持）
+      const siteHay = (fetchedSourceChunks || [])
+        .map((c) => String(c?.text || ""))
+        .join("\n");
+      const pricingDrift = detectBirthPricingDrift(siteHay);
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: built?.intent || "birth_hospitalization_cost",
+          detectedService: "childbirth",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          matchedSiteUrl: BIRTH_PRICING_REF_PAGE.url,
+          rejectedKnowledge: clinicRejected,
+          referenceChips: referencedPages,
+          birthPricingDrift: pricingDrift,
+          note: "分娩料金は data/birth-pricing.js の確定データから生成。予約金と予納金を混同しない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: built?.intent || "birth_hospitalization_cost",
+          service: "childbirth",
+          birthPricing: true,
+          pricingDriftOk: pricingDrift.ok,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = built?.intent || "birth_hospitalization_cost";
+        payload.detectedService = "childbirth";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = BIRTH_PRICING_REF_PAGE.url;
+        payload.rejectedKnowledge = clinicRejected;
+        payload.referenceChips = referencedPages;
+        payload.birthPricingDrift = pricingDrift;
       }
       return res.status(200).json(payload);
     }

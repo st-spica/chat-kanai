@@ -43,17 +43,17 @@ export const QUERY_NORMALIZERS = {
     id: "fee",
     label: "出産費用",
     pattern:
-      /料金|費用|予納|いくらかか|お金はいくら|自己負担|入院費|分娩費用|出産費用|出産はいくら|費用はいくら/,
+      /料金|費用|予納|予約金|いくらかか|お金はいくら|自己負担|入院費|分娩費用|出産費用|出産はいくら|費用はいくら|分娩料金|きょうだい割引|パパママ割引/,
   },
   delivery_benefits: {
     id: "delivery_reservation_benefits",
     label: "分娩予約特典",
     /**
-     * 割引・特典・キャンペーン・プレゼント等（分娩/出産文脈）
-     * ＋お祝いディナー（家族招待）系
+     * 特典・キャンペーン・プレゼント・お祝いディナー（家族招待）系
+     * ※きょうだい割引・パパママ割引（出産費用割引）は #price_birth 側
      */
     pattern:
-      /(?:分娩|出産|お産).{0,12}(?:割引|特典|キャンペーン|プレゼント|優待|お得)|(?:割引|特典|キャンペーン|プレゼント|優待|お得).{0,12}(?:分娩|出産|お産)|分娩予約特典|出産特典|分娩特典|出産したら.{0,8}(?:特典|プレゼント)|出産すると.{0,8}(?:特典|プレゼント)|お祝いディナー|お祝いの食事|出産祝いの食事|家族とディナー|夫とディナー|家族も一緒に食べ|ディナーに呼|ディナーを食べ|(?:何人|何名).{0,8}招待|招待.{0,8}(?:何人|何名)|家族.{0,12}ディナー|ディナー.{0,12}(?:家族|夫|招待)|夫.{0,12}ディナー|お祝いディナーご招待/,
+      /(?:分娩|出産|お産).{0,12}(?:特典|キャンペーン|プレゼント|優待|お得)|(?:特典|キャンペーン|プレゼント|優待|お得).{0,12}(?:分娩|出産|お産)|分娩予約特典|出産特典|分娩特典|出産したら.{0,8}(?:特典|プレゼント)|出産すると.{0,8}(?:特典|プレゼント)|お祝いディナー|お祝いの食事|出産祝いの食事|家族とディナー|夫とディナー|家族も一緒に食べ|ディナーに呼|ディナーを食べ|(?:何人|何名).{0,8}招待|招待.{0,8}(?:何人|何名)|家族.{0,12}ディナー|ディナー.{0,12}(?:家族|夫|招待)|夫.{0,12}ディナー|お祝いディナーご招待/,
   },
   gynecology: {
     id: "gynecology",
@@ -864,6 +864,15 @@ export function detectClinicService(userMessage) {
   if (isChildAccompaniedVisitQuery(msg)) {
     return "outpatient_visit";
   }
+  // 分娩料金（産後ケア料金は除外）
+  if (
+    /予約金|予納金|出産費用|分娩費用|分娩料金|入院費|きょうだい割引|パパママ割引|出産育児一時金/.test(
+      msg
+    ) &&
+    !/産後ケア|産後サポート|母乳ケア/.test(msg)
+  ) {
+    return "childbirth";
+  }
   // 診療時間・休診（確定データ）
   if (
     /診療時間|診察時間|休診|午前診|午後診|夜診|第[1-5]土曜|何時から|何時まで/.test(
@@ -956,9 +965,19 @@ export function isFeeFocusedMessage(userMessage) {
 
 /** @param {string} userMessage */
 export function isDeliveryBenefitsFocusedMessage(userMessage) {
-  return QUERY_NORMALIZERS.delivery_benefits.pattern.test(
-    String(userMessage || "").trim()
-  );
+  const msg = String(userMessage || "").trim();
+  // 出産費用割引（きょうだい・パパママ）は分娩料金ページへ（特典ページと分離）
+  if (
+    /きょうだい割引|兄弟割引|姉妹割引|パパママ割引/.test(msg) ||
+    (/割引/.test(msg) &&
+      /(?:出産費用|分娩費用|入院費|2人目|二人目|２人目|第二子|当院で生|夫が|旦那が)/.test(
+        msg
+      ) &&
+      !/特典|プレゼント|キャンペーン|ディナー|お祝い/.test(msg))
+  ) {
+    return false;
+  }
+  return QUERY_NORMALIZERS.delivery_benefits.pattern.test(msg);
 }
 
 /** @type {SiteRouteRule[]} */
@@ -1102,6 +1121,33 @@ export const SITE_ROUTE_MAP = [
     patterns: [/教室|産前教室|産後教室|ママフィット|離乳食/],
     urls: ["https://kanai.or.jp/lesson/"],
     boost: 180,
+  },
+  {
+    id: "birth_reservation_deposit",
+    label: "分娩予約金",
+    patterns: [
+      /分娩予約金|出産(?:の)?予約金|予約金/,
+      /分娩予約.{0,8}(?:お金|費用|料金|いくら)/,
+    ],
+    urls: ["https://kanai.or.jp/obstetrics/childbirth/#price_birth"],
+    boost: 280,
+  },
+  {
+    id: "birth_advance_payment",
+    label: "分娩予納金",
+    patterns: [/分娩予納金|予納金/, /出産前.{0,10}(?:いくら|払|支払)/],
+    urls: ["https://kanai.or.jp/obstetrics/childbirth/#price_birth"],
+    boost: 280,
+  },
+  {
+    id: "birth_cost_discount",
+    label: "出産費用割引",
+    patterns: [
+      /きょうだい割引|兄弟割引|パパママ割引/,
+      /(?:出産|分娩).{0,10}割引|割引.{0,10}(?:出産|分娩)|2人目.{0,8}割引/,
+    ],
+    urls: ["https://kanai.or.jp/obstetrics/childbirth/#price_birth"],
+    boost: 270,
   },
   {
     id: "fee",

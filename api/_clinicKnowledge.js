@@ -44,6 +44,12 @@ import {
   QUERY_NORMALIZERS,
 } from "../data/site-route-map.js";
 import { isClinicHoursQuery } from "../data/clinic-hours.js";
+import {
+  buildBirthPricingAnswer,
+  detectBirthPricingIntent,
+  isBirthPricingQuery,
+  isPostpartumCareFeeQuery,
+} from "../data/birth-pricing.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -126,6 +132,11 @@ export const STRICT_MATCH_INTENTS = new Set([
   "ultrasound_frequency",
   "hospital_bag",
   "child_accompanied_visit",
+  "birth_reservation_deposit",
+  "birth_advance_payment",
+  "birth_hospitalization_cost",
+  "birth_cost_discount",
+  "birth_pricing_overview",
 ]);
 
 let memoryCache = {
@@ -525,6 +536,12 @@ export function detectClinicIntent(userMessage) {
     return "child_accompanied_visit";
   }
 
+  // 分娩料金（予約金・予納金・入院費・割引）。産後ケア料金は含めない
+  {
+    const birthIntent = detectBirthPricingIntent(msg);
+    if (birthIntent) return birthIntent;
+  }
+
   // 産み分け（未実施）
   if (isGenderSelectionQuery(msg)) {
     return "service_availability";
@@ -797,6 +814,47 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         rejected: true,
         rejectReason: "child_accompanied_visitは同伴・キッズルームのみ",
       };
+    }
+  }
+  // 分娩料金系は該当 intent 以外・産後ケア料金に流用しない
+  if (
+    itemIntent === "birth_reservation_deposit" ||
+    itemIntent === "birth_advance_payment" ||
+    itemIntent === "birth_hospitalization_cost" ||
+    itemIntent === "birth_cost_discount" ||
+    itemIntent === "birth_pricing_overview" ||
+    String(item.id || "").startsWith("birth-")
+  ) {
+    if (isPostpartumCareFeeQuery(msg) || !isBirthPricingQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["分娩料金:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "分娩料金情報は分娩料金質問のみ",
+      };
+    }
+    const qIntent = detectBirthPricingIntent(msg);
+    if (
+      qIntent &&
+      itemIntent &&
+      itemIntent !== qIntent &&
+      itemIntent !== "birth_pricing_overview" &&
+      qIntent !== "birth_pricing_overview"
+    ) {
+      // 予約金質問に予納金エントリを当てない等
+      if (
+        (itemIntent === "birth_reservation_deposit" &&
+          qIntent !== "birth_reservation_deposit") ||
+        (itemIntent === "birth_advance_payment" &&
+          qIntent !== "birth_advance_payment")
+      ) {
+        return {
+          score: 0,
+          reasons: ["分娩料金:予約金と予納金の混同防止"],
+          rejected: true,
+          rejectReason: "予約金と予納金を混同しない",
+        };
+      }
     }
   }
   // 夜診予約質問に当日予約一般・WEB予約一般を流用しない
@@ -1175,12 +1233,29 @@ export function isClinicKnowledgeStrong(topScore, hits = []) {
  * GPT 用 system 文（公式サイト抜粋とは別枠）
  * @param {ClinicKnowledgeHit[]} hits
  */
-export function buildClinicRegisteredKnowledgePrompt(hits) {
+export function buildClinicRegisteredKnowledgePrompt(hits, userMessage = "") {
   if (!hits?.length) return "";
   const hasBabyCare = hits.some(
     (h) => h.item?.intent === "baby_care_consultation"
   );
+  const hasBirthPricing = hits.some(
+    (h) =>
+      String(h.item?.intent || "").startsWith("birth_") ||
+      String(h.item?.id || "").startsWith("birth-")
+  );
+  const birthBuilt = hasBirthPricing
+    ? buildBirthPricingAnswer(userMessage)
+    : null;
   const blocks = hits.map(({ item, score }) => {
+    let answer = item.answer;
+    // 金額は data/birth-pricing.js に一元化（JSON回答のプレースホルダを置換）
+    if (
+      birthBuilt?.answer &&
+      (String(item.intent || "").startsWith("birth_") ||
+        String(item.id || "").startsWith("birth-"))
+    ) {
+      answer = birthBuilt.answer;
+    }
     return [
       `【院内登録情報】`,
       `id: ${item.id}`,
@@ -1188,7 +1263,7 @@ export function buildClinicRegisteredKnowledgePrompt(hits) {
       `更新日: ${item.updatedAt || "不明"}`,
       `関連スコア: ${score}`,
       `回答:`,
-      item.answer,
+      answer,
     ].join("\n");
   });
   return [
@@ -1197,6 +1272,13 @@ export function buildClinicRegisteredKnowledgePrompt(hits) {
     "・公式サイト抜粋や一般知識と矛盾する場合は、院内登録情報を優先してください。",
     "・緊急症状の判断・診断・処方指示には使わないでください。",
     "・回答内に「院内登録情報」「FAQ」などの内部用語は出さないでください。",
+    ...(hasBirthPricing
+      ? [
+          "・分娩予約金と分娩予納金は別費用。金額を取り違えない。",
+          "・予約金のうち入院費精算分を「一部のみ返金不可」と誤案内しない（予約金全体が返金不可）。",
+          "・産後ケア料金に分娩料金を流用しない。一般的な産婦人科料金の推測禁止。",
+        ]
+      : []),
     ...(hasBabyCare
       ? [
           "・育児相談は月齢で案内先を変える。1〜2ヶ月は健診時相談、3ヶ月以降は保健センター・小児科。過ぎた健診を案内しない。",

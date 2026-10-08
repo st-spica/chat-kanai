@@ -1998,6 +1998,12 @@ export function labelForKnowledgeChunk(c) {
   if (/#hos_bring/i.test(url) || c?.matchedSection === "hos_bring") {
     return "入院時の持ち物について";
   }
+  if (/#price_birth/i.test(url)) {
+    return "分娩料金について";
+  }
+  if (/\/facilities\/?/i.test(url)) {
+    return "院内施設のご案内";
+  }
   const title = (c.title || "").trim();
   const pipeParts = title.split(/[｜|]/).map((x) => x.trim()).filter(Boolean);
   if (pipeParts.length >= 2) {

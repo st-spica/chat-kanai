@@ -153,6 +153,109 @@
       "relatedSiteUrl": "https://kanai.or.jp/facilities/"
     },
     {
+      "id": "birth-reservation-deposit",
+      "category": "分娩料金/予約金",
+      "intent": "birth_reservation_deposit",
+      "service": "childbirth",
+      "questionPatterns": [
+        "分娩予約金はいくらですか",
+        "出産の予約金はいくらですか",
+        "分娩予約にはお金が必要ですか",
+        "予約金は返金されますか",
+        "予約金は出産費用に含まれますか"
+      ],
+      "keywords": [
+        "分娩予約金",
+        "予約金",
+        "返金"
+      ],
+      "answer": "分娩予約金については、確定データ（data/birth-pricing.js）に基づき案内します。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true,
+      "relatedSiteUrl": "https://kanai.or.jp/obstetrics/childbirth/#price_birth",
+      "pricingSource": "data/birth-pricing.js"
+    },
+    {
+      "id": "birth-advance-payment",
+      "category": "分娩料金/予納金",
+      "intent": "birth_advance_payment",
+      "service": "childbirth",
+      "questionPatterns": [
+        "分娩予納金はいくらですか",
+        "予納金はいつ払いますか",
+        "出産前にいくら払う必要がありますか",
+        "予納金は現金のみですか",
+        "転院した場合、予納金は返ってきますか"
+      ],
+      "keywords": [
+        "分娩予納金",
+        "予納金",
+        "妊娠36週",
+        "現金"
+      ],
+      "answer": "分娩予納金については、確定データ（data/birth-pricing.js）に基づき案内します。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true,
+      "relatedSiteUrl": "https://kanai.or.jp/obstetrics/childbirth/#price_birth",
+      "pricingSource": "data/birth-pricing.js"
+    },
+    {
+      "id": "birth-hospitalization-cost",
+      "category": "分娩料金/入院費",
+      "intent": "birth_hospitalization_cost",
+      "service": "childbirth",
+      "questionPatterns": [
+        "出産費用はいくらですか",
+        "入院費はいくらですか",
+        "初産の場合はいくらですか",
+        "2人目の出産費用はいくらですか",
+        "帝王切開の費用はいくらですか",
+        "出産育児一時金は使えますか"
+      ],
+      "keywords": [
+        "出産費用",
+        "入院費",
+        "分娩費用",
+        "初産",
+        "経産",
+        "帝王切開",
+        "出産育児一時金"
+      ],
+      "answer": "入院費・分娩費用については、確定データ（data/birth-pricing.js）に基づき案内します。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true,
+      "relatedSiteUrl": "https://kanai.or.jp/obstetrics/childbirth/#price_birth",
+      "pricingSource": "data/birth-pricing.js"
+    },
+    {
+      "id": "birth-cost-discount",
+      "category": "分娩料金/割引",
+      "intent": "birth_cost_discount",
+      "service": "childbirth",
+      "questionPatterns": [
+        "出産費用の割引はありますか",
+        "2人目の出産は割引になりますか",
+        "きょうだい割引はありますか",
+        "パパママ割引とは何ですか",
+        "夫が金井産婦人科で生まれたのですが割引になりますか"
+      ],
+      "keywords": [
+        "きょうだい割引",
+        "パパママ割引",
+        "出産費用",
+        "割引"
+      ],
+      "answer": "出産費用割引制度については、確定データ（data/birth-pricing.js）に基づき案内します。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true,
+      "relatedSiteUrl": "https://kanai.or.jp/obstetrics/childbirth/#price_birth",
+      "pricingSource": "data/birth-pricing.js"
+    },
+    {
       "id": "other-081",
       "category": "その他",
       "intent": "photo_recording_policy",
