@@ -26,8 +26,11 @@ import {
 import {
   detectClinicService,
   gynecologyPageSupportsQuery,
+  isBabyIllnessConsultMessage,
+  isDailyBabyCareConsultMessage,
   isDeliveryBenefitsFocusedMessage,
   isGynecologyTopicMessage,
+  isMotherDistressConsultMessage,
   isVisitationIntentMessage,
 } from "../data/site-route-map.js";
 
@@ -195,12 +198,13 @@ const SYSTEM = `
 【当院相談窓口としての文体（最重要）】
 ・病院・医師を第三者として表現しない。
   NG：「専門の医師が相談に乗ってくれます」「病院に問い合わせることも選択肢です」「サポートを受けられると良いですね」
-  OK：「当院の婦人科でご相談いただけます」「詳しくは当院までお問い合わせください」「気になることがあれば、どうぞご相談ください」
+  OK：「当院の婦人科でご相談いただけます」「詳しくは当院までお問い合わせください」
 ・「〜してくれます」「〜することも選択肢の一つです」「〜すると良いでしょう」「〜できると良いですね」「〜してみるのも一つの方法です」「専門家に相談することが大切です」「適切なサポートを受けられます」は原則使わない。
 ・「できますか？」「相談できますか？」などの可否質問には、根拠があるとき最初に結論を述べる（例：「はい、ご相談いただけます。」）。前置きや一般論を長く置かない。
 ・根拠（院内登録情報・公式サイト抜粋）がない当院固有の対応可否は断定しない。
 ・通常の相談は2〜4文。同じ意味の繰り返し、不要な励まし、一般的なアドバイスの付け足しをしない。
 ・共感は必要なときだけ、相手の言葉に寄せて自然に。毎回の共感は不要。
+・日常的な赤ちゃんの育児相談（夜泣き・睡眠・生活リズム等）では、「いつでも／お気軽にご相談ください」「具体的な状況を教えてください」「当院でサポートします」など、常時相談窓口と誤認される表現は使わない。1ヶ月健診・2ヶ月健診での相談案内を基本とする（体調不良・母親の限界・緊急は除く）。
 
 【絶対に守る基本原則】
 以下を 必ず守ってください。
@@ -522,6 +526,41 @@ const PROMPT_SHORT_BACKCHANNEL = [
   "・相談内容に沿って会話を一歩進める。",
   "・「そうですか。」「分かりました。」だけの相槌返しで終わらない。",
   "・禁止の共感宣言（理解できます・そのお気持ちは理解できます・自然なことです・アドバイス 等）は使わない。",
+].join("\n");
+
+/** 日常的な育児相談（夜泣き・睡眠等 → 健診時案内） */
+const PROMPT_BABY_CARE_CONSULTATION = [
+  "【このターン：日常的な育児相談（最優先）】",
+  "ユーザーは赤ちゃんの夜泣き・睡眠・寝かしつけ・生活リズム・授乳など、日常的な育児の悩みを話しています。",
+  "・院内登録情報の方針に従い、1ヶ月健診・2ヶ月健診のときに医師やスタッフへ相談できる旨を案内する。",
+  "・登録文をそのまま貼らず、相手の言葉に寄せた短い共感を先に置く。",
+  "・当院がチャット／電話で常時の育児相談を受け付けているように受け取られる表現は禁止。",
+  "  NG：「いつでもご相談ください」「お気軽にご相談ください」「具体的な状況を教えてください」「当院でサポートいたします」「ぜひご相談ください」",
+  "・良い例の骨格：共感（夜なかなか寝てくれないと、ご自身も休めずお辛いですよね）→健診時相談案内→無理をなさらないで、の一文。",
+  "・診断・睡眠指導の具体的指示はしない。緊急サインがあれば健診案内より救急・受診を優先（このテンプレより緊急判定が上）。",
+].join("\n");
+
+/** 赤ちゃんの体調相談（健診待ち禁止） */
+const PROMPT_BABY_ILLNESS = [
+  "【このターン：赤ちゃんの体調相談（最優先）】",
+  "ユーザーは赤ちゃんの熱・嘔吐・ぐったり等の体調について相談しています。",
+  "・1ヶ月健診・2ヶ月健診まで待つ案内はしない。",
+  "・日常的な育児相談（夜泣き等）の院内登録方針は使わない。",
+  "・症状の程度に応じて、診療時間内の電話相談や小児科・救急など、受診の目安を一般情報として案内する。",
+  "・診断・処方はしない。「大丈夫です」と断言しない。",
+  "・危険サインが疑われる場合は救急誘導を優先する。",
+].join("\n");
+
+/** 母親の心身の不調・限界（健診待ち禁止） */
+const PROMPT_MOTHER_DISTRESS = [
+  "【このターン：母親の心身の不調・育児の限界（最優先）】",
+  "ユーザーは育児の辛さ・限界・心身の不調を訴えています。",
+  "・1ヶ月健診・2ヶ月健診まで待つ案内はしない。",
+  "・日常的な育児相談の院内登録（健診時案内）は使わない。",
+  "・相手の言葉に寄せて短く受け止め、できるだけ早めに当院へ電話で相談する／状況により受診や相談窓口を検討するよう案内する。",
+  "・「いつでも育児相談を受け付けています」等の常時窓口表現は使わない。",
+  "・自傷・加害の危険が疑われる場合は、ためらうことなく緊急・専門の相談・救急を優先する。",
+  "・診断・断言はしない。",
 ].join("\n");
 
 const NOT_OFFERED_THANKS = "お問い合わせありがとうございます。";
@@ -2599,20 +2638,27 @@ export default async function handler(req, res) {
         : []),
       ...(metaChatHit
         ? [{ role: "system", content: PROMPT_META_CHAT }]
-        : shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory)
-          ? [{ role: "system", content: PROMPT_OTHER_HOSPITAL_EXPERIENCE }]
-          : shouldAddComplaintPrompt(userMessage, safeHistory)
-            ? [{ role: "system", content: PROMPT_COMPLAINT }]
-            : notOfferedHit
-              ? [
-                  {
-                    role: "system",
-                    content: buildNotOfferedPrompt(notOfferedHit),
-                  },
-                ]
-              : shouldAddShortBackchannelPrompt(userMessage, safeHistory)
-                ? [{ role: "system", content: PROMPT_SHORT_BACKCHANNEL }]
-                : []),
+        : isMotherDistressConsultMessage(userMessage)
+          ? [{ role: "system", content: PROMPT_MOTHER_DISTRESS }]
+          : isBabyIllnessConsultMessage(userMessage)
+            ? [{ role: "system", content: PROMPT_BABY_ILLNESS }]
+            : clinicDetectedIntent === "baby_care_consultation" ||
+                isDailyBabyCareConsultMessage(userMessage)
+              ? [{ role: "system", content: PROMPT_BABY_CARE_CONSULTATION }]
+              : shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory)
+                ? [{ role: "system", content: PROMPT_OTHER_HOSPITAL_EXPERIENCE }]
+                : shouldAddComplaintPrompt(userMessage, safeHistory)
+                  ? [{ role: "system", content: PROMPT_COMPLAINT }]
+                  : notOfferedHit
+                    ? [
+                        {
+                          role: "system",
+                          content: buildNotOfferedPrompt(notOfferedHit),
+                        },
+                      ]
+                    : shouldAddShortBackchannelPrompt(userMessage, safeHistory)
+                      ? [{ role: "system", content: PROMPT_SHORT_BACKCHANNEL }]
+                      : []),
       ...safeHistory
         .filter((h) => h && (h.role === "user" || h.role === "assistant"))
         .map((h) => ({

@@ -158,6 +158,90 @@ export function isPhotoRecordingFocusedMessage(userMessage) {
   );
 }
 
+/** 赤ちゃん・乳児への言及か */
+function mentionsInfant(msg) {
+  return /赤ちゃん|新生児|乳児|生後|子ども|子供|お子さん/.test(msg);
+}
+
+/**
+ * 赤ちゃんの体調・症状相談（健診まで待たせない）
+ * @param {string} userMessage
+ */
+export function isBabyIllnessConsultMessage(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg || !mentionsInfant(msg)) return false;
+  return /熱|発熱|ひきつけ|けいれん|痙攣|吐[いたく]|嘔吐|下痢|血便|発疹|黄疸|呼吸|ミルクを飲まない|母乳を飲まない|顔色が悪|元気がない|ぐったり|泣き止まない.*熱|水分が取れ/.test(
+    msg
+  );
+}
+
+/**
+ * 母親の心身の不調・限界（健診まで待たせない）
+ * @param {string} userMessage
+ */
+export function isMotherDistressConsultMessage(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  if (
+    /死にたい|消えたい|自殺|自分を傷つけ|殺してしまい|赤ちゃんを傷|虐待しそう/.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+  if (
+    /育児.{0,16}(?:辛|つら|限界|疲れ|憂鬱|うつ|もう無理)|(?:辛|つら|限界|もう無理).{0,16}育児/.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+  if (
+    /(?:限界|もう無理|倒れそう|気持ちが沈|うつ)/.test(msg) &&
+    /育児|子育て|赤ちゃん|産後|ママ/.test(msg)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 日常的な育児の悩み（夜泣き・睡眠・生活リズム等 → 健診時相談案内）
+ * 体調・母親の限界・緊急は含めない
+ * @param {string} userMessage
+ */
+export function isDailyBabyCareConsultMessage(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  if (isBabyIllnessConsultMessage(msg) || isMotherDistressConsultMessage(msg)) {
+    return false;
+  }
+  if (/育児相談|育児の相談|子育て相談|育児について相談/.test(msg)) return true;
+  if (
+    /夜泣き|寝かしつけ|夜寝な|寝てくれな|眠れな[いく]|生活リズム|寝不足|寝かし/.test(
+      msg
+    ) &&
+    (mentionsInfant(msg) || /夜泣き|育児|子育て|授乳/.test(msg))
+  ) {
+    return true;
+  }
+  if (
+    mentionsInfant(msg) &&
+    /(?:睡眠|寝る|眠|リズム|授乳|おっぱい|ミルク|育児).{0,16}(?:相談|悩|辛|つら|大変|疲れ)/.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+  if (
+    mentionsInfant(msg) &&
+    /夜.{0,8}寝|寝.{0,8}(?:辛|つら|大変)|眠.{0,8}(?:辛|つら)/.test(msg)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * 質問の対象サービス（適用範囲）を推定する。
  * 同じ「面会」でも産科入院と産後ケアではルールが異なるため必須。
@@ -173,6 +257,10 @@ export function detectClinicService(userMessage) {
   }
   if (/産前産後教室|産前教室|産後教室|ママフィット|アクティブクラス/.test(msg)) {
     return "prenatal_postnatal_class";
+  }
+  // 日常的な育児相談 → 乳児健診の案内範囲（体調・母親限界は別扱い）
+  if (isDailyBabyCareConsultMessage(msg)) {
+    return "infant_checkup";
   }
   if (
     isGynecologyTopicMessage(msg) &&

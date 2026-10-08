@@ -13,7 +13,10 @@ import { dirname, join } from "path";
 import {
   detectClinicService,
   isAttendFocusedMessage,
+  isBabyIllnessConsultMessage,
+  isDailyBabyCareConsultMessage,
   isFeeFocusedMessage,
+  isMotherDistressConsultMessage,
   isPhotoRecordingFocusedMessage,
   isVisitFocusedMessage,
   isVisitationIntentMessage,
@@ -71,6 +74,12 @@ export const RESERVATION_INTENTS = new Set([
   "first_visit_reservation",
   "revisit_reservation",
   "class_reservation",
+]);
+
+/** intent 不一致時に除外する（誤適用防止） */
+export const STRICT_MATCH_INTENTS = new Set([
+  ...RESERVATION_INTENTS,
+  "baby_care_consultation",
 ]);
 
 let memoryCache = {
@@ -421,6 +430,11 @@ export function detectClinicIntent(userMessage) {
     return "photo_recording_policy";
   }
 
+  // 日常的な育児相談（体調・母親の限界は別扱い。緊急は呼び出し側で先に処理）
+  if (isDailyBabyCareConsultMessage(msg)) {
+    return "baby_care_consultation";
+  }
+
   // 面会（サービスは detectClinicService で別判定）
   if (isVisitationIntentMessage(msg)) {
     return "visitation";
@@ -538,12 +552,12 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
     };
   }
 
-  // intent 不一致は除外（予約系のみ厳格）
+  // intent 不一致は除外（予約系・育児相談など厳格 intent）
   if (
     queryIntent &&
-    RESERVATION_INTENTS.has(queryIntent) &&
+    STRICT_MATCH_INTENTS.has(queryIntent) &&
     itemIntent &&
-    RESERVATION_INTENTS.has(itemIntent) &&
+    STRICT_MATCH_INTENTS.has(itemIntent) &&
     queryIntent !== itemIntent
   ) {
     return {
@@ -552,6 +566,33 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
       rejected: true,
       rejectReason: `intent不一致(query=${queryIntent}, item=${itemIntent})`,
     };
+  }
+  // 育児相談JSONは日常悩み専用。体調・母親限界には流用しない
+  if (itemIntent === "baby_care_consultation") {
+    if (isBabyIllnessConsultMessage(msg) || isMotherDistressConsultMessage(msg)) {
+      return {
+        score: 0,
+        reasons: ["育児相談:体調/母親不調のため健診案内を除外"],
+        rejected: true,
+        rejectReason: "baby_careは日常育児のみ（体調・母親不調は除外）",
+      };
+    }
+    if (queryIntent && queryIntent !== "baby_care_consultation") {
+      return {
+        score: 0,
+        reasons: [`育児相談:queryIntent不一致:${queryIntent}`],
+        rejected: true,
+        rejectReason: `baby_care_consultation以外のintent(${queryIntent})`,
+      };
+    }
+    if (!queryIntent && !isDailyBabyCareConsultMessage(msg)) {
+      return {
+        score: 0,
+        reasons: ["育児相談:日常育児相談ではない"],
+        rejected: true,
+        rejectReason: "日常育児相談ではない",
+      };
+    }
   }
 
   let score = 0;
@@ -774,6 +815,9 @@ export function isClinicKnowledgeStrong(topScore, hits = []) {
  */
 export function buildClinicRegisteredKnowledgePrompt(hits) {
   if (!hits?.length) return "";
+  const hasBabyCare = hits.some(
+    (h) => h.item?.intent === "baby_care_consultation"
+  );
   const blocks = hits.map(({ item, score }) => {
     return [
       `【院内登録情報】`,
@@ -791,6 +835,12 @@ export function buildClinicRegisteredKnowledgePrompt(hits) {
     "・公式サイト抜粋や一般知識と矛盾する場合は、院内登録情報を優先してください。",
     "・緊急症状の判断・診断・処方指示には使わないでください。",
     "・回答内に「院内登録情報」「FAQ」などの内部用語は出さないでください。",
+    ...(hasBabyCare
+      ? [
+          "・育児相談の登録情報は、そのまま一文で貼り付けず、相手の言葉に寄せた短い共感のあとに健診時相談へ自然につなげてください。",
+          "・「いつでも／お気軽にご相談ください」「具体的な状況を教えてください」「当院でサポートします」は使わないでください。",
+        ]
+      : []),
     "",
     blocks.join("\n\n---\n\n"),
   ].join("\n");
