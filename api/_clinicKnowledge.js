@@ -30,6 +30,11 @@ const MIN_PASS_SCORE = Math.max(
   1,
   parseInt(process.env.CLINIC_KNOWLEDGE_MIN_SCORE || "40", 10)
 );
+/** これ以上なら「clinic-knowledgeだけで十分回答可能」とみなし、サイト投稿チップを抑制 */
+export const CLINIC_KNOWLEDGE_STRONG_SCORE = Math.max(
+  MIN_PASS_SCORE,
+  parseInt(process.env.CLINIC_KNOWLEDGE_STRONG_SCORE || "80", 10)
+);
 const CACHE_TTL_MS = Math.max(
   0,
   parseInt(process.env.CLINIC_KNOWLEDGE_TTL_MS || String(5 * 60 * 1000), 10)
@@ -395,7 +400,7 @@ export async function searchClinicKnowledge(userMessage, opts = {}) {
     : await loadClinicKnowledgeSource(opts);
   const items = loaded.items || [];
   if (!items.length) {
-    return { hits: [], topScore: 0, source: loaded.source || "none" };
+    return { hits: [], topScore: 0, source: loaded.source || "none", strong: false };
   }
 
   const scored = items
@@ -407,11 +412,34 @@ export async function searchClinicKnowledge(userMessage, opts = {}) {
     .sort((a, b) => b.score - a.score || (b.item.priority || 0) - (a.item.priority || 0));
 
   const topScore = scored[0]?.score || 0;
-  if (!topScore) return { hits: [], topScore: 0, source: loaded.source };
+  if (!topScore) {
+    return { hits: [], topScore: 0, source: loaded.source, strong: false };
+  }
 
   const minKeep = Math.max(topScore * 0.55, topScore - 40, MIN_PASS_SCORE);
   const hits = scored.filter((h) => h.score >= minKeep).slice(0, TOP_ITEMS);
-  return { hits, topScore, source: loaded.source };
+  return {
+    hits,
+    topScore,
+    source: loaded.source,
+    strong: isClinicKnowledgeStrong(topScore, hits),
+  };
+}
+
+/**
+ * clinic-knowledge が高信頼か（サイト投稿チップ抑制の判定）
+ * @param {number} topScore
+ * @param {ClinicKnowledgeHit[]} [hits]
+ */
+export function isClinicKnowledgeStrong(topScore, hits = []) {
+  if (Number(topScore) >= CLINIC_KNOWLEDGE_STRONG_SCORE) return true;
+  // pattern一致相当の理由があれば強ヒットとみなす
+  const top = hits[0];
+  if (top && top.score >= MIN_PASS_SCORE + 40) {
+    const reasons = top.reasons || [];
+    if (reasons.some((r) => /pattern一致|pattern語全一致/.test(r))) return true;
+  }
+  return false;
 }
 
 /**

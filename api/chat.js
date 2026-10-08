@@ -16,6 +16,7 @@ import {
 } from "./_siteKnowledge.js";
 import {
   buildClinicRegisteredKnowledgePrompt,
+  isClinicKnowledgeStrong,
   peekClinicKnowledgeStatus,
   searchClinicKnowledge,
 } from "./_clinicKnowledge.js";
@@ -709,9 +710,54 @@ function detectEmergency(text) {
 }
 
 /**
+ * チャット仕様・プライバシー等のメタ質問（公式サイト検索対象外）
+ * @returns {{ id: string, label: string }|null}
+ */
+function detectMetaChatQuery(userMessage) {
+  const text = String(userMessage || "").trim();
+  if (!text) return null;
+  const patterns = [
+    /この(?:やり取り|会話|チャット|相談|メッセージ)/,
+    /(?:会話|チャット|やり取り|相談内容|履歴).*(?:保存|記録|ログ|残)/,
+    /(?:保存|記録|ログ|履歴).*(?:され|ます|残|見)/,
+    /誰(?:か|が|に).*(?:読|見|確認)/,
+    /(?:病院|スタッフ|御社|運営|管理者|職員).*(?:読|見|確認)/,
+    /(?:読まれ|見られ).*(?:て|ます|いる)/,
+    /個人情報/,
+    /プライバシー/,
+    /利用規約/,
+    /(?:あなたは)?AIですか|Chat\s*GPT|チャットGPT|チャットボット|ボットですか|人工知能/i,
+    /どういう仕組み|どのように動いて|仕組みですか|どうやって答えて/,
+    /このチャットは安全|安全ですか|セキュリティ/,
+    /運営者|管理者は誰|誰が運営/,
+    /会話履歴について|ログは残/,
+  ];
+  if (patterns.some((re) => re.test(text))) {
+    return { id: "meta_chat", label: "チャット仕様" };
+  }
+  return null;
+}
+
+const PROMPT_META_CHAT = [
+  "【このターン：チャット仕様・プライバシー（meta_chat・最優先）】",
+  "ユーザーは当院の診療案内ではなく、この相談チャット自体（保存・閲覧・AI・安全性など）について質問しています。",
+  "・公式サイト抜粋やお知らせは使わない。参照リンク（チップ）の案内も書かない。",
+  "・「AI」「ChatGPT」「チャットボット」などと名乗らない。「相談窓口としてご案内します」と表現する。",
+  "・次の内容を、丁寧で簡潔に伝える（嘘や過剰な安心はしない）。",
+  "  1）この画面は当院の相談窓口としての案内チャットであること",
+  "  2）会話内容は、案内品質の確認や改善のため、当院側で記録・確認される場合があること",
+  "  3）診断や処方は行わず、一般的な案内と受診の目安をお伝えする場であること",
+  "  4）個人を特定する情報の入力はできるだけ避けてほしいこと",
+  "・診療時間・休診・予約など院内案内へ話を逸らさない。",
+].join("\n");
+
+/**
  * 公式サイトを読みにいくかどうか（現在の入力＋直近のユーザー発話をざっくり判定）
  */
 function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
+  // 現在の発話がメタ質問なら、履歴に院内語があってもサイト検索しない
+  if (detectMetaChatQuery(userMessage)) return false;
+
   const chunks = [String(userMessage || "")];
   if (Array.isArray(safeHistory)) {
     for (const h of safeHistory) {
@@ -1258,6 +1304,66 @@ function finalizeReferencedPages(pages, userMessage) {
     ];
   }
   return ordered.slice(0, MAX_REFERENCE_CHIPS);
+}
+
+/**
+ * チップ最終ガード: 質問との語の重なりが無いURLは落とす
+ * @returns {{ pages: Array<{url:string,title:string}>, excluded: Array<{url:string,reason:string}> }}
+ */
+function guardReferenceChipsByQuestion(pages, userMessage, opts = {}) {
+  const excluded = [];
+  if (opts.metaChat) {
+    for (const p of pages || []) {
+      excluded.push({ url: p?.url || "", reason: "meta_chatのためチップ禁止" });
+    }
+    return { pages: [], excluded };
+  }
+  if (opts.clinicOnly || opts.notOfferedOnly) {
+    for (const p of pages || []) {
+      excluded.push({
+        url: p?.url || "",
+        reason: opts.clinicOnly
+          ? "clinic-knowledgeのみ根拠のためチップなし"
+          : "固定ルールのみ根拠のためチップなし",
+      });
+    }
+    return { pages: [], excluded };
+  }
+
+  const msg = String(userMessage || "");
+  const tokens = msg
+    .replace(/[？?！!。．、,…]/g, " ")
+    .split(/[\s\u3000のをにはがとでもからまでへやなど]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2);
+  const meaningful = tokens.filter(
+    (t) => !/^(です|ます|ください|教えて|について|この|それ|ある|ない|したい)$/.test(t)
+  );
+
+  const kept = [];
+  for (const p of pages || []) {
+    const hay = `${p.title || ""}\n${p.url || ""}`.toLowerCase();
+    const hit = meaningful.some((t) => hay.includes(t.toLowerCase()));
+    // 面会・立ち会い・ワクチン等の正規ルートURLはタイトル語が少なくても許可
+    const routeOk =
+      /#visit|#assist_birth|#price_birth|\/vaccine\/|\/beginner\/|\/hospitalization\//i.test(
+        p.url || ""
+      ) &&
+      (isMeetingFocusedQuery(msg) ||
+        isAttendFocusedQuery(msg) ||
+        /ワクチン|インフルエンザ|予防接種|今日|本日|明日|午後|午前|診療|診察|予約|費用|料金/.test(
+          msg
+        ));
+    if (hit || routeOk) {
+      kept.push(p);
+    } else {
+      excluded.push({
+        url: p.url || "",
+        reason: "質問との語一致がなくチップ最終除外",
+      });
+    }
+  }
+  return { pages: kept.slice(0, MAX_REFERENCE_CHIPS), excluded };
 }
 
 /** モデルに参照チップの有無を明示（架空のリンク案内を防ぐ） */
@@ -1845,24 +1951,43 @@ export default async function handler(req, res) {
     let siteKnowledgeDebug = null;
     let fetchedSourceChunks = [];
     let clinicKnowledgeHits = [];
-    const notOfferedHit = detectNotOfferedService(userMessage);
-    const clinicFactual = isClinicSpecificFactualQuery(userMessage, safeHistory);
+    let clinicKnowledgeStrong = false;
+    let clinicTopScore = 0;
+    let evidenceUrls = [];
+    let chipUrls = [];
+    let siteKnowledgeSearched = false;
+    const metaChatHit = detectMetaChatQuery(userMessage);
+    const notOfferedHit = metaChatHit ? null : detectNotOfferedService(userMessage);
+    const clinicFactual =
+      !metaChatHit && isClinicSpecificFactualQuery(userMessage, safeHistory);
     const forceRefresh = shouldForceSiteKnowledgeRefresh(req);
     const includeDebug = shouldIncludeSiteKnowledgeDebug(req);
+    const queryCategory = metaChatHit
+      ? "meta_chat"
+      : notOfferedHit
+        ? "not_offered"
+        : clinicFactual
+          ? "clinic_factual"
+          : "general";
 
     // 2) clinic-knowledge 検索（緊急判定の後・公式サイト検索の前）
-    //    ヒットしても確定回答にはせず、必要なら公式サイトも併用する
-    if (!casualGreetingOnly) {
+    //    メタ質問では検索しない
+    if (!casualGreetingOnly && !metaChatHit) {
       try {
         const ck = await searchClinicKnowledge(userMessage, { forceRefresh });
         clinicKnowledgeHits = ck.hits || [];
+        clinicTopScore = ck.topScore || 0;
+        clinicKnowledgeStrong =
+          Boolean(ck.strong) ||
+          isClinicKnowledgeStrong(clinicTopScore, clinicKnowledgeHits);
         registeredClinicPrompt = buildClinicRegisteredKnowledgePrompt(clinicKnowledgeHits);
         if (includeDebug) {
           siteKnowledgeDebug = {
             ...(siteKnowledgeDebug || {}),
             clinicKnowledge: {
               source: ck.source,
-              topScore: ck.topScore,
+              topScore: clinicTopScore,
+              strong: clinicKnowledgeStrong,
               hits: clinicKnowledgeHits.map((h) => ({
                 id: h.item.id,
                 category: h.item.category,
@@ -1880,8 +2005,9 @@ export default async function handler(req, res) {
       }
     }
 
-    // 3) 公式サイト検索（併用可）
+    // 3) 公式サイト検索（メタ質問では実行しない）
     const shouldFetchWebKnowledge =
+      !metaChatHit &&
       !casualGreetingOnly &&
       (!SITE_KNOWLEDGE_GATED ||
         clinicFactual ||
@@ -1889,6 +2015,7 @@ export default async function handler(req, res) {
         clinicKnowledgeHits.length > 0);
 
     if (shouldFetchWebKnowledge) {
+      siteKnowledgeSearched = true;
       const attendFocused = isAttendFocusedQuery(userMessage);
       const meetingFocused = isMeetingFocusedQuery(userMessage);
 
@@ -1897,38 +2024,73 @@ export default async function handler(req, res) {
         sourceChunks,
         confidence,
         debug,
+        evidenceUrls: siteEvidence = [],
+        chipUrls: siteChips = [],
       } = await getSiteKnowledgeSnippetSupplement(userMessage, {
         forceRefresh,
         includeDebug,
+        clinicKnowledgeStrong,
       });
       fetchedSourceChunks = sourceChunks || [];
       knowledgeConfidence = confidence || (webSnippet ? "low" : "none");
+      evidenceUrls = siteEvidence || [];
+      chipUrls = siteChips || [];
       if (includeDebug && debug) {
         siteKnowledgeDebug = { ...(siteKnowledgeDebug || {}), ...debug };
       }
 
-      // 低関連のみのときは根拠として渡さない
-      if (webSnippet && knowledgeConfidence !== "none") {
+      // clinic強ヒット時: サイトは補助。根拠に足るURLが無ければ抜粋も渡さない
+      if (clinicKnowledgeStrong && !evidenceUrls.length) {
+        clinicSnippet = "";
+        knowledgeConfidence = "none";
+        chipUrls = [];
+      } else if (webSnippet && knowledgeConfidence !== "none") {
         clinicSnippet = webSnippet;
       }
 
-      // 参照チップは公式サイトURLのみ（clinic-knowledge はURLなし・チップ非表示）
-      if (attendFocused && clinicSnippet) {
+      // チップは evidence 由来のみ（検索候補の流用禁止）
+      if (attendFocused && clinicSnippet && !clinicKnowledgeStrong) {
         referencedPages = [
           { url: ATTEND_INFO_PAGE_URL, title: "立ち会い分娩について" },
         ];
-      } else if (meetingFocused && clinicSnippet) {
+        chipUrls = referencedPages.map((p) => ({
+          ...p,
+          score: 999,
+          reason: "立ち会い専用",
+        }));
+        evidenceUrls = chipUrls;
+      } else if (meetingFocused && clinicSnippet && !clinicKnowledgeStrong) {
         referencedPages = [
           { url: MEETING_INFO_PAGE_URL, title: "面会について" },
         ];
-      } else if (clinicSnippet) {
-        referencedPages = sourcePagesFromChunks(sourceChunks);
+        chipUrls = referencedPages.map((p) => ({
+          ...p,
+          score: 999,
+          reason: "面会専用",
+        }));
+        evidenceUrls = chipUrls;
+      } else {
+        referencedPages = (chipUrls || []).map((c) => ({
+          url: c.url,
+          title: c.title,
+        }));
       }
 
       if (clinicSnippet.length > SITE_SNIPPET_MAX_CHARS) {
         clinicSnippet =
           clinicSnippet.slice(0, SITE_SNIPPET_MAX_CHARS) +
           "\n\n（以降、文字数制限のため省略しました）";
+      }
+    }
+
+    // clinic-knowledgeのみ根拠 / メタ質問 → チップなし
+    if (metaChatHit || (clinicKnowledgeStrong && !evidenceUrls.length)) {
+      referencedPages = [];
+      chipUrls = [];
+      if (metaChatHit) {
+        clinicSnippet = "";
+        registeredClinicPrompt = "";
+        knowledgeConfidence = "none";
       }
     }
 
@@ -1986,10 +2148,13 @@ export default async function handler(req, res) {
     const knowledgeHitScore =
       registeredClinicPrompt || clinicSnippet || referencedPages.length > 0 ? 20 : 0;
     if (shouldSuppressReferencePages(userMessage, safeHistory, knowledgeHitScore)) {
-      if (!isAttendFocusedQuery(userMessage) && !isMeetingFocusedQuery(userMessage)) {
-        referencedPages = [];
-      } else {
+      if (
+        !clinicKnowledgeStrong &&
+        (isAttendFocusedQuery(userMessage) || isMeetingFocusedQuery(userMessage))
+      ) {
         referencedPages = finalizeReferencedPages(referencedPages, userMessage);
+      } else {
+        referencedPages = [];
       }
     } else if (!notOfferedHit) {
       referencedPages = finalizeReferencedPages(referencedPages, userMessage);
@@ -1998,7 +2163,59 @@ export default async function handler(req, res) {
     }
     referencedPages = await filterPagesBySitemap(referencedPages);
 
+    // clinic強ヒットかつサイト根拠なし → 再確認してチップを消す
+    if (metaChatHit || (clinicKnowledgeStrong && !clinicSnippet)) {
+      referencedPages = [];
+    }
+
+    // チップ最終ガード（質問関連性）
+    const chipGuard = guardReferenceChipsByQuestion(referencedPages, userMessage, {
+      metaChat: Boolean(metaChatHit),
+      clinicOnly: clinicKnowledgeStrong && !clinicSnippet,
+      notOfferedOnly: Boolean(notOfferedHit) && !clinicSnippet && !registeredClinicPrompt,
+    });
+    referencedPages = chipGuard.pages;
+
+    if (includeDebug) {
+      siteKnowledgeDebug = {
+        ...(siteKnowledgeDebug || {}),
+        queryCategory,
+        metaChat: metaChatHit || null,
+        siteKnowledgeSearched,
+        evidenceUrls,
+        chipUrls: referencedPages.map((p) => ({
+          url: p.url,
+          title: p.title,
+          reason:
+            chipUrls.find((c) => c.url === p.url)?.reason ||
+            (clinicKnowledgeStrong
+              ? "clinic併用の公式根拠"
+              : "evidence採用"),
+        })),
+        excludedUrls: [
+          ...((siteKnowledgeDebug && siteKnowledgeDebug.excludedUrls) || []),
+          ...chipGuard.excluded,
+        ].slice(0, 50),
+        chipDecision: {
+          clinicKnowledgeStrong,
+          clinicTopScore,
+          siteEvidenceCount: evidenceUrls.length,
+          finalChipCount: referencedPages.length,
+          siteKnowledgeSearched,
+          queryCategory,
+          note: metaChatHit
+            ? "meta_chat→サイト検索なし・チップなし"
+            : clinicKnowledgeStrong
+              ? evidenceUrls.length
+                ? "clinic-knowledge優先＋公式サイト根拠あり→根拠URLのみチップ"
+                : "clinic-knowledgeのみ根拠→チップなし"
+              : "通常のサイト根拠チップ選定",
+        },
+      };
+    }
+
     const needNoEvidencePrompt =
+      !metaChatHit &&
       clinicFactual &&
       !clinicSnippet &&
       !registeredClinicPrompt &&
@@ -2034,20 +2251,22 @@ export default async function handler(req, res) {
       (clinicSnippet || registeredClinicPrompt)
         ? [{ role: "system", content: RICH_HTML_THIS_TURN }]
         : []),
-      ...(shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory)
-        ? [{ role: "system", content: PROMPT_OTHER_HOSPITAL_EXPERIENCE }]
-        : shouldAddComplaintPrompt(userMessage, safeHistory)
-          ? [{ role: "system", content: PROMPT_COMPLAINT }]
-          : notOfferedHit
-            ? [
-                {
-                  role: "system",
-                  content: buildNotOfferedPrompt(notOfferedHit),
-                },
-              ]
-            : shouldAddShortBackchannelPrompt(userMessage, safeHistory)
-              ? [{ role: "system", content: PROMPT_SHORT_BACKCHANNEL }]
-              : []),
+      ...(metaChatHit
+        ? [{ role: "system", content: PROMPT_META_CHAT }]
+        : shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory)
+          ? [{ role: "system", content: PROMPT_OTHER_HOSPITAL_EXPERIENCE }]
+          : shouldAddComplaintPrompt(userMessage, safeHistory)
+            ? [{ role: "system", content: PROMPT_COMPLAINT }]
+            : notOfferedHit
+              ? [
+                  {
+                    role: "system",
+                    content: buildNotOfferedPrompt(notOfferedHit),
+                  },
+                ]
+              : shouldAddShortBackchannelPrompt(userMessage, safeHistory)
+                ? [{ role: "system", content: PROMPT_SHORT_BACKCHANNEL }]
+                : []),
       ...safeHistory
         .filter((h) => h && (h.role === "user" || h.role === "assistant"))
         .map((h) => ({

@@ -28,6 +28,42 @@ const MIN_SNIPPET_SCORE = Math.max(
   1,
   parseInt(process.env.SITE_MIN_SNIPPET_SCORE || "45", 10) || 45
 );
+/** 参照チップに出す最低スコア（根拠URLのみ表示） */
+const MIN_CHIP_SCORE = Math.max(
+  MIN_SNIPPET_SCORE,
+  parseInt(process.env.SITE_MIN_CHIP_SCORE || "90", 10) || 90
+);
+/** clinic-knowledge 強ヒット時にサイト根拠として採用する最低スコア */
+const MIN_SITE_EVIDENCE_WITH_CLINIC = Math.max(
+  MIN_CHIP_SCORE,
+  parseInt(process.env.SITE_MIN_EVIDENCE_WITH_CLINIC || "120", 10) || 120
+);
+
+/** 1語だけで投稿を高評価しない汎用語 */
+const GENERIC_SCORE_TOKENS = new Set([
+  "変更",
+  "予約",
+  "母乳",
+  "教室",
+  "診療",
+  "休み",
+  "費用",
+  "相談",
+  "受付",
+  "時間",
+  "案内",
+  "お知らせ",
+  "開催",
+  "曜日",
+  "について",
+]);
+
+/** 鮮度の効くお知らせを残したい質問 */
+export function needsNewsFreshnessQuery(userMessage) {
+  return /今日|本日|明日|明後日|今週|休診|ワクチン|インフルエンザ|予防接種|面会制限|受付変更|臨時/.test(
+    String(userMessage || "")
+  );
+}
 const CACHE_BODIES = ["true", "1", "yes"].includes(
   String(process.env.SITE_KNOWLEDGE_CACHE_BODIES || "false").toLowerCase().trim()
 );
@@ -1010,8 +1046,7 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
   reasons.push(`${typePts.reason}(+${typePts.points})`);
 
   const fresh = freshnessPoints(chunk.lastmod || chunk.modifiedAt, pageType);
-  score += fresh.points;
-  reasons.push(`鮮度:${fresh.reason}(${fresh.points >= 0 ? "+" : ""}${fresh.points})`);
+  // 鮮度は「関連がある」場合のみ後で加点（新しい＝関連、にしない）
 
   // ルート辞書ブースト（優先取得。絶対正解ではない）
   const routeBoost = routeBoostMap.get(bareUrl) || routeBoostMap.get(chunk.url) || 0;
@@ -1024,22 +1059,50 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
   const h1 = (chunk.h1 || []).join(" ");
   const h2 = (chunk.h2 || []).join(" ");
   const body = String(chunk.text || "");
+  const bodyHead = body.slice(0, 500);
   const hayTitle = `${title}\n${h1}\n${h2}`.toLowerCase();
   const hayBody = body.toLowerCase();
+  const hayBodyHead = bodyHead.toLowerCase();
   const tokens = tokenizeUserMessageForScoring(msg);
   const userLower = originalMsg.toLowerCase();
 
   let rel = 0;
+  let specificHits = 0;
+  let genericHits = 0;
+  let titleSpecificHits = 0;
+  let titleAnyHits = 0;
   for (const tok of tokens) {
     const t = tok.toLowerCase();
     if (t.length < 2) continue;
-    if (hayTitle.includes(t)) {
-      rel += t.length * 6;
-      reasons.push(`見出し一致:${tok}`);
-    } else if (hayBody.includes(t)) {
-      rel += t.length * 3;
-    } else if (t.length === 2 && FACILITY_2CHAR.has(t) && hayBody.includes(t)) {
-      rel += 8;
+    const isGeneric = GENERIC_SCORE_TOKENS.has(tok) || GENERIC_SCORE_TOKENS.has(t);
+    const inTitle = hayTitle.includes(t);
+    const inBodyHead = hayBodyHead.includes(t);
+    const inBody = hayBody.includes(t);
+    if (!inTitle && !inBody) continue;
+
+    if (inTitle) titleAnyHits += 1;
+    if (isGeneric) {
+      genericHits += 1;
+      // 汎用語は加点を大幅に抑える（投稿の誤爆防止）
+      if (pageType === "news") {
+        rel += inTitle ? 2 : 1;
+      } else {
+        rel += inTitle ? Math.min(t.length * 2, 6) : 2;
+        if (inTitle) reasons.push(`見出し一致:${tok}`);
+      }
+    } else {
+      specificHits += 1;
+      if (inTitle) {
+        titleSpecificHits += 1;
+        rel += t.length * 6;
+        reasons.push(`見出し一致:${tok}`);
+      } else if (inBodyHead) {
+        rel += t.length * 4;
+      } else if (inBody) {
+        rel += t.length * 3;
+      } else if (t.length === 2 && FACILITY_2CHAR.has(t) && inBody) {
+        rel += 8;
+      }
     }
   }
   if (userLower.length >= 4 && userLower.length <= 80) {
@@ -1084,11 +1147,74 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
     }
   }
 
-  // 古いお知らせの過剰信頼を抑える（関連が弱いとき）
-  if (pageType === "news" && rel < 30 && fresh.points < 40) {
-    score -= 25;
-    reasons.push("古い投稿かつ低関連(-25)");
+  // お知らせ本文の具体日付と「今日/明日」質問の整合（先に計算し、投稿ペナルティ判定で使う）
+  const dateAdj = datedNoticeAdjustment(originalMsg, chunk, tokyoNow);
+
+  // 関連度が十分あるときだけ鮮度を加点（順序: 関連 → その中で新しさ）
+  const MIN_REL_FOR_FRESHNESS = 25;
+  const relevanceOkForFreshness =
+    rel >= MIN_REL_FOR_FRESHNESS ||
+    specificHits >= 1 ||
+    dateAdj.points > 0 ||
+    (routeBoost > 0 && rel >= 10);
+  if (relevanceOkForFreshness) {
+    score += fresh.points;
+    reasons.push(`鮮度:${fresh.reason}(${fresh.points >= 0 ? "+" : ""}${fresh.points})`);
+  } else if (fresh.points !== 0) {
+    reasons.push(`鮮度不加点(関連不足 rel=${rel})`);
   }
+
+  // 投稿ページ: 意図一致を厳しく（1語・汎用語のみは原則不採用）
+  // ※ URL段階（title/本文なし）ではペナルティしない（本文取得前に候補落ちするのを防ぐ）
+  const hasContent = Boolean(title.trim() || body.trim());
+  if (pageType === "news" && hasContent) {
+    // 対象日一致（dateAdj>0）または、日付が取れない鮮度系お知らせのみ「強い意図」
+    // 未来の別日休診（dateAdj<0）はここに入れない
+    const strongFreshIntent =
+      dateAdj.points > 0 ||
+      (dateAdj.points === 0 &&
+        /休診|ワクチン|インフルエンザ|面会制限|受付変更|臨時/.test(hayTitle) &&
+        needsNewsFreshnessQuery(originalMsg) &&
+        specificHits >= 1 &&
+        titleAnyHits >= 1 &&
+        fresh.points >= 45);
+
+    if (!strongFreshIntent) {
+      if (specificHits === 0 && genericHits >= 1) {
+        score -= 140;
+        reasons.push("投稿:汎用語のみ一致(-140)");
+      } else if (specificHits + genericHits <= 1) {
+        score -= 120;
+        reasons.push("投稿:一致語1語のみ(-120)");
+      } else if (specificHits < 1 || titleSpecificHits < 1) {
+        score -= 70;
+        reasons.push("投稿:タイトル意図一致不足(-70)");
+      }
+      // 本文が薄い投稿
+      if ((chunk.charCount || body.length) < 80) {
+        score -= 30;
+        reasons.push("投稿:本文薄い(-30)");
+      }
+    } else if (specificHits >= 1 || dateAdj.points > 0) {
+      // 鮮度が重要な意図一致投稿は高評価を維持（関連確認済みのときのみ）
+      if (relevanceOkForFreshness && fresh.points >= 70) {
+        score += 30;
+        reasons.push("投稿:鮮度重要かつ意図一致(+30)");
+      }
+    }
+
+    if (rel < 30 && fresh.points < 40) {
+      score -= 25;
+      reasons.push("古い投稿かつ低関連(-25)");
+    }
+  }
+
+  // 絶対関連度ガード: 関連がほぼ無いページは総合点を大きく落とす
+  if (hasContent && rel < 12 && specificHits === 0 && routeBoost === 0 && dateAdj.points <= 0) {
+    score -= 80;
+    reasons.push(`絶対関連不足(-80 rel=${rel})`);
+  }
+
   // お知らせ一覧より個別投稿を優先
   try {
     const path = new URL(bareUrl).pathname.replace(/\/+$/, "") || "/";
@@ -1099,21 +1225,28 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
   } catch {
     /* ignore */
   }
-  // 新しいお知らせで関連が高いときは固定ページを超えられる
-  if (pageType === "news" && rel >= 40 && fresh.points >= 70) {
+  // 新しいお知らせで関連が高いときは固定ページを超えられる（意図一致が十分なとき）
+  if (
+    pageType === "news" &&
+    relevanceOkForFreshness &&
+    specificHits >= 1 &&
+    specificHits + genericHits >= 2 &&
+    titleAnyHits >= 1 &&
+    rel >= 40 &&
+    fresh.points >= 70
+  ) {
     score += 40;
     reasons.push("新しい関連お知らせ(+40)");
   }
 
-  // お知らせ本文の具体日付と「今日/明日」質問の整合
-  const dateAdj = datedNoticeAdjustment(originalMsg, chunk, tokyoNow);
   if (dateAdj.reason) {
     score += dateAdj.points;
     reasons.push(dateAdj.reason);
   }
 
-  // 「今日/明日の診療」系は直近の休診お知らせを優先（ただし過去日付は上で減点済み）
+  // 「今日/明日の診療」系は直近の休診お知らせを優先（関連がある場合のみ）
   if (
+    relevanceOkForFreshness &&
     /今日|明日|明後日|今週|午後は診|午前は診|休診|本日/.test(originalMsg) &&
     pageType === "news" &&
     (/休診/.test(hayBody) || /休診/.test(hayTitle)) &&
@@ -1186,6 +1319,9 @@ async function loadFreshKnowledgeForQuery(
   const list = await loadCandidateUrlList(opts);
   const routeBoostMap = buildRouteBoostMap(userMessage);
   const preferred = preferredUrlsForMessage(userMessage).map((u) => u.split("#")[0]);
+  const clinicStrong = Boolean(opts.clinicKnowledgeStrong);
+  const allowNews =
+    !clinicStrong || needsNewsFreshnessQuery(userMessage) || Boolean(opts.allowNews);
 
   /** @type {UrlEntry[]} */
   let entries = [...(list.entries || [])];
@@ -1193,6 +1329,31 @@ async function loadFreshKnowledgeForQuery(
   for (const u of preferred) {
     if (!entries.some((e) => e.url.split("#")[0] === u || e.url === u)) {
       entries.unshift({ url: u, lastmod: null, pageType: classifyPageType(u) });
+    }
+  }
+
+  /** 除外ログ用 */
+  const excludedCandidates = [];
+  if (!allowNews) {
+    const before = entries.length;
+    entries = entries.filter((e) => {
+      const pt = e.pageType || classifyPageType(e.url);
+      if (pt === "news" || pt === "monologue") {
+        excludedCandidates.push({
+          url: e.url,
+          reason: "clinic-knowledge強ヒットのため投稿候補を除外",
+        });
+        return false;
+      }
+      return true;
+    });
+    if (before && !entries.length) {
+      // 固定が空なら preferred のみ残す
+      entries = preferred.map((url) => ({
+        url,
+        lastmod: null,
+        pageType: classifyPageType(url),
+      }));
     }
   }
 
@@ -1206,14 +1367,25 @@ async function loadFreshKnowledgeForQuery(
       debug: {
         urlListFromCache: list.fromCache,
         candidateCount: 0,
+        candidateUrls: [],
+        retrievedUrls: [],
+        evidenceUrls: [],
+        chipUrls: [],
+        excludedUrls: excludedCandidates,
         scoredCandidates: [],
         fetched: [],
         passedToGpt: [],
         searchQuery,
+        clinicKnowledgeStrong: clinicStrong,
         routeMatches: matchSiteRoutes(userMessage).map((r) => r.id),
       },
     };
   }
+
+  const candidateUrls = entries.map((e) => e.url);
+  const minSnippet = clinicStrong
+    ? Math.max(MIN_SNIPPET_SCORE, Math.floor(MIN_SITE_EVIDENCE_WITH_CLINIC * 0.7))
+    : MIN_SNIPPET_SCORE;
 
   const preScored = entries
     .map((e) => {
@@ -1237,6 +1409,8 @@ async function loadFreshKnowledgeForQuery(
     )
   ).filter(Boolean);
 
+  const retrievedUrls = chunks.map((c) => c.url);
+
   // 本文取得後に再スコア（内部検索クエリ＋元質問の日付整合）
   const rescored = chunks
     .map((c) => {
@@ -1245,24 +1419,87 @@ async function loadFreshKnowledgeForQuery(
     })
     .sort((a, b) => (b.score || 0) - (a.score || 0));
 
+  // clinic強ヒット時は投稿をさらに厳しく落とす
+  for (const c of rescored) {
+    if (
+      clinicStrong &&
+      (c.pageType === "news" || classifyPageType(c.url) === "news") &&
+      !needsNewsFreshnessQuery(userMessage)
+    ) {
+      c.score = (c.score || 0) - 100;
+      c.scoreReasons = [...(c.scoreReasons || []), "clinic強ヒット時の投稿減点(-100)"];
+      excludedCandidates.push({
+        url: c.url,
+        reason: "clinic-knowledgeで回答可能のため投稿を減点",
+        score: c.score,
+      });
+    }
+  }
+  rescored.sort((a, b) => (b.score || 0) - (a.score || 0));
+
   const topScore = rescored[0]?.score || 0;
   // 先頭と大きく差がある低関連ページは GPT に渡さない（誤根拠防止）
-  const strong = rescored.filter(
-    (c) => (c.score || 0) >= MIN_SNIPPET_SCORE && (c.score || 0) >= topScore * 0.72
+  let strong = rescored.filter(
+    (c) => (c.score || 0) >= minSnippet && (c.score || 0) >= topScore * 0.72
   );
+  // 日付不一致のお知らせは GPT 根拠からも除外
+  if (needsNewsFreshnessQuery(userMessage)) {
+    strong = strong.filter((c) => {
+      const pt = c.pageType || classifyPageType(c.url);
+      if (pt !== "news") return true;
+      const bad = (c.scoreReasons || []).some((r) => /対象日以外|過去日付/.test(r));
+      if (bad) {
+        excludedCandidates.push({
+          url: c.url,
+          reason: "日付不一致のお知らせをGPT根拠除外",
+          score: c.score,
+        });
+      }
+      return !bad;
+    });
+  }
+
+  const evidenceMeta = selectEvidenceAndChipUrls(strong, {
+    clinicKnowledgeStrong: clinicStrong,
+    userMessage,
+  });
 
   return {
     chunks: strong,
     allScoredChunks: rescored,
-    referenceUrls: strong.map((c) => c.url).slice(0, 40),
+    referenceUrls: evidenceMeta.evidenceUrls.map((e) => e.url).slice(0, 40),
     knowledgeText: "",
     error: strong.length ? null : rescored.length ? "low_score" : "no_chunks",
     fetchMode: list.fetchMode,
+    evidenceUrls: evidenceMeta.evidenceUrls,
+    chipUrls: evidenceMeta.chipUrls,
     debug: {
       urlListFromCache: Boolean(list.fromCache),
       forceRefresh: Boolean(opts.forceRefresh),
-      minSnippetScore: MIN_SNIPPET_SCORE,
+      minSnippetScore: minSnippet,
+      minChipScore: MIN_CHIP_SCORE,
+      clinicKnowledgeStrong: clinicStrong,
+      allowNews,
       candidateCount: entries.length,
+      candidateUrls: candidateUrls.slice(0, 40),
+      retrievedUrls,
+      evidenceUrls: evidenceMeta.evidenceUrls,
+      chipUrls: evidenceMeta.chipUrls,
+      excludedUrls: [
+        ...excludedCandidates,
+        ...evidenceMeta.excluded.map((e) => ({
+          url: e.url,
+          reason: e.reason,
+          score: e.score,
+        })),
+        ...rescored
+          .filter((c) => !strong.some((s) => s.url === c.url))
+          .map((c) => ({
+            url: c.url,
+            reason: `GPT根拠未満(score=${c.score}, min=${minSnippet})`,
+            score: c.score,
+          })),
+      ].slice(0, 40),
       searchQuery,
       tokyoNow: formatJaYmd(getTokyoNowParts(now)),
       routeMatches: matchSiteRoutes(userMessage).map((r) => ({
@@ -1290,8 +1527,130 @@ async function loadFreshKnowledgeForQuery(
         url: c.url,
         score: c.score,
         charCount: c.charCount,
+        chipEligible: evidenceMeta.chipUrls.some((u) => u.url === rewriteLegacyKanaiUrl(c.url)),
       })),
     },
+  };
+}
+
+/**
+ * 回答根拠URLとチップURLを分離して選定
+ * @param {KnowledgeChunk[]} chunks GPTに渡す候補
+ * @param {{ clinicKnowledgeStrong?: boolean, userMessage?: string }} opts
+ */
+export function selectEvidenceAndChipUrls(chunks, opts = {}) {
+  const clinicStrong = Boolean(opts.clinicKnowledgeStrong);
+  const minEvidence = clinicStrong ? MIN_SITE_EVIDENCE_WITH_CLINIC : MIN_SNIPPET_SCORE;
+  const minChip = clinicStrong
+    ? Math.max(MIN_CHIP_SCORE, MIN_SITE_EVIDENCE_WITH_CLINIC)
+    : MIN_CHIP_SCORE;
+
+  /** @type {Array<{ url: string, title: string, score: number, reason: string }>} */
+  const evidenceUrls = [];
+  /** @type {Array<{ url: string, title: string, score: number, reason: string }>} */
+  const chipUrls = [];
+  /** @type {Array<{ url: string, reason: string, score?: number }>} */
+  const excluded = [];
+
+  for (const c of chunks || []) {
+    const url = rewriteLegacyKanaiUrl(c?.url);
+    const score = Number(c?.score) || 0;
+    const title = String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || url;
+    const pageType = c.pageType || classifyPageType(url);
+
+    if (!url || isGenericKanaiHomeUrl(url)) {
+      excluded.push({ url: c?.url || "", reason: "TOP/無効URL", score });
+      continue;
+    }
+    if (score < minEvidence) {
+      excluded.push({
+        url,
+        reason: `根拠スコア不足(${score}<${minEvidence})`,
+        score,
+      });
+      continue;
+    }
+    // clinic強ヒット時、投稿は鮮度質問以外チップにしない
+    if (
+      clinicStrong &&
+      pageType === "news" &&
+      !needsNewsFreshnessQuery(opts.userMessage || "")
+    ) {
+      excluded.push({
+        url,
+        reason: "clinic-knowledge回答可能のため投稿をチップ除外",
+        score,
+      });
+      continue;
+    }
+    // 今日/明日質問で「対象日以外」と判定された投稿は根拠・チップにしない
+    const reasons = c.scoreReasons || [];
+    if (
+      pageType === "news" &&
+      needsNewsFreshnessQuery(opts.userMessage || "") &&
+      reasons.some((r) => /対象日以外|過去日付/.test(r))
+    ) {
+      excluded.push({
+        url,
+        reason: "日付不一致の休診お知らせを根拠除外",
+        score,
+      });
+      continue;
+    }
+    if (reasons.some((r) => /絶対関連不足|汎用語のみ|一致語1語のみ|鮮度不加点/.test(r))) {
+      // 鮮度不加点だけでは除外しないが、絶対関連不足・汎用語のみは除外
+      if (reasons.some((r) => /絶対関連不足|汎用語のみ|一致語1語のみ/.test(r))) {
+        excluded.push({
+          url,
+          reason: "関連ガードにより根拠除外",
+          score,
+        });
+        continue;
+      }
+    }
+    // 投稿はタイトル/見出し一致 or 複数関連語が無いとチップ不可
+    if (pageType === "news") {
+      const newsChipOk =
+        reasons.some((r) => /見出し一致|お知らせ日付が質問日と一致|トピック一致/.test(r)) &&
+        !reasons.some((r) => /汎用語のみ|一致語1語のみ|タイトル意図一致不足|絶対関連不足/.test(r));
+      if (!newsChipOk) {
+        excluded.push({
+          url,
+          reason: "投稿:タイトル/意図一致が弱くチップ除外",
+          score,
+        });
+        // 根拠にも使わない（誤った休診案内防止）
+        continue;
+      }
+    }
+
+    evidenceUrls.push({
+      url,
+      title,
+      score,
+      reason: `GPT根拠採用(score=${score}>=${minEvidence})`,
+    });
+
+    if (score >= minChip) {
+      chipUrls.push({
+        url,
+        title,
+        score,
+        reason: `チップ採用(score=${score}>=${minChip})`,
+      });
+    } else {
+      excluded.push({
+        url,
+        reason: `チップ閾値未満(${score}<${minChip})・根拠のみ`,
+        score,
+      });
+    }
+  }
+
+  return {
+    evidenceUrls: evidenceUrls.slice(0, SNIPPET_TOP_CHUNKS),
+    chipUrls: chipUrls.slice(0, 1),
+    excluded,
   };
 }
 
@@ -1327,21 +1686,9 @@ export function selectReferencedChunks(userMessage, state) {
   return sorted.filter((c) => (c.score || 0) >= MIN_SNIPPET_SCORE).slice(0, SNIPPET_TOP_CHUNKS);
 }
 
-export function sourcePagesFromChunks(chunks) {
-  const seen = new Set();
-  const out = [];
-  for (const c of chunks || []) {
-    const url = rewriteLegacyKanaiUrl(c?.url);
-    if (!url || seen.has(url) || isGenericKanaiHomeUrl(url)) continue;
-    // 低スコアはチップに出さない
-    if (typeof c.score === "number" && c.score < MIN_SNIPPET_SCORE) continue;
-    seen.add(url);
-    out.push({
-      url,
-      title: String(labelForKnowledgeChunk(c)).replace(/\s+/g, " ").trim() || url,
-    });
-  }
-  return out;
+export function sourcePagesFromChunks(chunks, opts = {}) {
+  const { chipUrls } = selectEvidenceAndChipUrls(chunks || [], opts);
+  return chipUrls.map((c) => ({ url: c.url, title: c.title }));
 }
 
 export function buildSiteKnowledgeSnippet(
@@ -1409,28 +1756,66 @@ function buildSinglePageSnippet(state, fallbackTitle, fallbackUrl) {
 
 /**
  * @param {string} userMessage
- * @param {{ forceRefresh?: boolean, includeDebug?: boolean }} [opts]
+ * @param {{ forceRefresh?: boolean, includeDebug?: boolean, clinicKnowledgeStrong?: boolean }} [opts]
  */
 export async function getSiteKnowledgeSnippetSupplement(userMessage, opts = {}) {
-  if (isAttendFocusedQuery(userMessage)) {
+  // clinic-knowledgeが十分強いときは、単一ページ強制より通常検索（固定ページ補助）を優先しない
+  // 面会・立ち会いは意図が明確なため従来どおり専用ページを根拠にする
+  const forceTopicPage = !opts.clinicKnowledgeStrong;
+
+  if (forceTopicPage && isAttendFocusedQuery(userMessage)) {
     const state = await loadAttendPageOnlyState();
     const built = buildSinglePageSnippet(state, "立ち会い分娩について", ATTEND_INFO_PAGE_URL);
+    const chip = {
+      url: ATTEND_INFO_PAGE_URL,
+      title: "立ち会い分娩について",
+      score: built.sourceChunks?.[0]?.score || MIN_CHIP_SCORE,
+      reason: "立ち会い専用ページ",
+    };
     return {
       ...built,
       state,
+      evidenceUrls: [chip],
+      chipUrls: [chip],
       debug: opts.includeDebug
-        ? { mode: "attend_only", url: ATTEND_INFO_PAGE_URL, forceRefresh: opts.forceRefresh }
+        ? {
+            mode: "attend_only",
+            url: ATTEND_INFO_PAGE_URL,
+            forceRefresh: opts.forceRefresh,
+            evidenceUrls: [chip],
+            chipUrls: [chip],
+            candidateUrls: [ATTEND_INFO_PAGE_URL],
+            retrievedUrls: built.sourceChunks?.map((c) => c.url) || [],
+            excludedUrls: [],
+          }
         : undefined,
     };
   }
-  if (isMeetingFocusedQuery(userMessage)) {
+  if (forceTopicPage && isMeetingFocusedQuery(userMessage)) {
     const state = await loadMeetingPageOnlyState();
     const built = buildSinglePageSnippet(state, "面会について", MEETING_INFO_PAGE_URL);
+    const chip = {
+      url: MEETING_INFO_PAGE_URL,
+      title: "面会について",
+      score: built.sourceChunks?.[0]?.score || MIN_CHIP_SCORE,
+      reason: "面会専用ページ",
+    };
     return {
       ...built,
       state,
+      evidenceUrls: [chip],
+      chipUrls: [chip],
       debug: opts.includeDebug
-        ? { mode: "meeting_only", url: MEETING_INFO_PAGE_URL, forceRefresh: opts.forceRefresh }
+        ? {
+            mode: "meeting_only",
+            url: MEETING_INFO_PAGE_URL,
+            forceRefresh: opts.forceRefresh,
+            evidenceUrls: [chip],
+            chipUrls: [chip],
+            candidateUrls: [MEETING_INFO_PAGE_URL],
+            retrievedUrls: built.sourceChunks?.map((c) => c.url) || [],
+            excludedUrls: [],
+          }
         : undefined,
     };
   }
@@ -1466,6 +1851,8 @@ export async function getSiteKnowledgeSnippetSupplement(userMessage, opts = {}) 
     sourceChunks,
     confidence,
     state,
+    evidenceUrls: built.evidenceUrls || [],
+    chipUrls: built.chipUrls || [],
     debug: opts.includeDebug ? built.debug : undefined,
   };
 }
@@ -1512,5 +1899,7 @@ export function peekSiteKnowledgeStatus() {
     maxCharsPerPage: DEFAULT_MAX_CHARS,
     snippetTopChunks: SNIPPET_TOP_CHUNKS,
     minSnippetScore: MIN_SNIPPET_SCORE,
+    minChipScore: MIN_CHIP_SCORE,
+    minSiteEvidenceWithClinic: MIN_SITE_EVIDENCE_WITH_CLINIC,
   };
 }
