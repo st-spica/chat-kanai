@@ -80,6 +80,30 @@ import {
   buildMorningSicknessAnswer,
   isMorningSicknessQuery,
 } from "../data/morning-sickness.js";
+import {
+  buildBreastfeedingMedicationAnswer,
+  buildPregnancyFolicAcidAnswer,
+  buildPregnancyMedicationAnswer,
+  isBreastfeedingMedicationQuery,
+  isPregnancyFolicAcidQuery,
+  isPregnancyMedicationQuery,
+  pregnancyMedContextText,
+} from "../data/pregnancy-medication.js";
+import {
+  breechContextText,
+  buildBreechPresentationAnswer,
+  isBreechPresentationQuery,
+} from "../data/pregnancy-breech.js";
+import {
+  buildPregnancyWeightAnswer,
+  isPregnancyWeightQuery,
+  pregnancyWeightContextText,
+} from "../data/pregnancy-weight.js";
+import {
+  buildLaborHospitalContactAnswer,
+  isLaborHospitalContactQuery,
+  laborContactContextText,
+} from "../data/labor-contact.js";
 
 const WEB_RESERVATION_NO_INFO_ANSWER =
   "WEB予約について確認できる情報がありません。お手数ですが、当院へお電話でお問い合わせください。";
@@ -940,6 +964,7 @@ const SYSTEM = `
 ・【分娩料金】予約金（10,000円）と予納金（100,000円／300,000円）を混同しない。予約金のうち5,000円は入院費への精算であり「5,000円のみ返金不可」と誤解釈しない。金額は確定データ以外から推測しない。産後ケア料金に分娩料金を流用しない。きょうだい割引・パパママ割引は分娩料金ページの制度であり、分娩予約特典ページと混同しない。
 ・【出産費用割引】きょうだい割引＝過去に当院で出産された方（15,000円）。パパママ割引＝ご夫婦のどちらかが当院で生まれた方（10,000円）。名称から条件を推測しない。「パートナー同伴で割引」「夫婦受診で割引」「二人目なら必ず割引」「同じ家庭の二人目なら割引」は禁止。
 ・【つわり】セルフケアは相談内容に合わせて1〜3点だけ。9項目の列挙禁止。水分がとれない・反復嘔吐・体重減少などは受診案内を優先。妊娠悪阻などの診断名を断定しない。「必ず治る」「食べられなくても大丈夫」は禁止。緊急症状は救急誘導を優先。
+・【妊娠中の服薬】個別の薬の安全性・胎児影響・服用の継続／中止をAIが判断しない。「安全です」「絶対ダメ」「すぐに中止」「すべて避ける」は禁止。医師相談を案内する。授乳中の服薬・葉酸・小児予防接種と混同しない。葉酸はサプリ案内可（当院販売あり）。
 ・【一般不妊相談】不妊治療・妊活の質問では診療時間表を出さない。対応は一般不妊相談に限り、妊娠を急がない方向けのタイミング療法・排卵誘発法（内服薬処方）のみ。担当医・曜日は推測せず診療体制表を案内する。体外受精・人工授精・顕微授精を一般不妊相談の根拠だけで対応可能としない。
 
 【絶対に守る基本原則】
@@ -1564,6 +1589,8 @@ function detectEmergency(text) {
   if (keywords.some((k) => t.includes(k.toLowerCase()))) return true;
   // 「意識がもうろうとします」など
   if (/意識.{0,8}もうろう|もうろうと(?:し|な)/.test(t)) return true;
+  // 服薬後の重篤なアレルギー反応など
+  if (/呼吸困難|顔.{0,6}腫れ|喉.{0,6}腫れ/.test(t)) return true;
   // 乳児の呼吸苦・重篤サインは緊急優先
   if (isInfantUrgentSymptomMessage(text)) return true;
   return false;
@@ -3087,6 +3114,193 @@ export default async function handler(req, res) {
       });
     }
 
+    const safeHistory = sanitizeHistory(history);
+    const includeDebugEarly = shouldIncludeSiteKnowledgeDebug(req);
+
+    // 骨盤位文脈の緊急症状は、通常のさかご説明より受診・連絡を優先
+    if (
+      isBreechPresentationQuery(
+        userMessage,
+        breechContextText(safeHistory, userMessage)
+      )
+    ) {
+      const breechUrgent = buildBreechPresentationAnswer(
+        userMessage,
+        safeHistory
+      );
+      if (breechUrgent?.medicalSafetyLevel === "urgent") {
+        const answer = stripServiceGushPhrases(
+          String(breechUrgent.answer || "").trim()
+        );
+        const gestationalWeek =
+          breechUrgent.gestationalWeek != null
+            ? breechUrgent.gestationalWeek
+            : null;
+        await appendChatLog({
+          message: userMessage,
+          answer,
+          clientId,
+          meta: {
+            emergency: true,
+            intent: "breech_presentation_consultation",
+            medicalSafetyLevel: "urgent",
+            gestationalWeek,
+          },
+        });
+        const payload = {
+          answer,
+          emergency: true,
+          referencedPages: [],
+        };
+        if (includeDebugEarly) {
+          payload.detectedIntent = "breech_presentation_consultation";
+          payload.matchedClinicKnowledge = [
+            {
+              id: "pregnancy-breech-presentation",
+              intent: "breech_presentation_consultation",
+              service: "obstetrics",
+              score: 100,
+            },
+          ];
+          payload.gestationalWeek = gestationalWeek;
+          payload.medicalSafetyLevel = "urgent";
+          payload.debug = {
+            detectedIntent: "breech_presentation_consultation",
+            matchedClinicKnowledge: payload.matchedClinicKnowledge,
+            gestationalWeek,
+            medicalSafetyLevel: "urgent",
+            note: "骨盤位文脈の緊急症状。受診・連絡を優先",
+          };
+        }
+        return res.status(200).json(payload);
+      }
+    }
+
+    // 体重管理文脈の緊急症状（頭痛・視覚異常など）は生活アドバイスより受診優先
+    if (
+      isPregnancyWeightQuery(
+        userMessage,
+        pregnancyWeightContextText(safeHistory, userMessage)
+      )
+    ) {
+      const weightUrgent = buildPregnancyWeightAnswer(
+        userMessage,
+        safeHistory
+      );
+      if (weightUrgent?.medicalSafetyLevel === "urgent") {
+        const answer = stripServiceGushPhrases(
+          String(weightUrgent.answer || "").trim()
+        );
+        const prePregnancyBMI =
+          weightUrgent.prePregnancyBMI != null
+            ? weightUrgent.prePregnancyBMI
+            : null;
+        await appendChatLog({
+          message: userMessage,
+          answer,
+          clientId,
+          meta: {
+            emergency: true,
+            intent: "pregnancy_weight_management",
+            medicalSafetyLevel: "urgent",
+            prePregnancyBMI,
+          },
+        });
+        const payload = {
+          answer,
+          emergency: true,
+          referencedPages: [],
+        };
+        if (includeDebugEarly) {
+          payload.detectedIntent = "pregnancy_weight_management";
+          payload.matchedClinicKnowledge = [
+            {
+              id: "pregnancy-weight-gain",
+              intent: "pregnancy_weight_management",
+              service: "pregnancy_health_support",
+              score: 100,
+            },
+          ];
+          payload.prePregnancyBMI = prePregnancyBMI;
+          payload.selectedWeightGuideline =
+            weightUrgent.selectedWeightGuideline ?? null;
+          payload.medicalSafetyLevel = "urgent";
+          payload.debug = {
+            detectedIntent: "pregnancy_weight_management",
+            matchedClinicKnowledge: payload.matchedClinicKnowledge,
+            prePregnancyBMI,
+            selectedWeightGuideline: payload.selectedWeightGuideline,
+            medicalSafetyLevel: "urgent",
+            note: "体重管理文脈の緊急症状。受診・連絡を優先",
+          };
+        }
+        return res.status(200).json(payload);
+      }
+    }
+
+    // 陣痛・破水・出血・胎動減少は一般説明より病院連絡を優先
+    if (
+      isLaborHospitalContactQuery(
+        userMessage,
+        laborContactContextText(safeHistory, userMessage)
+      )
+    ) {
+      const laborBuilt = buildLaborHospitalContactAnswer(
+        userMessage,
+        safeHistory
+      );
+      if (
+        laborBuilt?.medicalSafetyLevel === "urgent" ||
+        laborBuilt?.medicalSafetyLevel === "contact_now"
+      ) {
+        const answer = stripServiceGushPhrases(
+          String(laborBuilt.answer || "").trim()
+        );
+        const isUrgent = laborBuilt.medicalSafetyLevel === "urgent";
+        await appendChatLog({
+          message: userMessage,
+          answer,
+          clientId,
+          meta: {
+            emergency: isUrgent,
+            intent: "labor_hospital_contact",
+            medicalSafetyLevel: laborBuilt.medicalSafetyLevel,
+            parity: laborBuilt.parity,
+            contractionInterval: laborBuilt.contractionInterval,
+          },
+        });
+        const payload = {
+          answer,
+          emergency: isUrgent,
+          referencedPages: [],
+        };
+        if (includeDebugEarly) {
+          payload.detectedIntent = "labor_hospital_contact";
+          payload.matchedClinicKnowledge = [
+            {
+              id: "labor-hospital-contact-timing",
+              intent: "labor_hospital_contact",
+              service: "childbirth",
+              score: 100,
+            },
+          ];
+          payload.parity = laborBuilt.parity ?? null;
+          payload.contractionInterval =
+            laborBuilt.contractionInterval ?? null;
+          payload.medicalSafetyLevel = laborBuilt.medicalSafetyLevel;
+          payload.debug = {
+            detectedIntent: "labor_hospital_contact",
+            matchedClinicKnowledge: payload.matchedClinicKnowledge,
+            parity: payload.parity,
+            contractionInterval: payload.contractionInterval,
+            medicalSafetyLevel: laborBuilt.medicalSafetyLevel,
+            note: "陣痛連絡。破水・出血・胎動・閾値到達は連絡優先",
+          };
+        }
+        return res.status(200).json(payload);
+      }
+    }
+
     // 危険サインはモデルに投げずに即時誘導（安全のため）
     if (detectEmergency(userMessage)) {
       const answer = emergencyMessage();
@@ -3107,8 +3321,6 @@ export default async function handler(req, res) {
         emergency: false,
       });
     }
-
-    const safeHistory = sanitizeHistory(history);
 
     const casualGreetingOnly = isCasualGreetingOnlyMessage(userMessage, safeHistory);
 
@@ -3434,6 +3646,429 @@ export default async function handler(req, res) {
         payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
         payload.rejectedKnowledge = clinicRejected;
         payload.referenceChips = referencedPages;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 骨盤位（さかご・逆子）。週数別案内。体操・外回転の可否は断定しない
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isBreechPresentationQuery(
+        userMessage,
+        breechContextText(safeHistory, userMessage)
+      )
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "pregnancy-breech-presentation" ||
+          h.item?.intent === "breech_presentation_consultation"
+      );
+      const built = buildBreechPresentationAnswer(userMessage, safeHistory);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      const safety = built?.medicalSafetyLevel || "information";
+      const isUrgent = safety === "urgent";
+      const gestationalWeek =
+        built?.gestationalWeek != null ? built.gestationalWeek : null;
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "breech_presentation_consultation",
+          detectedService: "obstetrics",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "pregnancy-breech-presentation",
+                  intent: "breech_presentation_consultation",
+                  service: "obstetrics",
+                  score: 100,
+                },
+              ],
+          gestationalWeek,
+          medicalSafetyLevel: safety,
+          rejectedKnowledge: clinicRejected,
+          note: "骨盤位は週数別案内。体操・薬・外回転の実施可否は断定しない。帝王切開一般と分離",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "breech_presentation_consultation",
+          service: "obstetrics",
+          breechPresentation: true,
+          gestationalWeek,
+          medicalSafetyLevel: safety,
+          emergency: isUrgent,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: isUrgent,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "breech_presentation_consultation";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.gestationalWeek = gestationalWeek;
+        payload.medicalSafetyLevel = safety;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 陣痛の病院連絡タイミング（初産10分／経産15分。緊急は連絡優先）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isLaborHospitalContactQuery(
+        userMessage,
+        laborContactContextText(safeHistory, userMessage)
+      )
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "labor-hospital-contact-timing" ||
+          h.item?.intent === "labor_hospital_contact"
+      );
+      const built = buildLaborHospitalContactAnswer(userMessage, safeHistory);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      const safety = built?.medicalSafetyLevel || "information";
+      const isUrgent = safety === "urgent";
+      const parity = built?.parity ?? null;
+      const contractionInterval =
+        built?.contractionInterval != null ? built.contractionInterval : null;
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "labor_hospital_contact",
+          detectedService: "childbirth",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "labor-hospital-contact-timing",
+                  intent: "labor_hospital_contact",
+                  service: "childbirth",
+                  score: 100,
+                },
+              ],
+          parity,
+          contractionInterval,
+          medicalSafetyLevel: safety,
+          rejectedKnowledge: clinicRejected,
+          note: "陣痛連絡は初産10分／経産15分。破水・出血・胎動は間隔を待たない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "labor_hospital_contact",
+          service: "childbirth",
+          laborContact: true,
+          parity,
+          contractionInterval,
+          medicalSafetyLevel: safety,
+          emergency: isUrgent,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: isUrgent,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "labor_hospital_contact";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.parity = parity;
+        payload.contractionInterval = contractionInterval;
+        payload.medicalSafetyLevel = safety;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 妊娠中の体重管理（BMI別目安。個別減量目標・責める表現は禁止）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isPregnancyWeightQuery(
+        userMessage,
+        pregnancyWeightContextText(safeHistory, userMessage)
+      )
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "pregnancy-weight-gain" ||
+          h.item?.intent === "pregnancy_weight_management"
+      );
+      const built = buildPregnancyWeightAnswer(userMessage, safeHistory);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      const safety = built?.medicalSafetyLevel || "information";
+      const isUrgent = safety === "urgent";
+      const prePregnancyBMI =
+        built?.prePregnancyBMI != null ? built.prePregnancyBMI : null;
+      const selectedWeightGuideline =
+        built?.selectedWeightGuideline ?? null;
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "pregnancy_weight_management",
+          detectedService: "pregnancy_health_support",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "pregnancy-weight-gain",
+                  intent: "pregnancy_weight_management",
+                  service: "pregnancy_health_support",
+                  score: 100,
+                },
+              ],
+          prePregnancyBMI,
+          selectedWeightGuideline,
+          medicalSafetyLevel: safety,
+          rejectedKnowledge: clinicRejected,
+          note: "体重管理はBMI別目安。個別減量目標は断定しない。つわり主体と分離",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "pregnancy_weight_management",
+          service: "pregnancy_health_support",
+          pregnancyWeight: true,
+          prePregnancyBMI,
+          selectedWeightGuideline,
+          medicalSafetyLevel: safety,
+          emergency: isUrgent,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: isUrgent,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "pregnancy_weight_management";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.prePregnancyBMI = prePregnancyBMI;
+        payload.selectedWeightGuideline = selectedWeightGuideline;
+        payload.medicalSafetyLevel = safety;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 葉酸サプリ（服薬一般・授乳中と分離）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isPregnancyFolicAcidQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "pregnancy-folic-acid" ||
+          h.item?.intent === "pregnancy_folic_acid"
+      );
+      const built = buildPregnancyFolicAcidAnswer(userMessage, safeHistory);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "pregnancy_folic_acid",
+          detectedService: "pregnancy_health_support",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          medicalSafetyLevel: built?.medicalSafetyLevel || "folic",
+          rejectedKnowledge: clinicRejected,
+          note: "葉酸は院内販売あり。過剰摂取や個別用量は断定しない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "pregnancy_folic_acid",
+          service: "pregnancy_health_support",
+          folicAcid: true,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "pregnancy_folic_acid";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.medicalSafetyLevel = built?.medicalSafetyLevel || "folic";
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 授乳中の服薬（妊娠中の服薬ルールを流用しない）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isBreastfeedingMedicationQuery(userMessage)
+    ) {
+      const built = buildBreastfeedingMedicationAnswer(userMessage);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim()
+      );
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "breastfeeding_medication_consultation",
+          detectedService: "postpartum_care",
+          matchedClinicKnowledge: [],
+          medicalSafetyLevel: built?.medicalSafetyLevel || "consult",
+          rejectedKnowledge: clinicRejected,
+          note: "授乳中の服薬に妊娠中ルールを流用しない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "breastfeeding_medication_consultation",
+          breastfeedingMedication: true,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "breastfeeding_medication_consultation";
+        payload.medicalSafetyLevel = built?.medicalSafetyLevel || "consult";
+        payload.matchedClinicKnowledge = [];
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 妊娠中の服薬（安全性の断定禁止。医師相談を案内）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isPregnancyMedicationQuery(
+        userMessage,
+        pregnancyMedContextText(safeHistory, userMessage)
+      )
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "pregnancy-medication-consultation" ||
+          h.item?.intent === "pregnancy_medication_consultation"
+      );
+      const built = buildPregnancyMedicationAnswer(userMessage, safeHistory);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      const safety = built?.medicalSafetyLevel || "information";
+      const isUrgent = safety === "urgent";
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "pregnancy_medication_consultation",
+          detectedService: "pregnancy_health_support",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          medicalSafetyLevel: safety,
+          rejectedKnowledge: clinicRejected,
+          note: "妊娠中の服薬は安全性を断定しない。授乳・葉酸・小児ワクチンと分離",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "pregnancy_medication_consultation",
+          service: "pregnancy_health_support",
+          pregnancyMedication: true,
+          medicalSafetyLevel: safety,
+          emergency: isUrgent,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: isUrgent,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "pregnancy_medication_consultation";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.medicalSafetyLevel = safety;
+        payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(payload);
     }

@@ -54,6 +54,14 @@ import {
   isPostpartumCareFeeQuery,
 } from "../data/birth-pricing.js";
 import { isMorningSicknessQuery } from "../data/morning-sickness.js";
+import {
+  isBreastfeedingMedicationQuery,
+  isPregnancyFolicAcidQuery,
+  isPregnancyMedicationQuery,
+} from "../data/pregnancy-medication.js";
+import { isBreechPresentationQuery } from "../data/pregnancy-breech.js";
+import { isPregnancyWeightQuery } from "../data/pregnancy-weight.js";
+import { isLaborHospitalContactQuery } from "../data/labor-contact.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -149,6 +157,11 @@ export const STRICT_MATCH_INTENTS = new Set([
   "child_accompanied_visit",
   "infertility_consultation",
   "morning_sickness_consultation",
+  "pregnancy_medication_consultation",
+  "pregnancy_folic_acid",
+  "breech_presentation_consultation",
+  "pregnancy_weight_management",
+  "labor_hospital_contact",
   "birth_reservation_deposit",
   "birth_advance_payment",
   "birth_hospitalization_cost",
@@ -563,6 +576,32 @@ export function detectClinicIntent(userMessage) {
     return "morning_sickness_consultation";
   }
 
+  // 骨盤位（さかご）。帝王切開の一般相談と混同しない
+  if (isBreechPresentationQuery(msg)) {
+    return "breech_presentation_consultation";
+  }
+
+  // 妊娠中の体重管理（つわり主体・一般ダイエットと混同しない）
+  if (isPregnancyWeightQuery(msg)) {
+    return "pregnancy_weight_management";
+  }
+
+  // 陣痛の病院連絡タイミング（破水・出血・胎動減少は連絡優先）
+  if (isLaborHospitalContactQuery(msg)) {
+    return "labor_hospital_contact";
+  }
+
+  // 葉酸 / 妊娠中の服薬 / 授乳中の服薬（混同禁止）
+  if (isPregnancyFolicAcidQuery(msg)) {
+    return "pregnancy_folic_acid";
+  }
+  if (isBreastfeedingMedicationQuery(msg)) {
+    return "breastfeeding_medication_consultation";
+  }
+  if (isPregnancyMedicationQuery(msg)) {
+    return "pregnancy_medication_consultation";
+  }
+
   // 分娩料金（予約金・予納金・入院費・割引）。産後ケア料金は含めない
   {
     const birthIntent = detectBirthPricingIntent(msg);
@@ -864,8 +903,7 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
   // つわり相談は対象質問以外に流用しない
   if (
     item.id === "pregnancy-morning-sickness" ||
-    itemIntent === "morning_sickness_consultation" ||
-    itemService === "pregnancy_health_support"
+    itemIntent === "morning_sickness_consultation"
   ) {
     if (!isMorningSicknessQuery(msg)) {
       return {
@@ -873,6 +911,80 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["つわり相談:対象外質問のため除外"],
         rejected: true,
         rejectReason: "morning_sickness_consultationはつわり関連のみ",
+      };
+    }
+  }
+  // 骨盤位はさかご・逆子関連以外（帝王切開一般など）に流用しない
+  if (
+    item.id === "pregnancy-breech-presentation" ||
+    itemIntent === "breech_presentation_consultation"
+  ) {
+    if (!isBreechPresentationQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["骨盤位:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "breech_presentationはさかご・逆子関連のみ",
+      };
+    }
+  }
+  // 体重管理は妊娠体重関連以外に流用しない
+  if (
+    item.id === "pregnancy-weight-gain" ||
+    itemIntent === "pregnancy_weight_management"
+  ) {
+    if (!isPregnancyWeightQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["体重管理:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "pregnancy_weight_managementは妊娠中の体重関連のみ",
+      };
+    }
+  }
+  // 陣痛連絡は対象外（持ち物・料金など）に流用しない
+  if (
+    item.id === "labor-hospital-contact-timing" ||
+    itemIntent === "labor_hospital_contact"
+  ) {
+    if (!isLaborHospitalContactQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["陣痛連絡:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "labor_hospital_contactは陣痛・破水・出血・胎動関連のみ",
+      };
+    }
+  }
+  // 葉酸は葉酸質問以外に流用しない
+  if (
+    item.id === "pregnancy-folic-acid" ||
+    itemIntent === "pregnancy_folic_acid"
+  ) {
+    if (!isPregnancyFolicAcidQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["葉酸:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "pregnancy_folic_acidは葉酸関連のみ",
+      };
+    }
+  }
+  // 妊娠中の服薬は対象外（授乳・葉酸・つわり）に流用しない
+  if (
+    item.id === "pregnancy-medication-consultation" ||
+    itemIntent === "pregnancy_medication_consultation"
+  ) {
+    if (
+      !isPregnancyMedicationQuery(msg) ||
+      isPregnancyFolicAcidQuery(msg) ||
+      isBreastfeedingMedicationQuery(msg)
+    ) {
+      return {
+        score: 0,
+        reasons: ["妊娠中服薬:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "pregnancy_medicationは妊娠中の服薬のみ",
       };
     }
   }

@@ -877,6 +877,419 @@
       "priority": 100,
       "updatedAt": "2026-10-08",
       "enabled": true
+    },
+    {
+      "id": "pregnancy-medication-consultation",
+      "category": "妊娠期/薬の服用",
+      "intent": "pregnancy_medication_consultation",
+      "service": "pregnancy_health_support",
+      "target": "pregnant_patient",
+      "availability": "information",
+      "questionPatterns": [
+        "妊娠中に薬を飲んでも大丈夫ですか",
+        "妊娠中に薬を飲んでいいですか",
+        "妊婦でも飲める薬はありますか",
+        "妊娠中の薬について相談したい",
+        "妊娠に気づかず薬を飲んでしまいました",
+        "妊娠初期に薬を飲んでしまった",
+        "妊娠中に市販薬を飲んでもいいですか",
+        "妊娠中に頭痛薬を飲んでもいいですか",
+        "妊娠中に風邪薬を飲んでもいいですか",
+        "妊娠中に胃薬を飲んでもいいですか",
+        "妊娠中に処方薬を飲み続けても大丈夫ですか",
+        "妊娠したので薬をやめた方がいいですか",
+        "妊娠中に飲んだ薬が赤ちゃんに影響しませんか"
+      ],
+      "keywords": [
+        "妊娠中",
+        "妊娠初期",
+        "妊婦",
+        "服薬",
+        "内服",
+        "薬",
+        "お薬",
+        "市販薬",
+        "処方薬",
+        "頭痛薬",
+        "風邪薬",
+        "胃薬"
+      ],
+      "summary": "妊娠中の薬の服用には注意が必要です。妊娠中でも治療のために薬が必要な場合があります。服用の開始・中止・変更は自己判断せず医師に相談してください。",
+      "answer": "妊娠中のお薬は、種類や妊娠週数によって注意が必要な場合があります。一方で治療のためにお薬が必要なこともあります。自己判断で服用を始めたり中止したりせず、当院の医師にご相談ください。",
+      "careSource": "data/pregnancy-medication.js",
+      "responseRules": {
+        "tone": "empathetic",
+        "avoidDiagnosis": true,
+        "avoidMedicationSafetyJudgment": true,
+        "avoidSpecificDrugRecommendations": true,
+        "doNotRecommendStoppingPrescribedMedication": true,
+        "askFollowUpWhenNecessary": true
+      },
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true
+    },
+    {
+      "id": "pregnancy-folic-acid",
+      "category": "妊娠期/栄養・サプリメント",
+      "intent": "pregnancy_folic_acid",
+      "service": "pregnancy_health_support",
+      "target": "pregnant_patient",
+      "availability": "information",
+      "questionPatterns": [
+        "妊娠中に葉酸は必要ですか",
+        "葉酸サプリメントは飲んだ方がいいですか",
+        "葉酸はいつから飲めばいいですか",
+        "葉酸は妊娠中も必要ですか",
+        "葉酸サプリは病院で買えますか",
+        "葉酸のサプリメントは販売していますか"
+      ],
+      "keywords": [
+        "葉酸",
+        "サプリ",
+        "サプリメント",
+        "神経管閉鎖障害"
+      ],
+      "summary": "葉酸は妊娠前から妊娠初期にかけて重要な栄養素です。当院でも葉酸サプリメントを販売しています。",
+      "answer": "葉酸は、赤ちゃんの神経管閉鎖障害のリスクを減らすために大切な栄養素です。妊娠前から妊娠初期にかけては、食事に加えてサプリメントなどから葉酸を補うことが推奨されています。当院でも葉酸のサプリメントを販売しております。",
+      "careSource": "data/pregnancy-medication.js",
+      "clinicInformation": {
+        "folicAcidSupplementAvailable": true,
+        "description": "当院でも葉酸のサプリメントを販売しています。"
+      },
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true
+    },
+    {
+      "id": "pregnancy-breech-presentation",
+      "category": "妊娠期/骨盤位（さかご）",
+      "intent": "breech_presentation_consultation",
+      "service": "obstetrics",
+      "target": "pregnant_patient",
+      "availability": "information",
+      "questionPatterns": [
+        "さかごと言われました",
+        "逆子と言われました",
+        "赤ちゃんがさかごです",
+        "骨盤位と言われました",
+        "さかごは治りますか",
+        "逆子が治りません",
+        "逆子体操はした方がいいですか",
+        "さかご体操はいつから始めますか",
+        "妊娠30週で逆子です",
+        "妊娠32週で逆子が治りません",
+        "妊娠36週でも逆子です",
+        "逆子でも自然分娩できますか",
+        "逆子だと帝王切開になりますか",
+        "外回転術はできますか",
+        "骨盤位整復術は行っていますか",
+        "逆子の帝王切開はいつになりますか"
+      ],
+      "keywords": [
+        "さかご",
+        "逆子",
+        "骨盤位",
+        "さかご体操",
+        "逆子体操",
+        "外回転術",
+        "骨盤位整復術",
+        "胎位"
+      ],
+      "summary": "当院では、骨盤位（さかご）について妊娠週数や母子の状態に応じた対応を行っています。妊娠30週頃までは過度に心配する必要はありません。妊娠週数が進んでも骨盤位が続く場合は、外来でさかご体操について説明し、必要に応じて子宮収縮抑制剤の使用や外回転術を検討します。骨盤位が改善しない場合は、母子の安全のため帝王切開を行います。",
+      "answer": "骨盤位（さかご）については、妊娠週数や赤ちゃんの状態に合わせて対応しています。妊娠30週頃までは過度に心配する必要はありません。詳細は確定データ（data/pregnancy-breech.js）に基づき案内します。",
+      "careSource": "data/pregnancy-breech.js",
+      "clinicInformation": {
+        "before30Weeks": {
+          "description": "妊娠30週頃までは、骨盤位であっても過度に心配する必要はありません。",
+          "responseGuidance": "妊娠週数を確認し、過度に不安をあおらない。"
+        },
+        "after30Weeks": {
+          "description": "妊娠30週頃を過ぎても骨盤位の場合は、外来でさかご体操について説明します。",
+          "breechExercise": {
+            "available": true,
+            "description": "当院では、骨盤位への対応として、外来でさかご体操について説明しています。",
+            "caution": "自己判断で体操を始めず、医師の指示に従う。"
+          },
+          "medication": {
+            "description": "状況によっては、子宮収縮抑制剤を内服していただくことがあります。",
+            "caution": "薬の使用は医師が判断する。"
+          }
+        },
+        "at36Weeks": {
+          "externalCephalicVersion": {
+            "available": true,
+            "name": "外回転術（骨盤位整復術）",
+            "description": "妊娠36週になっても骨盤位の場合、外回転術を行うことがあります。",
+            "procedure": "お腹の外から赤ちゃんの向きを変える処置です。",
+            "limitations": [
+              "羊水が少ない場合は、うまく回らないことがあります。",
+              "赤ちゃんやお母さんの状態によって、実施できない場合があります。"
+            ],
+            "risks": [
+              "処置中に赤ちゃんの心拍数が悪くなった場合、緊急帝王切開となることがあります。"
+            ]
+          }
+        },
+        "delivery": {
+          "ifBreechPersists": "さかごが改善しない場合、当院では母子の安全のため帝王切開を行います。",
+          "cesareanTiming": "通常、出産予定日の1〜2週間前を目安に手術を行います。",
+          "timingNote": "実際の手術日は妊娠経過や医師の判断によって決定します。"
+        }
+      },
+      "responseRules": {
+        "tone": "empathetic",
+        "considerGestationalWeek": true,
+        "askGestationalWeekWhenRelevant": true,
+        "avoidDiagnosis": true,
+        "avoidUnsupportedReassurance": true,
+        "avoidSelfDirectedBreechExercises": true,
+        "avoidLongExplanations": true,
+        "maxAdviceItems": 3
+      },
+      "medicalSafety": {
+        "rule": "妊娠週数と母子の状態に応じて案内する。さかご体操、薬の服用、外回転術などの実施可否をAIが判断しない。",
+        "consultClinicIf": [
+          "妊娠30週を過ぎても骨盤位が続いている",
+          "さかご体操を行ってよいか迷っている",
+          "外回転術について相談したい",
+          "帝王切開の時期について確認したい"
+        ],
+        "urgentSymptoms": [
+          "破水が疑われる",
+          "性器出血がある",
+          "強い腹痛がある",
+          "規則的な強いお腹の張りがある",
+          "胎動が明らかに少ない"
+        ],
+        "urgentResponse": "破水、出血、強い腹痛、規則的な強い張り、胎動の減少などがある場合は、通常の骨盤位の説明よりも速やかな受診・連絡の案内を優先する。"
+      },
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true
+    },
+    {
+      "id": "pregnancy-weight-gain",
+      "category": "妊娠期/体重管理",
+      "intent": "pregnancy_weight_management",
+      "service": "pregnancy_health_support",
+      "target": "pregnant_patient",
+      "availability": "information",
+      "questionPatterns": [
+        "妊娠中に体重が増えすぎています",
+        "妊娠中に太りすぎてしまいました",
+        "妊娠中の体重増加が心配です",
+        "妊娠中は何キロまで増えていいですか",
+        "妊娠中の体重増加の目安を教えてください",
+        "妊娠前のBMIによって体重増加は違いますか",
+        "妊娠中にダイエットしてもいいですか",
+        "妊娠中の食事管理について教えてください",
+        "妊娠中におすすめの運動はありますか",
+        "マタニティヨガはできますか",
+        "マタニティビクスはありますか",
+        "妊娠中に急に体重が増えました",
+        "妊娠中に体重が増えません",
+        "妊娠中に体重が減っています"
+      ],
+      "keywords": [
+        "体重増加",
+        "体重管理",
+        "BMI",
+        "太った",
+        "太りすぎ",
+        "体重が増えない",
+        "体重が減った",
+        "食事管理",
+        "ダイエット",
+        "マタニティヨーガ",
+        "マタニティビクス"
+      ],
+      "summary": "妊娠中の体重増加の目安は妊娠前のBMIによって異なります。妊娠期間全体の体重増加を一律に判断せず、妊娠前の体格や妊娠経過に応じて医師と確認することが大切です。",
+      "answer": "妊娠中の体重増加の目安は妊娠前のBMIによって異なります。詳細は確定データ（data/pregnancy-weight.js）に基づき案内します。",
+      "careSource": "data/pregnancy-weight.js",
+      "bmiGuidelines": {
+        "calculation": "妊娠前の体重kg ÷ 身長mの2乗",
+        "reference": "院内資料に掲載された妊娠中の体重増加目安",
+        "categories": [
+          {
+            "name": "低体重",
+            "minBMI": null,
+            "maxBMIExclusive": 18.5,
+            "recommendedGainKg": { "min": 12, "max": 15 }
+          },
+          {
+            "name": "普通体重",
+            "minBMI": 18.5,
+            "maxBMIExclusive": 25,
+            "recommendedGainKg": { "min": 10, "max": 13 }
+          },
+          {
+            "name": "肥満",
+            "minBMI": 25,
+            "maxBMIExclusive": null,
+            "recommendedGainKg": { "min": 7, "max": 10 },
+            "caution": "BMI25以上は個別の指導が必要。特にBMI30以上について、7〜10kgを一律の目標として提示しない。"
+          }
+        ],
+        "importantNotes": [
+          "体重増加の目安は妊娠期間全体の数値であり、1週間あたりの増加量ではない。",
+          "体重増加の目安は個別の診断や指示ではない。",
+          "双胎などの多胎妊娠ではこの表をそのまま適用しない。",
+          "医師から個別に指導されている場合は、その指示を優先する。"
+        ]
+      },
+      "clinicInformation": {
+        "maternityYogaAvailable": true,
+        "maternityExerciseAvailable": true,
+        "description": "当院ではマタニティヨーガ・マタニティビクスを実施しています。"
+      },
+      "medicalSafety": {
+        "consultClinicIf": [
+          "短期間で急激に体重が増えた",
+          "体重増加に加えてむくみが強い",
+          "体重が減り続けている",
+          "食事や水分が十分にとれない",
+          "体重管理について強い不安がある"
+        ],
+        "urgentSymptoms": [
+          "強い頭痛",
+          "目がチカチカする、見えにくい",
+          "強い腹痛",
+          "息苦しさ",
+          "意識がもうろうとしている"
+        ],
+        "rule": "急激な体重増加に頭痛、視覚異常、強いむくみなどが伴う場合は妊娠高血圧症候群などの可能性も考慮し、通常の体重管理アドバイスより速やかな医療機関への相談を優先する。AIによる診断は行わない。"
+      },
+      "responseRules": {
+        "tone": "empathetic",
+        "considerPrePregnancyBMI": true,
+        "considerGestationalWeek": true,
+        "avoidWeightShaming": true,
+        "avoidDietRestrictions": true,
+        "avoidDiagnosis": true,
+        "avoidLongExplanations": true,
+        "maxSelfCareTips": 3,
+        "askFollowUpWhenNecessary": true
+      },
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true
+    },
+    {
+      "id": "labor-hospital-contact-timing",
+      "category": "出産/陣痛・入院連絡",
+      "intent": "labor_hospital_contact",
+      "service": "childbirth",
+      "target": "pregnant_patient",
+      "availability": "information",
+      "questionPatterns": [
+        "陣痛がきたらいつ電話すればいいですか",
+        "陣痛は何分間隔で連絡すればいいですか",
+        "陣痛が始まったらどうすればいいですか",
+        "陣痛が10分間隔になりました",
+        "陣痛が15分間隔になりました",
+        "陣痛が5分間隔です",
+        "初産の場合はいつ連絡しますか",
+        "経産婦は何分間隔で電話しますか",
+        "2人目の出産はいつ病院に連絡しますか",
+        "お腹の張りが規則的になってきました",
+        "陣痛かもしれません",
+        "破水したかもしれません",
+        "陣痛がないのに破水しました",
+        "出血しています",
+        "胎動が少ないです",
+        "いつ入院すればいいですか"
+      ],
+      "keywords": [
+        "陣痛",
+        "陣痛間隔",
+        "子宮収縮",
+        "規則的",
+        "10分間隔",
+        "15分間隔",
+        "5分間隔",
+        "初産",
+        "初産婦",
+        "経産婦",
+        "2人目",
+        "破水",
+        "出血",
+        "胎動",
+        "入院",
+        "病院に電話",
+        "病院に連絡"
+      ],
+      "summary": "当院では、定期的な子宮収縮が初産婦は10分おき、経産婦は15分おきになった頃を入院連絡の目安としています。破水、生理以上の出血、胎動の減少がある場合は、陣痛間隔を待たずに病院へ連絡してください。",
+      "answer": "当院では、規則的な陣痛が初産婦は10分間隔、経産婦は15分間隔になった頃を病院へのご連絡の目安としています。破水・出血・胎動の減少がある場合は間隔を待たずご連絡ください。詳細は確定データ（data/labor-contact.js）に基づき案内します。",
+      "careSource": "data/labor-contact.js",
+      "clinicInformation": {
+        "laborContactTiming": {
+          "firstBirth": {
+            "name": "初産婦",
+            "intervalMinutes": 10,
+            "description": "定期的な子宮収縮が10分おきになったときに病院へ連絡する。"
+          },
+          "previousBirth": {
+            "name": "経産婦",
+            "intervalMinutes": 15,
+            "description": "定期的な子宮収縮が15分おきになったときに病院へ連絡する。"
+          },
+          "individualInstruction": "外来で早めの入院を指示されている場合は、個別の医師の指示を優先する。"
+        },
+        "ruptureOfMembranes": {
+          "name": "破水",
+          "contactTiming": "immediate",
+          "description": "破水した場合や破水が疑われる場合は、陣痛がなくても病院へ連絡する。",
+          "selfCare": [
+            "清潔なナプキンを当てる",
+            "入浴を控える",
+            "ビデの使用を控える"
+          ],
+          "importantNote": "尿との違いをAIが判断しない。"
+        },
+        "bleeding": {
+          "name": "出血",
+          "contactTiming": "immediate_if_heavy",
+          "description": "生理以上の出血がある場合は、すぐに病院へ連絡する。"
+        },
+        "decreasedFetalMovement": {
+          "name": "胎動の減少",
+          "contactTiming": "prompt",
+          "description": "胎動が少ない場合は、速やかに病院へ連絡する。"
+        }
+      },
+      "responseRules": {
+        "tone": "empathetic",
+        "considerParity": true,
+        "considerContractionInterval": true,
+        "avoidDiagnosis": true,
+        "avoidUnsupportedReassurance": true,
+        "prioritizeAction": true,
+        "avoidLongExplanationsInUrgentCases": true,
+        "askFollowUpOnlyIfSafe": true
+      },
+      "medicalSafety": {
+        "riskLevel": "high",
+        "rule": "陣痛・破水・出血・胎動の減少については、患者の現在の状態を優先して判定する。緊急性が疑われる場合は通常の説明より病院への連絡を優先する。",
+        "contactClinicImmediatelyIf": [
+          "初産婦で規則的な陣痛が10分間隔以下",
+          "経産婦で規則的な陣痛が15分間隔以下",
+          "破水した、または破水が疑われる",
+          "生理以上の出血がある",
+          "胎動が明らかに少ない",
+          "医師から早めの入院を指示されている"
+        ],
+        "emergencySymptoms": [
+          "大量の出血",
+          "意識障害",
+          "激しい腹痛",
+          "呼吸困難"
+        ],
+        "emergencyResponse": "緊急症状がある場合は、チャットを続けず直ちに医療機関への連絡を促す。生命に危険がある場合は119を案内する。"
+      },
+      "priority": 200,
+      "updatedAt": "2026-10-08",
+      "enabled": true
     }
   ]
 }
