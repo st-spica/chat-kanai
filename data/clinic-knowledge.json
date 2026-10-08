@@ -1461,6 +1461,75 @@
       "priority": 200,
       "updatedAt": "2026-10-08",
       "enabled": true
+    },
+    {
+      "id": "clinic-female-doctor",
+      "category": "診療案内/医師・診療体制",
+      "intent": "female_doctor",
+      "service": "outpatient",
+      "availability": "available",
+      "questionPatterns": [
+        "女性の医師はいますか",
+        "女性医師はいますか",
+        "女医さんはいますか",
+        "女性の先生はいますか",
+        "女性医師に診てもらえますか",
+        "女性の先生に診察してもらいたい",
+        "女性の医師を指名できますか",
+        "女医さんを指名できますか",
+        "女性医師の予約はできますか",
+        "女性医師を希望できますか",
+        "女性医師は何曜日にいますか",
+        "女医さんはいついますか",
+        "女性医師の診療時間を教えてください",
+        "担当医を選べますか",
+        "先生の指名はできますか"
+      ],
+      "keywords": [
+        "女性医師",
+        "女性の医師",
+        "女医",
+        "女医さん",
+        "女性の先生",
+        "医師の指名",
+        "先生の指名",
+        "担当医",
+        "診療体制表"
+      ],
+      "summary": "当院には女性医師が在籍していますが、医師の指名はできません。女性医師希望の場合は診療体制表で日時を合わせて来院してください。",
+      "answer": "当院には女性医師が在籍しておりますが、医師の指名は承っておりません。女性医師をご希望の場合は、下記の診療体制表をご確認のうえ、診療日時を合わせてご来院ください。",
+      "careSource": "data/female-doctor.js",
+      "clinicInformation": {
+        "femaleDoctor": {
+          "available": true,
+          "description": "当院には女性医師が在籍しています。"
+        },
+        "doctorDesignation": {
+          "available": false,
+          "description": "医師の指名はできません。"
+        },
+        "femaleDoctorVisit": {
+          "guidance": "女性医師をご希望の場合は、診療体制表を確認し、女性医師の診療日時に合わせてご来院ください。"
+        },
+        "doctorSchedule": {
+          "url": "https://kanai.or.jp/beginner/#doctor_schedule",
+          "dynamic": true,
+          "description": "医師の診療日時は公式サイトの診療体制表で確認できます。曜日・時間は変更されるため固定回答しません。"
+        }
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/beginner/#doctor_schedule",
+      "relatedSiteLabel": "診療体制表はこちら",
+      "responseRules": {
+        "useConfirmedAvailability": true,
+        "doctorDesignationAllowed": false,
+        "preferOfficialSchedule": true,
+        "avoidUnnecessaryPhoneReferral": true,
+        "avoidFixedSchedule": true,
+        "preserveUrlFragment": true
+      },
+      "priority": 200,
+      "updatedAt": "2026-10-08",
+      "enabled": true
     }
   ]
 }

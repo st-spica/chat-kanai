@@ -509,6 +509,26 @@ function htmlToText(html) {
  * 見出し・箇条書きの親子関係を残してテキスト化する
  * （分類見出しが消えてリストだけになるのを防ぐ）
  */
+/**
+ * table の行・列対応を残してテキスト化（| 区切り）
+ * @param {string} tableHtml
+ */
+function htmlTableToText(tableHtml) {
+  const rows = String(tableHtml || "").match(/<tr[\s\S]*?<\/tr>/gi) || [];
+  const lines = [];
+  for (const row of rows) {
+    const cells = [...row.matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi)].map(
+      (c) =>
+        stripTagsToText(c[1])
+          .replace(/\s+/g, " ")
+          .trim()
+    );
+    const nonempty = cells.filter(Boolean);
+    if (nonempty.length) lines.push(nonempty.join(" | "));
+  }
+  return lines.length ? `\n${lines.join("\n")}\n` : "\n";
+}
+
 function htmlToStructuredText(html) {
   let h = String(html || "");
   h = h.replace(/<!--[\s\S]*?-->/g, " ");
@@ -526,11 +546,14 @@ function htmlToStructuredText(html) {
     const t = stripTagsToText(inner);
     return t ? `\n・${t}` : "";
   });
+  // 表は行・列の対応を残す（診療体制表・持ち物一覧など）
+  h = h.replace(/<table[\s\S]*?<\/table>/gi, (table) => htmlTableToText(table));
   h = h.replace(/<br\s*\/?>/gi, "\n");
   h = h.replace(/<\/(?:div|section|ul|ol|table|tr)>/gi, "\n");
   h = h.replace(/<[^>]+>/g, " ");
   h = h
     .replace(/&nbsp;/g, " ")
+    .replace(/&ensp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
@@ -582,7 +605,12 @@ async function fetchPageChunk(url, maxChars, meta = {}) {
       focusAnchor: String(url).includes("#") ? String(url).split("#")[1] : "",
       focusHospitalBag,
     });
-    const useStructured = focusHospitalBag || /#hos_bring/i.test(url);
+    // 診療体制表・持ち物は表構造を保持。※医師名セルはJS描画のため静的HTMLでは空のことがある
+    const useStructured =
+      focusHospitalBag ||
+      /#hos_bring/i.test(url) ||
+      /#doctor_schedule/i.test(url) ||
+      Boolean(meta.displayUrl && /#doctor_schedule/i.test(meta.displayUrl));
     const text = (
       useStructured
         ? htmlToStructuredText(focusedHtml)

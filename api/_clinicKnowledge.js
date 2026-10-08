@@ -65,6 +65,10 @@ import { isLaborHospitalContactQuery } from "../data/labor-contact.js";
 import { isHomecomingDeliveryQuery } from "../data/homecoming-delivery.js";
 import { isFirstVisitFeeQuery } from "../data/first-visit-fee.js";
 import { isFourDUltrasoundQuery } from "../data/four-d-ultrasound.js";
+import {
+  isFemaleDoctorQuery,
+  isMaleDoctorQuery,
+} from "../data/female-doctor.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -168,6 +172,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "homecoming_delivery",
   "first_visit_fee",
   "four_d_ultrasound",
+  "female_doctor",
   "birth_reservation_deposit",
   "birth_advance_payment",
   "birth_hospitalization_cost",
@@ -612,6 +617,11 @@ export function detectClinicIntent(userMessage) {
     return "four_d_ultrasound";
   }
 
+  // 女性医師・医師指名（診療体制表へ。曜日はハードコードしない）
+  if (isFemaleDoctorQuery(msg) || isMaleDoctorQuery(msg)) {
+    return "female_doctor";
+  }
+
   // 葉酸 / 妊娠中の服薬 / 授乳中の服薬（混同禁止）
   if (isPregnancyFolicAcidQuery(msg)) {
     return "pregnancy_folic_acid";
@@ -1016,6 +1026,17 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["4D超音波:対象外質問のため除外"],
         rejected: true,
         rejectReason: "four_d_ultrasoundは4D超音波撮影関連のみ",
+      };
+    }
+  }
+  // 女性医師・指名は対象外に流用しない
+  if (item.id === "clinic-female-doctor" || itemIntent === "female_doctor") {
+    if (!isFemaleDoctorQuery(msg) && !isMaleDoctorQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["女性医師:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "female_doctorは女性医師・指名関連のみ",
       };
     }
   }

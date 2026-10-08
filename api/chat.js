@@ -124,6 +124,12 @@ import {
   FOUR_D_ULTRASOUND_REF_PAGE,
   isFourDUltrasoundQuery,
 } from "../data/four-d-ultrasound.js";
+import {
+  buildFemaleDoctorAnswer,
+  DOCTOR_SCHEDULE_REF_PAGE,
+  isFemaleDoctorQuery,
+  isMaleDoctorQuery,
+} from "../data/female-doctor.js";
 
 const WEB_RESERVATION_NO_INFO_ANSWER =
   "WEB予約について確認できる情報がありません。お手数ですが、当院へお電話でお問い合わせください。";
@@ -984,6 +990,7 @@ const SYSTEM = `
 ・【分娩料金】予約金（10,000円）と予納金（100,000円／300,000円）を混同しない。予約金のうち5,000円は入院費への精算であり「5,000円のみ返金不可」と誤解釈しない。金額は確定データ以外から推測しない。産後ケア料金に分娩料金を流用しない。きょうだい割引・パパママ割引は分娩料金ページの制度であり、分娩予約特典ページと混同しない。
 ・【初診料】確定は1,080円のみ。3,300円（文書料など）やその他金額を初診料としない。初回受診の合計は初診料＋検査料で、検査料・合計は断定しない。再診料・妊婦健診・分娩予約金・中絶・ワクチン料金と混同しない。電話問い合わせを原則付け足さない。
 ・【4D超音波撮影】当院で実施している。未実施と答えない。通常の健診エコー・性別確認・動画ダウンロードと混同しない。詳細は公式の #ultraimaging を案内する。
+・【女性医師・指名】女性医師は在籍。医師の指名は不可。曜日・時間はハードコードせず診療体制表（#doctor_schedule）へ案内する。「確認できる情報がありません」だけで終わらせない。男性医師の質問と混同しない。
 ・【出産費用割引】きょうだい割引＝過去に当院で出産された方（15,000円）。パパママ割引＝ご夫婦のどちらかが当院で生まれた方（10,000円）。名称から条件を推測しない。「パートナー同伴で割引」「夫婦受診で割引」「二人目なら必ず割引」「同じ家庭の二人目なら割引」は禁止。
 ・【つわり】セルフケアは相談内容に合わせて1〜3点だけ。9項目の列挙禁止。水分がとれない・反復嘔吐・体重減少などは受診案内を優先。妊娠悪阻などの診断名を断定しない。「必ず治る」「食べられなくても大丈夫」は禁止。緊急症状は救急誘導を優先。
 ・【妊娠中の服薬】個別の薬の安全性・胎児影響・服用の継続／中止をAIが判断しない。「安全です」「絶対ダメ」「すぐに中止」「すべて避ける」は禁止。医師相談を案内する。授乳中の服薬・葉酸・小児予防接種と混同しない。葉酸はサプリ案内可（当院販売あり）。
@@ -4374,6 +4381,89 @@ export default async function handler(req, res) {
         payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(payload);
+    }
+
+    // 女性医師・医師指名（在籍あり・指名不可。曜日は体制表へ・ハードコードしない）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      allowStructuredIntent("female_doctor") &&
+      (isFemaleDoctorQuery(userMessage) || isMaleDoctorQuery(userMessage))
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "clinic-female-doctor" ||
+          h.item?.intent === "female_doctor"
+      );
+      const built = buildFemaleDoctorAnswer(userMessage);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      const referencedPages = (built?.referencedPages?.length
+        ? built.referencedPages
+        : [DOCTOR_SCHEDULE_REF_PAGE]
+      ).map((p) => ({
+        url: String(p.url || DOCTOR_SCHEDULE_REF_PAGE.url),
+        title: String(p.title || DOCTOR_SCHEDULE_REF_PAGE.title),
+      }));
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "female_doctor",
+          detectedService: "outpatient",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "clinic-female-doctor",
+                  intent: "female_doctor",
+                  service: "outpatient",
+                  score: 100,
+                },
+              ],
+          matchedSiteUrl: DOCTOR_SCHEDULE_REF_PAGE.url,
+          referenceChips: referencedPages,
+          focus: built?.focus || "availability",
+          femaleDoctorAvailable: true,
+          doctorDesignationAllowed: false,
+          rejectedKnowledge: clinicRejected,
+          note: "女性医師在籍・指名不可。診療日時は#doctor_schedule（JS描画のため曜日は固定しない）",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "female_doctor",
+          service: "outpatient",
+          femaleDoctor: true,
+          doctorDesignationAllowed: false,
+          matchedSiteUrl: DOCTOR_SCHEDULE_REF_PAGE.url,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "female_doctor";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = DOCTOR_SCHEDULE_REF_PAGE.url;
+        payload.referenceChips = referencedPages;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(attachTopicDebug(payload, "female_doctor"));
     }
 
     // 4D超音波撮影（実施あり。未実施と答えない。#ultraimaging を維持）

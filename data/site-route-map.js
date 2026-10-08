@@ -1089,6 +1089,15 @@ export const SITE_ROUTE_MAP = [
     boost: 180,
   },
   {
+    id: "female_doctor",
+    label: "女性医師・診療体制表",
+    patterns: [
+      /女性医師|女性の医師|女医|女性の先生|男性医師|男性の医師|医師の指名|先生の指名|担当医を選/,
+    ],
+    urls: ["https://kanai.or.jp/beginner/#doctor_schedule"],
+    boost: 280,
+  },
+  {
     id: "infertility_consultation",
     label: "一般不妊相談",
     patterns: [
