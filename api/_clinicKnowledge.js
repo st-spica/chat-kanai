@@ -15,8 +15,13 @@ import {
   detectVaccinationAudience,
   isAttendFocusedMessage,
   isBabyIllnessConsultMessage,
+  isAbortionQuery,
   isChildVaccinationQuery,
   isDailyBabyCareConsultMessage,
+  isGenderSelectionQuery,
+  isGynecologicExamConsultQuery,
+  isGynecologicMedicationQuery,
+  isGynecologicSurgeryQuery,
   isFeeFocusedMessage,
   isMotherDistressConsultMessage,
   isPhotoRecordingFocusedMessage,
@@ -99,6 +104,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   ...RESERVATION_INTENTS,
   "baby_care_consultation",
   "vaccination_availability",
+  "service_availability",
 ]);
 
 let memoryCache = {
@@ -456,6 +462,20 @@ export function detectClinicIntent(userMessage) {
     return "vaccination_availability";
   }
 
+  // 産み分け（未実施）
+  if (isGenderSelectionQuery(msg)) {
+    return "service_availability";
+  }
+
+  // 婦人科手術／診察／処方の可否
+  if (
+    isGynecologicSurgeryQuery(msg) ||
+    isGynecologicExamConsultQuery(msg) ||
+    isGynecologicMedicationQuery(msg)
+  ) {
+    return "service_availability";
+  }
+
   // 日常的な育児相談（体調・母親の限界は別扱い。緊急は呼び出し側で先に処理）
   if (isDailyBabyCareConsultMessage(msg)) {
     return "baby_care_consultation";
@@ -603,6 +623,58 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         rejectReason: "pediatric_vaccinationは子供向け質問のみ",
       };
     }
+  }
+  // 産み分け未実施情報は産み分け質問以外に流用しない（性別判明時期などと混同しない）
+  if (itemService === "gender_selection" || item.id === "gender-selection-not-offered") {
+    if (!isGenderSelectionQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["産み分け未実施:性別確認質問等のため除外"],
+        rejected: true,
+        rejectReason: "gender_selectionは産み分け質問のみ",
+      };
+    }
+  }
+  // 婦人科手術未実施は中絶・産科処置・診察のみの質問に流用しない
+  if (
+    itemService === "gynecologic_surgery" ||
+    item.id === "gynecologic-surgery-not-offered"
+  ) {
+    if (!isGynecologicSurgeryQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["婦人科手術未実施:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "gynecologic_surgeryは婦人科手術質問のみ",
+      };
+    }
+  }
+  // 中絶の登録情報は「手術」ワードだけでは他手術に流用しない
+  if (
+    item.id === "item-045" ||
+    /中絶/.test(`${item.category || ""}${(item.keywords || []).join("")}`)
+  ) {
+    if (!isAbortionQuery(msg) && /手術|オペ/.test(msg)) {
+      return {
+        score: 0,
+        reasons: ["中絶情報:他の手術質問へ流用禁止"],
+        rejected: true,
+        rejectReason: "中絶手術情報は中絶質問のみ",
+      };
+    }
+  }
+  // 診察・処方の案内は手術可否質問に使わない
+  if (
+    (item.id === "gynecologic-condition-exam" ||
+      item.id === "gynecologic-medication-consult") &&
+    isGynecologicSurgeryQuery(msg)
+  ) {
+    return {
+      score: 0,
+      reasons: ["診察/処方案内:手術質問には不使用"],
+      rejected: true,
+      rejectReason: "手術質問には手術未実施情報を使う",
+    };
   }
 
   // 育児相談JSONは日常悩み専用。体調・母親限界には流用しない

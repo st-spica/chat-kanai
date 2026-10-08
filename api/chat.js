@@ -31,6 +31,11 @@ import {
   isChildVaccinationQuery,
   isDailyBabyCareConsultMessage,
   isDeliveryBenefitsFocusedMessage,
+  isAbortionQuery,
+  isGenderSelectionQuery,
+  isGynecologicExamConsultQuery,
+  isGynecologicMedicationQuery,
+  isGynecologicSurgeryQuery,
   isGynecologyTopicMessage,
   isMotherDistressConsultMessage,
   isVisitationIntentMessage,
@@ -45,6 +50,23 @@ const POSTPARTUM_VISITATION_NO_INFO_ANSWER =
 const CHILD_VACCINATION_NOT_OFFERED_ANSWER =
   "申し訳ありませんが、当院ではお子さまの予防接種は行っておりません。お子さまの予防接種については、小児科などの医療機関へご相談ください。";
 
+const GENDER_SELECTION_NOT_OFFERED_ANSWER =
+  "申し訳ありませんが、当院では産み分けには対応しておりません。産み分けをご希望の場合は、専門の医療機関へご相談ください。";
+
+const GYNECOLOGIC_SURGERY_NOT_OFFERED_ANSWER =
+  "申し訳ありませんが、当院では婦人科の手術は行っておりません。診察やお薬による治療については、当院の婦人科でご相談いただけます。";
+
+/** 手術名に寄せた未実施文（確定情報の範囲） */
+function buildGynecologicSurgeryNotOfferedAnswer(userMessage) {
+  const msg = String(userMessage || "");
+  let focus = "婦人科の手術";
+  if (/子宮筋腫|筋腫/.test(msg)) focus = "子宮筋腫の手術";
+  else if (/卵巣嚢|卵巣のう|卵巣嚢腫/.test(msg)) focus = "卵巣のう腫の手術";
+  else if (/内膜症|子宮内膜症/.test(msg)) focus = "子宮内膜症の手術";
+  else if (/子宮摘出|全摘/.test(msg)) focus = "子宮摘出手術";
+  return `申し訳ありませんが、当院では${focus}は行っておりません。診察やお薬による治療については、当院の婦人科でご相談いただけます。`;
+}
+
 /**
  * 院内サービス対応可否の話題ルール（質問語 → 根拠に必要な本文語）
  * availability 未登録かつサイトに該当記載が無いときは unknown
@@ -53,7 +75,8 @@ const SERVICE_AVAILABILITY_TOPICS = [
   {
     id: "sex_selection",
     label: "産み分け",
-    query: /産み分け|性別を選|赤ちゃんの性別|子供の性別|子どもの性別/,
+    // エコー・判明時期は isGenderSelectionQuery 側で除外
+    query: /産み分け|性別を選|性別を選べ|男の子を産み分け|女の子を産み分け/,
     evidence: /産み分け|性別を選|希望.*性別/,
   },
   {
@@ -83,6 +106,7 @@ function isServiceAvailabilityQuestion(userMessage) {
   ) {
     return false;
   }
+  if (isGenderSelectionQuery(msg)) return true;
   if (SERVICE_AVAILABILITY_TOPICS.some((t) => t.query.test(msg))) return true;
   return /(?:できますか|対応していますか|お願いできますか|指定できますか|選べますか|選択できますか|処方してもらえますか|検査はできますか|やってますか|していますか|受けられますか|実施していますか)/.test(
     msg
@@ -91,6 +115,9 @@ function isServiceAvailabilityQuestion(userMessage) {
 
 function matchServiceAvailabilityTopic(userMessage) {
   const msg = String(userMessage || "");
+  if (isGenderSelectionQuery(msg)) {
+    return SERVICE_AVAILABILITY_TOPICS.find((t) => t.id === "sex_selection") || null;
+  }
   return SERVICE_AVAILABILITY_TOPICS.find((t) => t.query.test(msg)) || null;
 }
 
@@ -161,13 +188,26 @@ function resolveServiceAvailabilityStatus(opts) {
     photoFocused,
   } = opts;
 
-  if (notOfferedHit || isChildVaccinationQuery(userMessage)) {
+  if (
+    notOfferedHit ||
+    isChildVaccinationQuery(userMessage) ||
+    isGenderSelectionQuery(userMessage) ||
+    isGynecologicSurgeryQuery(userMessage)
+  ) {
     return "unavailable";
   }
   // 専用ルートで公式ページが確定しているもの
   if (attendFocused || meetingFocused || photoFocused) {
     return "available";
   }
+  // clinic-knowledge の unavailable はスコア閾値より優先（確定の未実施）
+  const unavailableClinic = (clinicHits || []).find(
+    (h) =>
+      h.item?.availability === "unavailable" &&
+      (Number(h.score) || 0) >= 40
+  );
+  if (unavailableClinic) return "unavailable";
+
   // clinic-knowledge は高スコアのみ採用（弱いキーワード一致で availability を誤用しない）
   const relevantClinic = (clinicHits || []).filter((h) => {
     const score = Number(h.score) || 0;
@@ -375,7 +415,8 @@ const SYSTEM = `
 ・医療上の注意喚起・緊急時の案内など安全に必要な情報は省略しない（その場合は文数制限より安全を優先）。
 ・共感は必要なときだけ、相手の言葉に寄せて自然に。毎回の共感は不要。
 ・日常的な赤ちゃんの育児相談（夜泣き・睡眠・生活リズム等）では、「いつでも／お気軽にご相談ください」「具体的な状況を教えてください」「当院でサポートします」など、常時相談窓口と誤認される表現は使わない。1ヶ月健診・2ヶ月健診での相談案内を基本とする（体調不良・母親の限界・緊急は除く）。
-・【診療サービスの対応可否を推測しない（最重要）】「婦人科だからできるはず」「ワクチンページがあるから子供も接種できるはず」「産婦人科だから小児も診られるはず」「分娩を扱うから分娩スタイルも選べるはず」「関連ページがあるから対応しているはず」「一般的な産婦人科では対応している」などの推測は禁止。「できます／対応しています」と答えるには、対象サービスと対象者が一致する明確な院内情報（院内登録情報または公式サイトの該当記述）が必要。情報が確認できないときは「できる／できない」を断定せず、確認できる情報がない旨を伝え当院へ直接問い合わせるよう案内する。妊婦向けワクチンの記載を、お子さま本人への予防接種の根拠にしない。
+・【診療サービスの対応可否を推測しない（最重要）】「婦人科だからできるはず」「ワクチンページがあるから子供も接種できるはず」「産婦人科だから小児も診られるはず」「分娩を扱うから分娩スタイルも選べるはず」「関連ページがあるから対応しているはず」「一般的な産婦人科では対応している」などの推測は禁止。「できます／対応しています」と答えるには、対象サービスと対象者が一致する明確な院内情報（院内登録情報または公式サイトの該当記述）が必要。情報が確認できないときは「できる／できない」を断定せず、確認できる情報がない旨を伝え当院へ直接問い合わせるよう案内する。妊婦向けワクチンの記載を、お子さま本人への予防接種の根拠にしない。産み分けは「婦人科でご相談いただけます」と案内しない（未実施の院内情報がある場合はそれに従う）。
+・【婦人科の手術と診察・処方を区別する】当院では婦人科の手術（子宮筋腫・卵巣のう腫・内膜症・子宮摘出など）は行っていない。手術が必要なら対応医療機関への相談を案内する。一方、診察・診断・お薬の相談は婦人科で受けられる。お薬は診察のうえ医師が必要性を判断し、特定の薬の処方を保証しない。「手術」という語だけで中絶など別サービスの登録情報を流用しない。中絶については既存の院内登録情報に従う（このターンで勝手に未実施へ上書きしない）。産科・分娩の処置には婦人科手術の未実施ルールを当てはめない。
 
 【絶対に守る基本原則】
 以下を 必ず守ってください。
@@ -2566,6 +2607,131 @@ export default async function handler(req, res) {
       } catch (e) {
         console.error("clinic-knowledge search failed:", e?.message || e);
       }
+    }
+
+    // 婦人科手術：未実施（中絶は別登録・変更しない。産科処置には適用しない）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isGynecologicSurgeryQuery(userMessage) &&
+      !isAbortionQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "gynecologic-surgery-not-offered" ||
+          (h.item?.service === "gynecologic_surgery" &&
+            h.item?.availability === "unavailable")
+      );
+      const answer =
+        buildGynecologicSurgeryNotOfferedAnswer(userMessage) ||
+        String(ckHit?.item?.answer || "").trim() ||
+        GYNECOLOGIC_SURGERY_NOT_OFFERED_ANSWER;
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: clinicDetectedIntent || "service_availability",
+          detectedService: clinicDetectedService || "gynecologic_surgery",
+          availability: "unavailable",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  availability: ckHit.item.availability || "unavailable",
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          rejectedKnowledge: clinicRejected,
+          gynecologicSurgery: { action: "fixed_not_offered", chips: [] },
+          note: "婦人科手術は未実施。中絶登録は変更せず例外扱い。無関係チップなし",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "service_availability",
+          service: "gynecologic_surgery",
+          availability: "unavailable",
+          gynecologicSurgeryNotOffered: true,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "service_availability";
+        payload.detectedService = "gynecologic_surgery";
+        payload.availability = "unavailable";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // 産み分け：未実施の院内確定情報を優先（婦人科ページへ誘導しない・チップなし）
+    if (!metaChatHit && !casualGreetingOnly && isGenderSelectionQuery(userMessage)) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "gender-selection-not-offered" ||
+          (h.item?.service === "gender_selection" &&
+            h.item?.availability === "unavailable")
+      );
+      const answer =
+        String(ckHit?.item?.answer || "").trim() || GENDER_SELECTION_NOT_OFFERED_ANSWER;
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: clinicDetectedIntent || "service_availability",
+          detectedService: clinicDetectedService || "gender_selection",
+          availability: "unavailable",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  availability: ckHit.item.availability || "unavailable",
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          rejectedKnowledge: clinicRejected,
+          genderSelection: { action: "fixed_not_offered", chips: [] },
+          note: "産み分けは未実施。婦人科ページを根拠・チップにしない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "service_availability",
+          service: "gender_selection",
+          availability: "unavailable",
+          genderSelectionNotOffered: true,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "service_availability";
+        payload.detectedService = "gender_selection";
+        payload.availability = "unavailable";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
     }
 
     // お子さまの予防接種：未実施の院内確定情報を優先（妊婦向けワクチンページを根拠にしない）

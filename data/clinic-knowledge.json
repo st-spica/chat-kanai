@@ -238,6 +238,118 @@
       "relatedSiteUrl": "https://kanai.or.jp/beginner/"
     },
     {
+      "id": "gynecologic-surgery-not-offered",
+      "category": "婦人科/手術",
+      "intent": "service_availability",
+      "service": "gynecologic_surgery",
+      "availability": "unavailable",
+      "questionPatterns": [
+        "子宮筋腫の手術はできますか",
+        "子宮筋腫の手術はここでやってますか",
+        "筋腫の手術はできますか",
+        "卵巣嚢腫の手術はできますか",
+        "卵巣のう腫の手術はできますか",
+        "子宮内膜症の手術はできますか",
+        "内膜症の手術はできますか",
+        "子宮摘出手術はできますか",
+        "子宮全摘はできますか",
+        "婦人科の手術はできますか",
+        "婦人科手術は行っていますか"
+      ],
+      "keywords": [
+        "子宮筋腫",
+        "卵巣嚢腫",
+        "卵巣のう腫",
+        "内膜症",
+        "子宮摘出",
+        "婦人科手術",
+        "手術"
+      ],
+      "answer": "申し訳ありませんが、当院では婦人科の手術は行っておりません。診察やお薬による治療については、当院の婦人科でご相談いただけます。手術が必要な場合は、対応する医療機関へご相談ください。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true
+    },
+    {
+      "id": "gynecologic-condition-exam",
+      "category": "婦人科/診療内容",
+      "intent": "service_availability",
+      "service": "gynecology",
+      "availability": "available",
+      "questionPatterns": [
+        "子宮筋腫を診てもらえますか",
+        "子宮筋腫の診察はできますか",
+        "卵巣嚢腫を診てもらえますか",
+        "内膜症を診てもらえますか",
+        "子宮内膜症の相談はできますか"
+      ],
+      "keywords": [
+        "子宮筋腫",
+        "卵巣嚢腫",
+        "内膜症",
+        "診てもら",
+        "診察"
+      ],
+      "answer": "はい、子宮筋腫や卵巣のう腫、子宮内膜症などについては、当院の婦人科で診察・ご相談いただけます。",
+      "priority": 90,
+      "updatedAt": "2026-10-08",
+      "enabled": true,
+      "relatedSiteUrl": "https://kanai.or.jp/gynecology/"
+    },
+    {
+      "id": "gynecologic-medication-consult",
+      "category": "婦人科/診療内容",
+      "intent": "service_availability",
+      "service": "gynecology",
+      "availability": "available",
+      "questionPatterns": [
+        "子宮筋腫の薬は処方してもらえますか",
+        "内膜症の薬はもらえますか",
+        "婦人科の薬は処方できますか"
+      ],
+      "keywords": [
+        "子宮筋腫",
+        "内膜症",
+        "薬",
+        "処方"
+      ],
+      "answer": "お薬による治療については、診察のうえ医師が必要性を判断いたします。特定のお薬の処方をあらかじめお約束することはできません。まずは当院の婦人科でご相談ください。",
+      "priority": 90,
+      "updatedAt": "2026-10-08",
+      "enabled": true,
+      "relatedSiteUrl": "https://kanai.or.jp/gynecology/"
+    },
+    {
+      "id": "gender-selection-not-offered",
+      "category": "婦人科/診療内容",
+      "intent": "service_availability",
+      "service": "gender_selection",
+      "availability": "unavailable",
+      "questionPatterns": [
+        "産み分けはできますか",
+        "産み分けってできますか",
+        "産み分けできますか",
+        "赤ちゃんの性別を選べますか",
+        "男の子を産み分けできますか",
+        "女の子を産み分けできますか",
+        "男の子を希望しているのですが産み分けできますか",
+        "女の子の産み分けはできますか",
+        "産み分けの相談はできますか",
+        "産み分けの相談だけでもできますか"
+      ],
+      "keywords": [
+        "産み分け",
+        "性別を選ぶ",
+        "性別を選べ",
+        "男の子",
+        "女の子"
+      ],
+      "answer": "申し訳ありませんが、当院では産み分けには対応しておりません。産み分けをご希望の場合は、専門の医療機関へご相談ください。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true
+    },
+    {
       "id": "child-vaccination-not-offered",
       "category": "予防接種",
       "intent": "vaccination_availability",

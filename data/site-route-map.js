@@ -192,6 +192,79 @@ export function isChildVaccinationQuery(userMessage) {
   return detectVaccinationAudience(userMessage) === "child";
 }
 
+/** 中絶・人工妊娠中絶の可否質問か（婦人科手術の一般ルールとは別扱い） */
+export function isAbortionQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  return /中絶|人工妊娠中絶|妊娠を中断|妊娠中断/.test(msg);
+}
+
+/**
+ * 婦人科手術（筋腫・卵巣嚢腫・内膜症・子宮摘出等）の可否か
+ * 中絶・産科処置は含めない
+ * @param {string} userMessage
+ */
+export function isGynecologicSurgeryQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg || isAbortionQuery(msg)) return false;
+  // 産科・分娩関連の処置は除外
+  if (
+    /帝王切開|無痛分娩|吸引分娩|鉗子分娩|会陰切開|立ち会|分娩誘発/.test(msg) &&
+    !/子宮筋腫|卵巣|内膜症|子宮摘出|婦人科手術/.test(msg)
+  ) {
+    return false;
+  }
+  const asksSurgery = /手術|オペ|摘出|切除|摘出術/.test(msg);
+  if (!asksSurgery) return false;
+  return /子宮筋腫|筋腫|卵巣嚢|卵巣のう|卵巣嚢腫|内膜症|子宮内膜症|子宮摘出|全摘|部分摘出|婦人科/.test(
+    msg
+  );
+}
+
+/** 婦人科疾患の診察・相談（手術を求めない） */
+export function isGynecologicExamConsultQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg || isAbortionQuery(msg) || isGynecologicSurgeryQuery(msg)) return false;
+  if (/薬|処方|内服/.test(msg)) return false;
+  return (
+    /子宮筋腫|卵巣嚢|卵巣のう|卵巣嚢腫|内膜症|子宮内膜症|婦人科疾患/.test(msg) &&
+    /診(?:て|てもら)|見(?:て|てもら)|相談|診察|検査|チェック/.test(msg)
+  );
+}
+
+/** 婦人科疾患の薬・処方（特定薬の保証はしない） */
+export function isGynecologicMedicationQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg || isAbortionQuery(msg) || isGynecologicSurgeryQuery(msg)) return false;
+  return (
+    /子宮筋腫|卵巣嚢|卵巣のう|卵巣嚢腫|内膜症|子宮内膜症|婦人科/.test(msg) &&
+    /薬|処方|内服|ホルモン/.test(msg)
+  );
+}
+
+/**
+ * 産み分け（性別選択）の可否・相談か
+ * 「性別はいつ分かる」「エコーで性別を教えて」は含まない
+ * @param {string} userMessage
+ */
+export function isGenderSelectionQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  // 性別の判明時期・エコー確認は産み分けではない
+  if (
+    /(?:エコー|超音波).{0,12}性別|性別.{0,12}(?:エコー|超音波|教えて|分か|わか|判定)|(?:いつ|何時).{0,8}性別|性別.{0,8}(?:いつ|何時)/.test(
+      msg
+    ) &&
+    !/産み分け|選べます|選ぶ|選んで|希望して.*産/.test(msg)
+  ) {
+    return false;
+  }
+  if (/産み分け/.test(msg)) return true;
+  if (/(?:性別を選|性別.*選べ|選べ.*性別|性別を希望)/.test(msg)) return true;
+  if (/(?:男の子|女の子).{0,16}(?:産み分け|選べ|選ぶ|希望)/.test(msg)) return true;
+  if (/産み分けの相談/.test(msg)) return true;
+  return false;
+}
+
 /**
  * 赤ちゃんの体調・症状相談（健診まで待たせない）
  * @param {string} userMessage
@@ -290,6 +363,14 @@ export function detectClinicService(userMessage) {
   // お子さまの予防接種（未実施サービス）
   if (isChildVaccinationQuery(msg)) {
     return "pediatric_vaccination";
+  }
+  // 産み分け（未実施）
+  if (isGenderSelectionQuery(msg)) {
+    return "gender_selection";
+  }
+  // 婦人科手術（未実施・中絶は別扱い）
+  if (isGynecologicSurgeryQuery(msg)) {
+    return "gynecologic_surgery";
   }
   // 日常的な育児相談 → 乳児健診の案内範囲（体調・母親限界は別扱い）
   if (isDailyBabyCareConsultMessage(msg)) {
