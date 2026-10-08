@@ -163,6 +163,35 @@ function mentionsInfant(msg) {
   return /赤ちゃん|新生児|乳児|生後|子ども|子供|お子さん/.test(msg);
 }
 
+const CHILD_AUDIENCE_RE =
+  /子供|子ども|こども|小児|乳児|新生児|赤ちゃん|お子さま|お子様|幼児|お子さん/;
+const VACCINATION_TOPIC_RE = /ワクチン|予防接種|接種/;
+
+/**
+ * 予防接種・ワクチン質問の対象者
+ * @returns {"child"|"pregnant"|"adult_female"|"unspecified"|null}
+ */
+export function detectVaccinationAudience(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg || !VACCINATION_TOPIC_RE.test(msg)) return null;
+  // 妊婦向け（赤ちゃんを守る母子免疫含む）を先に判定
+  if (/妊婦|妊娠中|妊娠\d|妊婦さま|妊婦さん/.test(msg)) {
+    return "pregnant";
+  }
+  if (CHILD_AUDIENCE_RE.test(msg)) {
+    return "child";
+  }
+  if (/大人|成人|婦人科|女性の/.test(msg)) {
+    return "adult_female";
+  }
+  return "unspecified";
+}
+
+/** お子さま（小児・乳児等）への予防接種可否の質問か */
+export function isChildVaccinationQuery(userMessage) {
+  return detectVaccinationAudience(userMessage) === "child";
+}
+
 /**
  * 赤ちゃんの体調・症状相談（健診まで待たせない）
  * @param {string} userMessage
@@ -257,6 +286,10 @@ export function detectClinicService(userMessage) {
   }
   if (/産前産後教室|産前教室|産後教室|ママフィット|アクティブクラス/.test(msg)) {
     return "prenatal_postnatal_class";
+  }
+  // お子さまの予防接種（未実施サービス）
+  if (isChildVaccinationQuery(msg)) {
+    return "pediatric_vaccination";
   }
   // 日常的な育児相談 → 乳児健診の案内範囲（体調・母親限界は別扱い）
   if (isDailyBabyCareConsultMessage(msg)) {
@@ -497,6 +530,8 @@ export function matchSiteRoutes(userMessage) {
     if (rule.id === "attend" && photoHit) continue;
     // 産後ケアの面会では産科入院の面会ルートを付けない
     if (rule.id === "visit" && service === "postpartum_care") continue;
+    // お子さまの予防接種は妊婦向けワクチンページを根拠にしない
+    if (rule.id === "vaccine" && isChildVaccinationQuery(msg)) continue;
     for (const re of rule.patterns || []) {
       if (re.test(msg)) {
         out.push({ ...rule, matchedPattern: String(re) });

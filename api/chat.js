@@ -25,8 +25,10 @@ import {
 } from "./_clinicKnowledge.js";
 import {
   detectClinicService,
+  detectVaccinationAudience,
   gynecologyPageSupportsQuery,
   isBabyIllnessConsultMessage,
+  isChildVaccinationQuery,
   isDailyBabyCareConsultMessage,
   isDeliveryBenefitsFocusedMessage,
   isGynecologyTopicMessage,
@@ -39,6 +41,9 @@ const WEB_RESERVATION_NO_INFO_ANSWER =
 
 const POSTPARTUM_VISITATION_NO_INFO_ANSWER =
   "産後ケアをご利用中の面会については、現在確認できる情報がありません。詳しくは当院まで直接お問い合わせください。";
+
+const CHILD_VACCINATION_NOT_OFFERED_ANSWER =
+  "申し訳ありませんが、当院ではお子さまの予防接種は行っておりません。お子さまの予防接種については、小児科などの医療機関へご相談ください。";
 
 /** サイト抜粋に WEB予約の可否が明示されているか */
 function siteMentionsWebReservationAvailability(snippet) {
@@ -206,6 +211,7 @@ const SYSTEM = `
 ・医療上の注意喚起・緊急時の案内など安全に必要な情報は省略しない（その場合は文数制限より安全を優先）。
 ・共感は必要なときだけ、相手の言葉に寄せて自然に。毎回の共感は不要。
 ・日常的な赤ちゃんの育児相談（夜泣き・睡眠・生活リズム等）では、「いつでも／お気軽にご相談ください」「具体的な状況を教えてください」「当院でサポートします」など、常時相談窓口と誤認される表現は使わない。1ヶ月健診・2ヶ月健診での相談案内を基本とする（体調不良・母親の限界・緊急は除く）。
+・【診療サービスの対応可否を推測しない（最重要）】「婦人科だからできるはず」「ワクチンページがあるから子供も接種できるはず」「産婦人科だから小児も診られるはず」「近い診療項目があるから対応しているはず」などの推測は禁止。「実施している」と答えるには、対象サービスと対象者（妊婦／子供／成人など）が一致する明確な院内情報（院内登録情報または公式サイトの該当記述）が必要。情報が確認できないときは可否を断定せず、当院へお電話で確認するよう案内する。妊婦向けワクチンの記載を、お子さま本人への予防接種の根拠にしない。
 
 【絶対に守る基本原則】
 以下を 必ず守ってください。
@@ -564,6 +570,16 @@ const PROMPT_MOTHER_DISTRESS = [
   "・診断・断言はしない。",
 ].join("\n");
 
+/** 予防接種：対象者を区別（子供への実施推測禁止） */
+const PROMPT_VACCINATION_AUDIENCE = [
+  "【このターン：予防接種・ワクチンの案内（対象者の区別が最優先）】",
+  "・接種対象者（妊婦／お子さま／成人など）とワクチン種類を区別する。",
+  "・公式サイトや院内登録に、その対象者向けの記載がある場合だけ「実施している」と案内する。",
+  "・妊婦向けワクチン（例: RSウイルス母子免疫）の記載を、お子さま本人への予防接種の根拠にしない。",
+  "・対象者やワクチンが不明なときは、実施可否を断定せず、どなたの・どの予防接種か確認するか、当院へ電話確認を案内する。",
+  "・「産婦人科だから子供の予防接種もできるはず」などの推測は禁止。",
+].join("\n");
+
 const NOT_OFFERED_THANKS = "お問い合わせありがとうございます。";
 
 /** FAQ上、当院で実施していないことが分かっている内容（文言はサービス種別ごと） */
@@ -605,6 +621,17 @@ const NOT_OFFERED_SERVICES = [
     topicPattern: /託児所|託児/,
     apologyLine: "大変申し訳ございませんが、当院には託児所はございません。",
   },
+  {
+    id: "child_vaccination",
+    label: "お子さまの予防接種",
+    // 妊婦向けワクチン（赤ちゃんを守る母子免疫）と混同しない
+    pattern: /(?!.*(?:妊婦|妊娠))(?:子供|子ども|こども|小児|乳児|新生児|赤ちゃん|お子さま|お子様|幼児|お子さん).{0,24}(?:予防接種|ワクチン|接種)|(?!.*(?:妊婦|妊娠))(?:予防接種|ワクチン).{0,24}(?:子供|子ども|こども|小児|乳児|新生児|赤ちゃん|お子さま|お子様|幼児|お子さん)/,
+    // 公式に「お子さまの予防接種は行っていない」と明記されたページだけチップ可
+    topicPattern:
+      /お子さまの予防接種は行っておりません|子供の予防接種は行っておりません|小児の予防接種は(?:実施して)?おりません|お子さまの予防接種は実施していません/,
+    apologyLine:
+      "申し訳ありませんが、当院ではお子さまの予防接種は行っておりません。",
+  },
 ];
 
 const FIXED_RULE_AFFIRM_RE =
@@ -613,7 +640,12 @@ const FIXED_RULE_AFFIRM_RE =
 function detectNotOfferedService(userMessage) {
   const text = String(userMessage || "").trim();
   if (!text) return null;
+  // お子さま予防接種は専用判定（妊婦向けワクチン質問を誤爆しない）
+  if (isChildVaccinationQuery(text)) {
+    return NOT_OFFERED_SERVICES.find((x) => x.id === "child_vaccination") || null;
+  }
   for (const item of NOT_OFFERED_SERVICES) {
+    if (item.id === "child_vaccination") continue;
     if (item.pattern.test(text)) return item;
   }
   return null;
@@ -1782,6 +1814,10 @@ function ensureNotOfferedThanksThenApology(text, userMessage, safeHistory) {
   }
   const hit = detectNotOfferedService(userMessage);
   if (!hit) return String(text || "");
+  // お子さま予防接種は定型文を優先（お礼テンプレやワクチンページ由来の誤案内を付けない）
+  if (hit.id === "child_vaccination" || isChildVaccinationQuery(userMessage)) {
+    return CHILD_VACCINATION_NOT_OFFERED_ANSWER;
+  }
 
   let s = flattenHtmlAnswerToPlain(text);
   const apology = hit.apologyLine;
@@ -2323,6 +2359,64 @@ export default async function handler(req, res) {
       }
     }
 
+    // お子さまの予防接種：未実施の院内確定情報を優先（妊婦向けワクチンページを根拠にしない）
+    if (!metaChatHit && !casualGreetingOnly && isChildVaccinationQuery(userMessage)) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "child-vaccination-not-offered" ||
+          (h.item?.intent === "vaccination_availability" &&
+            h.item?.service === "pediatric_vaccination")
+      );
+      const answer = String(ckHit?.item?.answer || "").trim() || CHILD_VACCINATION_NOT_OFFERED_ANSWER;
+      const audience = detectVaccinationAudience(userMessage);
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: clinicDetectedIntent || "vaccination_availability",
+          detectedService: clinicDetectedService || "pediatric_vaccination",
+          detectedTarget: audience,
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          rejectedKnowledge: clinicRejected,
+          childVaccination: { action: "fixed_not_offered", chips: [] },
+          note: "お子さま予防接種は未実施。ワクチンページは根拠にしない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "vaccination_availability",
+          service: "pediatric_vaccination",
+          target: audience,
+          childVaccinationNotOffered: true,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "vaccination_availability";
+        payload.detectedService = "pediatric_vaccination";
+        payload.detectedTarget = audience;
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(payload);
+    }
+
     // 産後ケア中の面会：産科入院の面会ルールを流用せず、根拠が無ければ定型案内
     const postpartumVisitationNoEvidence =
       !metaChatHit &&
@@ -2732,20 +2826,23 @@ export default async function handler(req, res) {
             : clinicDetectedIntent === "baby_care_consultation" ||
                 isDailyBabyCareConsultMessage(userMessage)
               ? [{ role: "system", content: PROMPT_BABY_CARE_CONSULTATION }]
-              : shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory)
-                ? [{ role: "system", content: PROMPT_OTHER_HOSPITAL_EXPERIENCE }]
-                : shouldAddComplaintPrompt(userMessage, safeHistory)
-                  ? [{ role: "system", content: PROMPT_COMPLAINT }]
-                  : notOfferedHit
-                    ? [
-                        {
-                          role: "system",
-                          content: buildNotOfferedPrompt(notOfferedHit),
-                        },
-                      ]
-                    : shouldAddShortBackchannelPrompt(userMessage, safeHistory)
-                      ? [{ role: "system", content: PROMPT_SHORT_BACKCHANNEL }]
-                      : []),
+              : detectVaccinationAudience(userMessage) &&
+                  !isChildVaccinationQuery(userMessage)
+                ? [{ role: "system", content: PROMPT_VACCINATION_AUDIENCE }]
+                : shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory)
+                  ? [{ role: "system", content: PROMPT_OTHER_HOSPITAL_EXPERIENCE }]
+                  : shouldAddComplaintPrompt(userMessage, safeHistory)
+                    ? [{ role: "system", content: PROMPT_COMPLAINT }]
+                    : notOfferedHit
+                      ? [
+                          {
+                            role: "system",
+                            content: buildNotOfferedPrompt(notOfferedHit),
+                          },
+                        ]
+                      : shouldAddShortBackchannelPrompt(userMessage, safeHistory)
+                        ? [{ role: "system", content: PROMPT_SHORT_BACKCHANNEL }]
+                        : []),
       ...safeHistory
         .filter((h) => h && (h.role === "user" || h.role === "assistant"))
         .map((h) => ({

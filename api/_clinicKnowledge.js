@@ -12,8 +12,10 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import {
   detectClinicService,
+  detectVaccinationAudience,
   isAttendFocusedMessage,
   isBabyIllnessConsultMessage,
+  isChildVaccinationQuery,
   isDailyBabyCareConsultMessage,
   isFeeFocusedMessage,
   isMotherDistressConsultMessage,
@@ -80,6 +82,7 @@ export const RESERVATION_INTENTS = new Set([
 export const STRICT_MATCH_INTENTS = new Set([
   ...RESERVATION_INTENTS,
   "baby_care_consultation",
+  "vaccination_availability",
 ]);
 
 let memoryCache = {
@@ -430,6 +433,11 @@ export function detectClinicIntent(userMessage) {
     return "photo_recording_policy";
   }
 
+  // お子さまの予防接種（未実施）／予防接種の可否
+  if (isChildVaccinationQuery(msg) || detectVaccinationAudience(msg)) {
+    return "vaccination_availability";
+  }
+
   // 日常的な育児相談（体調・母親の限界は別扱い。緊急は呼び出し側で先に処理）
   if (isDailyBabyCareConsultMessage(msg)) {
     return "baby_care_consultation";
@@ -567,6 +575,18 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
       rejectReason: `intent不一致(query=${queryIntent}, item=${itemIntent})`,
     };
   }
+  // 小児予防接種の未実施情報は、子供向け質問以外に流用しない
+  if (itemIntent === "vaccination_availability" && itemService === "pediatric_vaccination") {
+    if (!isChildVaccinationQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["小児予防接種未実施:対象者が子供ではない"],
+        rejected: true,
+        rejectReason: "pediatric_vaccinationは子供向け質問のみ",
+      };
+    }
+  }
+
   // 育児相談JSONは日常悩み専用。体調・母親限界には流用しない
   if (itemIntent === "baby_care_consultation") {
     if (isBabyIllnessConsultMessage(msg) || isMotherDistressConsultMessage(msg)) {

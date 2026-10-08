@@ -228,6 +228,39 @@
       "relatedSiteUrl": "https://kanai.or.jp/beginner/"
     },
     {
+      "id": "child-vaccination-not-offered",
+      "category": "予防接種",
+      "intent": "vaccination_availability",
+      "service": "pediatric_vaccination",
+      "questionPatterns": [
+        "子供の予防接種はできますか",
+        "子供の予防接種もやってますか",
+        "子供の予防接種はしていますか",
+        "赤ちゃんの予防接種はできますか",
+        "赤ちゃんのワクチンは打てますか",
+        "乳児のワクチン接種はできますか",
+        "乳児の予防接種はできますか",
+        "小児の予防接種はしていますか",
+        "小児の予防接種は受けられますか",
+        "こどもの予防接種はできますか",
+        "お子さまの予防接種はできますか"
+      ],
+      "keywords": [
+        "子供",
+        "こども",
+        "子ども",
+        "赤ちゃん",
+        "乳児",
+        "小児",
+        "予防接種",
+        "ワクチン"
+      ],
+      "answer": "申し訳ありませんが、当院ではお子さまの予防接種は行っておりません。お子さまの予防接種については、小児科などの医療機関へご相談ください。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true
+    },
+    {
       "id": "baby-care-consultation",
       "category": "育児相談",
       "intent": "baby_care_consultation",

@@ -11,6 +11,7 @@ import { Redis } from "@upstash/redis";
 import {
   gynecologyPageSupportsQuery,
   isAttendFocusedMessage,
+  isChildVaccinationQuery,
   isDeliveryBenefitsFocusedMessage,
   isGynecologyTopicMessage,
   isPhotoRecordingFocusedMessage,
@@ -1236,7 +1237,11 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
       /院内撮影|撮影禁止|写真|動画|録音|notpermit|患者さまへのお願い|患者様へのお願い/,
     ],
     [(m) => /里帰り/.test(m), /里帰り|#homecoming/],
-    [(m) => /インフルエンザ|ワクチン|予防接種/.test(m), /ワクチン|インフルエンザ|\/vaccine/],
+    [
+      (m) =>
+        /インフルエンザ|ワクチン|予防接種/.test(m) && !isChildVaccinationQuery(m),
+      /ワクチン|インフルエンザ|\/vaccine/,
+    ],
     [(m) => /子宮頸がん|子宮がん検診/.test(m), /子宮頸がん|子宮がん検診|\/gynecology/],
     [(m) => /産後ケア|産後サポート/.test(m), /産後ケア|産後サポート|\/aftersupport/],
     [(m) => /休診|診療時間|午後診|午前診|今日|本日|明日/.test(m), /休診|診療時間|午前診|午後診|夜診/],
@@ -1283,6 +1288,11 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
   ) {
     score -= routeBoost + 80;
     reasons.push("婦人科トピック未記載のためルート取消");
+  }
+  // お子さま予防接種の質問に妊婦向けワクチンページを根拠にしない
+  if (isChildVaccinationQuery(originalMsg) && /\/vaccine\//i.test(bareUrl)) {
+    score -= 200;
+    reasons.push("お子さま予防接種のため妊婦向けワクチンページ除外(-200)");
   }
 
   // お知らせ本文の具体日付と「今日/明日」質問の整合（先に計算し、投稿ペナルティ判定で使う）
