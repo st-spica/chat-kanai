@@ -1,450 +1,497 @@
 /**
- * data/clinic-knowledge.json を起動時に1回読み込み、質問に関連する項目だけ抜粋する。
- * Web 取得より軽量な院内知識の主データソース。
+ * 院内登録情報（clinic-knowledge）
+ *
+ * - 公式サイト未掲載でも、病院が明示登録した確定情報をチャットで案内する
+ * - 既定: data/clinic-knowledge.json を読み込む
+ * - CLINIC_KNOWLEDGE_URL があれば HTTP GET で取得（将来の WP 管理画面連携用）
+ * - 緊急判定・医療診断を上書きしない（呼び出し側で緊急を先に処理すること）
  */
 
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import { rewriteLegacyKanaiUrl } from "./_siteKnowledge.js";
-
-const JSON_TOP_ITEMS = Math.min(
-  10,
-  Math.max(1, parseInt(process.env.CSV_SNIPPET_TOP_ITEMS || process.env.JSON_SNIPPET_TOP_ITEMS || "3", 10))
-);
-/** 参照チップに載せる FAQ 項目の最低スコア（短い質問が多いので低め） */
-const REFERENCE_CHIP_MIN_FAQ_SCORE = Math.max(
-  1,
-  parseInt(process.env.REFERENCE_CHIP_MIN_FAQ_SCORE || "5", 10)
-);
-/** このスコア未満なら Web 補完を検討（FAQヒット時は Web で上書きしない） */
-const JSON_WEB_SUPPLEMENT_MIN_SCORE = Math.max(
-  1,
-  parseInt(process.env.CSV_WEB_SUPPLEMENT_MIN_SCORE || process.env.JSON_WEB_SUPPLEMENT_MIN_SCORE || "12", 10)
-);
-
-/** 短い質問向けトピック対応（user含む → FAQ側に語があれば加点） */
-const TOPIC_BOOSTS = [
-  { user: /立ち会い/, faq: /立ち会い/, score: 50 },
-  { user: /面会/, faq: /面会/, score: 50 },
-  { user: /駐車|パーキング/, faq: /駐車|パーキング/, score: 45 },
-  { user: /キャンセル|取消|取り消/, faq: /キャンセル/, score: 45 },
-  { user: /ピル|アフターピル|避妊薬/, faq: /ピル|避妊/, score: 45 },
-  { user: /診療時間|診察時間|受付時間|休診|何時から|何時まで/, faq: /診療時間|午前診|午後診|夜診|休診/, score: 45 },
-  // 料金系は「概算・分娩」を短い一般質問の第一候補にする
-  {
-    user: /料金|費用|いくら|値段/,
-    faq: /概算料金|予約金|予納金|分娩料|入院費/,
-    score: 55,
-  },
-  {
-    user: /料金|費用|いくら|値段|予約金|予納/,
-    faq: /料金|費用|予約金|予納|いくら/,
-    score: 25,
-  },
-  { user: /オンライン/, faq: /オンライン/, score: 50 },
-  { user: /不妊/, faq: /不妊/, score: 50 },
-  { user: /個室/, faq: /個室/, score: 50 },
-  { user: /クレジット|カード決済|支払い|払える/, faq: /クレジット|支払|現金/, score: 45 },
-  { user: /里帰り/, faq: /里帰り/, score: 50 },
-  { user: /無痛/, faq: /無痛/, score: 50 },
-  { user: /レストラン|食事|食堂/, faq: /レストラン|食事|食堂|ディナー/, score: 40 },
-  { user: /母乳|搾乳|ミルクケア/, faq: /母乳|ミルク|授乳/, score: 40 },
-  { user: /産後ケア|アフターサポート/, faq: /産後ケア|アフター|aftercare|aftersupport/i, score: 40 },
-  { user: /持ち物|入院準備|何を持/, faq: /持ち物|ご用意|入院セット|お産セット/, score: 45 },
-  { user: /WEB予約|ウェブ予約|ネット予約/, faq: /WEB予約|ウェブ予約|予約/, score: 35 },
-  { user: /子宮がん|がん検診/, faq: /子宮がん|がん検診/, score: 45 },
-  { user: /性病|性感染症|STD|クラミジア|淋病/, faq: /性病|性感染症|クラミジア/, score: 45 },
-];
+import {
+  isAttendFocusedMessage,
+  isFeeFocusedMessage,
+  isVisitFocusedMessage,
+  QUERY_NORMALIZERS,
+} from "../data/site-route-map.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const JSON_PATH = join(__dirname, "../data/clinic-knowledge.json");
+const DEFAULT_JSON_PATH = join(__dirname, "../data/clinic-knowledge.json");
 
-function normalizeFaqItem(raw) {
-  if (!raw || typeof raw !== "object") return null;
-  const category = String(raw.category ?? "").trim();
-  const question = String(raw.question ?? "").trim();
-  const answer = String(raw.answer ?? "").trim();
-  const url = rewriteLegacyKanaiUrl(String(raw.url ?? "").trim());
-  if (!question && !answer) return null;
-  return { category, question, answer, url };
-}
+const TOP_ITEMS = Math.min(
+  5,
+  Math.max(1, parseInt(process.env.CLINIC_KNOWLEDGE_TOP_ITEMS || "2", 10))
+);
+/** このスコア未満は GPT に渡さない */
+const MIN_PASS_SCORE = Math.max(
+  1,
+  parseInt(process.env.CLINIC_KNOWLEDGE_MIN_SCORE || "40", 10)
+);
+const CACHE_TTL_MS = Math.max(
+  0,
+  parseInt(process.env.CLINIC_KNOWLEDGE_TTL_MS || String(5 * 60 * 1000), 10)
+);
 
-function loadClinicKnowledge() {
+/**
+ * @typedef {{
+ *   id: string,
+ *   category: string,
+ *   questionPatterns: string[],
+ *   keywords: string[],
+ *   answer: string,
+ *   priority: number,
+ *   updatedAt: string,
+ *   enabled: boolean,
+ *   relatedSiteUrl?: string,
+ * }} ClinicKnowledgeItem
+ */
+
+/** @typedef {{ item: ClinicKnowledgeItem, score: number, reasons: string[] }} ClinicKnowledgeHit */
+
+let memoryCache = {
+  at: 0,
+  /** @type {ClinicKnowledgeItem[]} */
+  items: [],
+  version: null,
+  source: "none",
+  error: null,
+};
+
+/**
+ * 生JSON/配列を正規化（旧形式 question/url も吸収）
+ * @param {any} raw
+ * @returns {{ items: ClinicKnowledgeItem[], version: any, error: string|null }}
+ */
+export function normalizeClinicKnowledgePayload(raw) {
   try {
-    const raw = readFileSync(JSON_PATH, "utf-8");
-    const parsed = JSON.parse(raw);
-    const list = Array.isArray(parsed) ? parsed : parsed?.items;
-    if (!Array.isArray(list) || list.length === 0) {
-      throw new Error("JSONファイルの形式が正しくありません（items 配列が必要です）");
+    const list = Array.isArray(raw) ? raw : raw?.items;
+    if (!Array.isArray(list)) {
+      return { items: [], version: null, error: "items 配列がありません" };
     }
-
-    const faqItems = [];
-    for (const entry of list) {
-      const item = normalizeFaqItem(entry);
-      if (item) faqItems.push(item);
+    /** @type {ClinicKnowledgeItem[]} */
+    const items = [];
+    for (let i = 0; i < list.length; i++) {
+      const n = normalizeOneItem(list[i], i);
+      if (n) items.push(n);
     }
-
-    if (!faqItems.length) {
-      throw new Error("有効な FAQ 項目がありません");
-    }
-
-    const referenceUrls = [];
-    for (const item of faqItems) {
-      if (
-        item.url &&
-        (item.url.startsWith("http://") || item.url.startsWith("https://")) &&
-        !referenceUrls.includes(item.url)
-      ) {
-        referenceUrls.push(item.url);
-      }
-    }
-
-    return { faqItems, referenceUrls, loadError: null };
-  } catch (error) {
-    console.error("JSONファイルの読み込みに失敗しました:", error?.message || error);
-    return { faqItems: [], referenceUrls: [], loadError: error?.message || String(error) };
+    return {
+      items,
+      version: Array.isArray(raw) ? 1 : raw?.version ?? null,
+      error: items.length ? null : "有効な項目がありません",
+    };
+  } catch (e) {
+    return { items: [], version: null, error: e?.message || String(e) };
   }
 }
 
-const {
-  faqItems: CLINIC_FAQ_ITEMS,
-  referenceUrls: CLINIC_REFERENCE_URLS,
-  loadError: CLINIC_JSON_LOAD_ERROR,
-} = loadClinicKnowledge();
+/**
+ * @param {any} raw
+ * @param {number} index
+ * @returns {ClinicKnowledgeItem|null}
+ */
+function normalizeOneItem(raw, index) {
+  if (!raw || typeof raw !== "object") return null;
+  if (raw.enabled === false || raw.enabled === "false" || raw.enabled === 0) {
+    // enabled=false は検索対象外（リストにも載せない）
+    return null;
+  }
 
-const SCORING_STOP_TOKENS = new Set([
-  "必要",
-  "教え",
-  "ほしい",
-  "ある",
-  "ない",
-  "です",
-  "ます",
-  "ください",
-  "教えて",
-  "したい",
-  "やりたい",
-  "もらえる",
-  "できる",
-  "ですか",
-  "ますか",
-  "のか",
-  "どう",
-]);
+  const answer = String(raw.answer ?? "").trim();
+  if (!answer) return null;
 
-/** 短い口語質問を正規化（助詞・疑問表現を落とす） */
-function normalizeUserQuery(text) {
+  let questionPatterns = Array.isArray(raw.questionPatterns)
+    ? raw.questionPatterns.map((p) => String(p || "").trim()).filter(Boolean)
+    : [];
+  // 旧形式互換
+  if (!questionPatterns.length && raw.question) {
+    questionPatterns = String(raw.question)
+      .split(/[／/]/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+  }
+  if (!questionPatterns.length) return null;
+
+  let keywords = Array.isArray(raw.keywords)
+    ? raw.keywords.map((k) => String(k || "").trim()).filter(Boolean)
+    : [];
+  if (!keywords.length) {
+    keywords = inferKeywords(questionPatterns.join(" "), answer);
+  }
+
+  const id =
+    String(raw.id || "").trim() ||
+    `item-${String(index + 1).padStart(3, "0")}`;
+  const category = String(raw.category ?? "").trim() || "other";
+  const priority = Number.isFinite(Number(raw.priority))
+    ? Number(raw.priority)
+    : 50;
+  const updatedAt = String(raw.updatedAt || raw.updated_at || "").trim() || "";
+  const relatedSiteUrl = String(
+    raw.relatedSiteUrl || raw.url || ""
+  ).trim();
+
+  /** @type {ClinicKnowledgeItem} */
+  const item = {
+    id,
+    category,
+    questionPatterns,
+    keywords,
+    answer,
+    priority,
+    updatedAt,
+    enabled: true,
+  };
+  if (relatedSiteUrl) item.relatedSiteUrl = relatedSiteUrl;
+  return item;
+}
+
+function inferKeywords(question, answer) {
+  const text = `${question}\n${answer}`;
+  const base = [
+    "駐車場",
+    "駐車",
+    "面会",
+    "立ち会い",
+    "持ち物",
+    "予約",
+    "キャンセル",
+    "入院",
+    "個室",
+    "ワクチン",
+    "ピル",
+    "休診",
+    "診療時間",
+    "クレジット",
+    "予納",
+    "里帰り",
+    "産後",
+    "母乳",
+  ];
+  return base.filter((k) => text.includes(k)).slice(0, 10);
+}
+
+/**
+ * データ取得（差し替えポイント）
+ * - CLINIC_KNOWLEDGE_URL: WordPress 等の API
+ * - それ以外: ローカル JSON
+ * @param {{ forceRefresh?: boolean }} [opts]
+ */
+export async function loadClinicKnowledgeSource(opts = {}) {
+  const now = Date.now();
+  if (
+    !opts.forceRefresh &&
+    CACHE_TTL_MS > 0 &&
+    memoryCache.items.length &&
+    now - memoryCache.at < CACHE_TTL_MS
+  ) {
+    return {
+      items: memoryCache.items,
+      version: memoryCache.version,
+      source: memoryCache.source,
+      error: memoryCache.error,
+      fromCache: true,
+    };
+  }
+
+  const remoteUrl = String(process.env.CLINIC_KNOWLEDGE_URL || "").trim();
+  let payload = null;
+  let source = "file";
+  let error = null;
+
+  if (remoteUrl) {
+    source = "remote";
+    try {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 8000);
+      const res = await fetch(remoteUrl, {
+        signal: ac.signal,
+        headers: { Accept: "application/json" },
+      });
+      clearTimeout(t);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      payload = await res.json();
+    } catch (e) {
+      error = `remote_fetch_failed: ${e?.message || e}`;
+      console.error("clinic-knowledge remote load failed:", error);
+      // リモート失敗時はローカルへフォールバック
+      source = "file_fallback";
+    }
+  }
+
+  if (!payload) {
+    try {
+      const path = String(process.env.CLINIC_KNOWLEDGE_PATH || DEFAULT_JSON_PATH);
+      payload = JSON.parse(readFileSync(path, "utf-8"));
+      if (source !== "file_fallback") source = "file";
+    } catch (e) {
+      error = e?.message || String(e);
+      console.error("clinic-knowledge file load failed:", error);
+      memoryCache = { at: now, items: [], version: null, source, error };
+      return { items: [], version: null, source, error, fromCache: false };
+    }
+  }
+
+  const normalized = normalizeClinicKnowledgePayload(payload);
+  memoryCache = {
+    at: now,
+    items: normalized.items,
+    version: normalized.version,
+    source,
+    error: normalized.error || error,
+  };
+  return {
+    items: memoryCache.items,
+    version: memoryCache.version,
+    source: memoryCache.source,
+    error: memoryCache.error,
+    fromCache: false,
+  };
+}
+
+/** 同期アクセス用（起動時プリロード兼用） */
+function getCachedItemsSync() {
+  if (memoryCache.items.length) return memoryCache.items;
+  try {
+    const path = String(process.env.CLINIC_KNOWLEDGE_PATH || DEFAULT_JSON_PATH);
+    const payload = JSON.parse(readFileSync(path, "utf-8"));
+    const normalized = normalizeClinicKnowledgePayload(payload);
+    memoryCache = {
+      at: Date.now(),
+      items: normalized.items,
+      version: normalized.version,
+      source: "file",
+      error: normalized.error,
+    };
+  } catch (e) {
+    memoryCache = {
+      at: Date.now(),
+      items: [],
+      version: null,
+      source: "file",
+      error: e?.message || String(e),
+    };
+  }
+  return memoryCache.items;
+}
+
+// コールドスタート用に同期プリロード
+getCachedItemsSync();
+
+function normalizeQueryText(text) {
   return String(text || "")
     .trim()
-    .replace(/診察中/g, "診療中")
-    .replace(/先生/g, "医師")
-    .replace(/必要なもの/g, "持ち物")
-    .replace(/入院する|入院のとき|入院時/g, "入院")
     .replace(/[？?！!。．、,…〜~･・]/g, " ")
-    .replace(
-      /してもいいですか|していいですか|してよいですか|できますか|できる\s*|ありますか|ある\s*|やってる|やってますか|もらえる|したい|知りたい|教えて(ください)?|お願いします|について|ですか|ますか|なの|のか|どうなの/g,
-      " "
-    )
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function tokenizeForScoring(text) {
-  const raw = normalizeUserQuery(text);
-  if (!raw) return [];
-
-  const parts = raw
-    .split(/[\s\u3000のをにはがとでもからまでへやなどって]+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length >= 2);
-
-  const seen = new Set();
-  const out = [];
-  for (const p of parts) {
-    const key = p.toLowerCase();
-    if (SCORING_STOP_TOKENS.has(key)) continue;
-    if (!seen.has(key)) {
-      seen.add(key);
-      out.push(p);
-    }
+/**
+ * QUERY_NORMALIZERS 等で質問を拡張したマッチ用テキスト
+ * @param {string} userMessage
+ */
+function expandMessageForClinicMatch(userMessage) {
+  const msg = String(userMessage || "");
+  const extras = [];
+  if (isVisitFocusedMessage(msg)) extras.push("面会", "お見舞い");
+  if (isAttendFocusedMessage(msg)) extras.push("立ち会い", "立会い");
+  if (isFeeFocusedMessage(msg)) extras.push("費用", "料金");
+  for (const n of Object.values(QUERY_NORMALIZERS || {})) {
+    if (n?.pattern?.test(msg) && n.label) extras.push(n.label);
   }
-  // 短い質問で分割できない場合は全文を1トークンとして使う
-  if (!out.length && raw.length >= 2) out.push(raw);
-
-  // 「面会時間」→「面会」「時間」のように複合語を2文字単位で分解（3文字は誤爆しやすい）
-  const expanded = [];
-  for (const p of out) {
-    expanded.push(p);
-    if (p.length >= 4) {
-      for (let i = 0; i <= p.length - 2; i++) {
-        const sub = p.slice(i, i + 2);
-        if (!SCORING_STOP_TOKENS.has(sub)) expanded.push(sub);
-      }
-    }
-  }
-  const seen2 = new Set();
-  const final = [];
-  for (const p of expanded) {
-    const key = p.toLowerCase();
-    if (seen2.has(key)) continue;
-    seen2.add(key);
-    final.push(p);
-  }
-  return final;
+  if (/駐車|パーキング|車で来|車で行/.test(msg)) extras.push("駐車場", "駐車");
+  if (/持ち物|何を持|持参/.test(msg)) extras.push("持ち物");
+  return normalizeQueryText(`${msg} ${extras.join(" ")}`);
 }
 
 /**
  * @param {string} userMessage
- * @param {{ category: string, question: string, answer: string, url: string }} item
+ * @param {ClinicKnowledgeItem} item
+ * @returns {{ score: number, reasons: string[] }}
  */
-function scoreFaqItem(userMessage, item) {
-  const text = String(userMessage || "").trim();
-  if (!text) return 0;
-  const normalizedText = normalizeUserQuery(text);
-  const lowered = normalizedText.toLowerCase();
-  const qHay = `${item.category}\n${item.question}`.toLowerCase();
-  const aHay = String(item.answer || "").toLowerCase();
-  const hayFull = `${item.category}\n${item.question}\n${item.answer}`;
+export function scoreClinicKnowledgeItem(userMessage, item) {
+  const msg = String(userMessage || "").trim();
+  if (!msg || !item?.enabled) return { score: 0, reasons: [] };
+
+  const expanded = expandMessageForClinicMatch(msg);
+  const msgNorm = normalizeQueryText(msg).toLowerCase();
+  const expLower = expanded.toLowerCase();
+  const reasons = [];
   let score = 0;
 
-  // 1) トピック一致（短い1文向け・最重要）
-  for (const t of TOPIC_BOOSTS) {
-    if (t.user.test(text) && t.faq.test(hayFull)) {
-      score += t.score;
-      // 質問文側にトピックがあるときはさらに加点
-      if (t.faq.test(`${item.category}\n${item.question}`)) score += 12;
+  // 1) questionPatterns（最重要）
+  let bestPattern = 0;
+  for (const pat of item.questionPatterns || []) {
+    const p = normalizeQueryText(pat).toLowerCase();
+    if (!p) continue;
+    if (msgNorm === p || msgNorm.includes(p) || p.includes(msgNorm)) {
+      bestPattern = Math.max(bestPattern, 120);
+      reasons.push(`pattern一致:${pat.slice(0, 24)}`);
+    } else {
+      // パターン語の部分一致
+      const toks = p.split(/\s+/).filter((t) => t.length >= 2);
+      let hit = 0;
+      for (const t of toks) {
+        if (expLower.includes(t)) hit += 1;
+      }
+      if (toks.length && hit === toks.length) {
+        bestPattern = Math.max(bestPattern, 90);
+        reasons.push(`pattern語全一致:${pat.slice(0, 24)}`);
+      } else if (hit > 0) {
+        bestPattern = Math.max(bestPattern, 25 * hit);
+      }
     }
   }
+  score += bestPattern;
 
-  // 2) ユーザー語が FAQ 質問に含まれる（回答ヒットはごく小さく：短い質問の誤爆防止）
-  const tokens = tokenizeForScoring(text);
-  let qHit = 0;
-  for (const tok of tokens) {
-    const t = tok.toLowerCase();
-    if (t.length >= 3 && qHay.includes(t)) {
-      score += t.length * 5;
-      qHit += 1;
-    } else if (t.length === 2 && qHay.includes(t)) {
-      score += 12;
-      qHit += 1;
-    } else if (t.length >= 3 && aHay.includes(t)) score += Math.min(t.length, 3);
-    else if (t.length === 2 && aHay.includes(t)) score += 1;
-  }
-  // 質問文側に複数ヒットした項目を優先（短い複合語向け）
-  if (qHit >= 2) score += 25;
-
-  // 3) FAQ質問の主要語がユーザー語と一致（部分包含の誤爆を避ける）
-  const userTokSet = new Set(tokens.map((t) => t.toLowerCase()));
-  const qTokens = String(item.question || "")
-    .replace(/[？?！!。．]/g, " ")
-    .split(/[\s、・,?／/のをにはがとでも]+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length >= 2 && !SCORING_STOP_TOKENS.has(t));
-  for (const tok of qTokens) {
-    const t = tok.toLowerCase();
-    if (userTokSet.has(t)) {
-      score += t.length >= 3 ? t.length * 3 : 8;
+  // 2) keywords
+  let kwHits = 0;
+  for (const kw of item.keywords || []) {
+    const k = String(kw || "").toLowerCase();
+    if (k.length < 2) continue;
+    if (expLower.includes(k) || msgNorm.includes(k)) {
+      kwHits += 1;
+      score += k.length >= 3 ? 28 : 18;
+      reasons.push(`keyword:${kw}`);
     }
   }
+  if (kwHits >= 2) score += 20;
 
-  if (item.category) {
-    const cat = String(item.category).toLowerCase();
-    if (lowered.includes(cat)) score += 8;
-    // カテゴリの先頭語（例: 診療/受付 → 診療）
-    const catHead = cat.split(/[/\s]/)[0];
-    if (catHead.length >= 2 && lowered.includes(catHead)) score += 4;
+  // 3) category / 関連
+  const cat = String(item.category || "").toLowerCase();
+  if (cat && (expLower.includes(cat) || msgNorm.includes(cat))) {
+    score += 12;
+    reasons.push("category一致");
+  }
+  const catHead = cat.split(/[/\s]/)[0];
+  if (catHead.length >= 2 && expLower.includes(catHead)) {
+    score += 6;
   }
 
-  // 正規化後の短文が質問にほぼ含まれる
-  if (lowered.length >= 2 && lowered.length <= 40 && qHay.includes(lowered)) {
-    score += 35;
-  }
+  // priority は微調整（本スコアを上書きしない）
+  score += Math.min(30, Math.max(0, Number(item.priority) || 0) * 0.15);
 
-  const doctorGenderQuery =
-    /(?:医師|担当医|主治医).*(?:男性|女性|性別)|(?:男性|女性).*(?:医師|担当医)|男性医師|女性医師|男の医師|女の医師|男性のみ|女性のみ|先生は男性|先生は女性/.test(
-      text
-    );
-  if (
-    doctorGenderQuery &&
-    /医師|担当医|診療体制|指名|女性医師|男性医師|男性のみ/.test(hayFull)
-  ) {
-    score += 20;
+  // 重複理由を整理
+  const uniq = [];
+  const seen = new Set();
+  for (const r of reasons) {
+    if (seen.has(r)) continue;
+    seen.add(r);
+    uniq.push(r);
   }
-
-  return score;
+  return { score: Math.round(score), reasons: uniq.slice(0, 10) };
 }
 
 /**
- * @returns {{ scored: Array<{ item, score }>, topScore: number }}
+ * @param {string} userMessage
+ * @param {{ forceRefresh?: boolean, items?: ClinicKnowledgeItem[] }} [opts]
+ * @returns {Promise<{ hits: ClinicKnowledgeHit[], topScore: number, source: string }>}
  */
-function rankClinicKnowledgeScored(userMessage) {
-  if (!CLINIC_FAQ_ITEMS.length) {
-    return { scored: [], topScore: 0 };
+export async function searchClinicKnowledge(userMessage, opts = {}) {
+  const loaded = opts.items
+    ? { items: opts.items, source: "provided" }
+    : await loadClinicKnowledgeSource(opts);
+  const items = loaded.items || [];
+  if (!items.length) {
+    return { hits: [], topScore: 0, source: loaded.source || "none" };
   }
 
-  const scored = CLINIC_FAQ_ITEMS.map((item) => ({
-    item,
-    score: scoreFaqItem(userMessage, item),
-  }))
-    .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score);
+  const scored = items
+    .map((item) => {
+      const { score, reasons } = scoreClinicKnowledgeItem(userMessage, item);
+      return { item, score, reasons };
+    })
+    .filter((h) => h.score >= MIN_PASS_SCORE)
+    .sort((a, b) => b.score - a.score || (b.item.priority || 0) - (a.item.priority || 0));
 
-  // ヒットなしのとき無関係な先頭FAQを混ぜない（短い質問で誤誘導しやすい）
-  if (!scored.length) {
-    return { scored: [], topScore: 0 };
-  }
+  const topScore = scored[0]?.score || 0;
+  if (!topScore) return { hits: [], topScore: 0, source: loaded.source };
 
-  const topScore = scored[0].score;
-  // 短い質問は原則1件だけ渡し、JSONが薄まらないようにする
-  const isShort = String(userMessage || "").trim().length <= 24;
-  const maxItems = isShort ? 1 : JSON_TOP_ITEMS;
-  const minKeep = Math.max(topScore * (isShort ? 0.55 : 0.45), topScore - (isShort ? 20 : 30));
-  const filtered = scored.filter((s) => s.score >= minKeep).slice(0, maxItems);
-
-  return { scored: filtered.length ? filtered : scored.slice(0, 1), topScore };
+  const minKeep = Math.max(topScore * 0.55, topScore - 40, MIN_PASS_SCORE);
+  const hits = scored.filter((h) => h.score >= minKeep).slice(0, TOP_ITEMS);
+  return { hits, topScore, source: loaded.source };
 }
 
 /**
- * @returns {{ items: Array, topScore: number }}
+ * GPT 用 system 文（公式サイト抜粋とは別枠）
+ * @param {ClinicKnowledgeHit[]} hits
  */
-export function rankClinicKnowledge(userMessage) {
-  const { scored, topScore } = rankClinicKnowledgeScored(userMessage);
-  return { items: scored.map((s) => s.item), topScore };
-}
-
-
-function formatFaqItems(items) {
-  return items.map((item) => {
-    let block = `Q: ${item.question}\nA: ${item.answer}`;
-    if (item.url && /^https?:\/\//i.test(item.url)) {
-      block += `\n参考ページ: ${item.url}`;
-    }
-    if (item.category && item.category.trim() !== "") {
-      block = `[${item.category}] ${block}`;
-    }
-    return block;
+export function buildClinicRegisteredKnowledgePrompt(hits) {
+  if (!hits?.length) return "";
+  const blocks = hits.map(({ item, score }) => {
+    return [
+      `【院内登録情報】`,
+      `id: ${item.id}`,
+      `カテゴリ: ${item.category || "-"}`,
+      `更新日: ${item.updatedAt || "不明"}`,
+      `関連スコア: ${score}`,
+      `回答:`,
+      item.answer,
+    ].join("\n");
   });
-}
-
-/** ユーザーメッセージに関連する FAQ 項目だけを system 用テキストにまとめる */
-export function buildClinicKnowledgeSnippet(userMessage) {
-  if (!CLINIC_FAQ_ITEMS.length) {
-    return CLINIC_JSON_LOAD_ERROR
-      ? `【金井産婦人科（院内FAQ）】\n- 情報の読み込みに失敗しました。`
-      : "";
-  }
-
-  const { scored, topScore } = rankClinicKnowledgeScored(userMessage);
-  if (!scored.length || topScore <= 0) return "";
-
-  const parts = formatFaqItems(scored.map((s) => s.item));
   return [
-    "【金井産婦人科（院内FAQ・最優先の根拠）】",
-    "次の Q&A を最優先で使い、矛盾する一般知識や推測で上書きしないでください。",
-    "短い質問でも、下記の該当項目の回答内容をそのまま分かりやすく伝えてください。",
+    "【院内登録情報（病院が明示登録した確定情報。公式サイト情報より優先する）】",
+    "・以下は公式サイト未掲載でも案内してよい院内確定情報です。",
+    "・公式サイト抜粋や一般知識と矛盾する場合は、院内登録情報を優先してください。",
+    "・緊急症状の判断・診断・処方指示には使わないでください。",
+    "・回答内に「院内登録情報」「FAQ」などの内部用語は出さないでください。",
     "",
-    parts.join("\n\n"),
+    blocks.join("\n\n---\n\n"),
   ].join("\n");
 }
 
-/** サイトTOPなど、チップとして出しても案内にならない汎用URLか */
-export function isGenericKanaiHomeUrl(url) {
-  try {
-    const u = new URL(String(url || "").trim());
-    if (!/(?:^|\.)kanai\.or\.jp$/i.test(u.hostname)) return true;
-    const path = (u.pathname || "/").replace(/\/+$/, "") || "/";
-    return path === "/" && !u.hash && !u.search;
-  } catch {
-    return true;
-  }
-}
-
-/** URLの具体性（深いパス・アンカーほど高い） */
-function urlSpecificityScore(url) {
-  try {
-    const u = new URL(String(url || "").trim());
-    const path = (u.pathname || "/").replace(/\/+$/, "") || "/";
-    const segments = path.split("/").filter(Boolean);
-    let s = segments.length * 12;
-    if (u.hash) s += 18;
-    if (u.search) s += 4;
-    if (isGenericKanaiHomeUrl(url)) s -= 100;
-    return s;
-  } catch {
-    return 0;
-  }
-}
-
-/**
- * 参照チップ用（関連 FAQ のうち、最も具体的な URL を1件）
- * TOP（サイトルート）は出さない。該当がTOPのみなら空配列。
- * @returns {Array<{ url: string, title: string }>}
- */
-export function selectReferencedPagesFromCsv(userMessage) {
-  const { scored, topScore } = rankClinicKnowledgeScored(userMessage);
-  const isShort = String(userMessage || "").trim().length <= 24;
-  const minScore = isShort
-    ? Math.min(REFERENCE_CHIP_MIN_FAQ_SCORE, 4)
-    : REFERENCE_CHIP_MIN_FAQ_SCORE;
-  if (topScore < minScore) return [];
-
-  const candidates = scored
-    .filter(({ score, item }) => {
-      if (score < minScore) return false;
-      if (score < topScore - 15 && score < topScore * 0.7) return false;
-      if (!item.url || !/^https?:\/\//i.test(item.url)) return false;
-      if (isGenericKanaiHomeUrl(item.url)) return false;
-      return true;
+/** @deprecated 互換: 旧 buildClinicKnowledgeSnippet */
+export function buildClinicKnowledgeSnippet(userMessage) {
+  const items = getCachedItemsSync();
+  const scored = items
+    .map((item) => {
+      const { score, reasons } = scoreClinicKnowledgeItem(userMessage, item);
+      return { item, score, reasons };
     })
-    .map(({ item, score }) => ({
-      item,
-      score,
-      specificity: urlSpecificityScore(item.url),
-    }))
-    .sort((a, b) => b.score - a.score || b.specificity - a.specificity);
-
-  if (!candidates.length) return [];
-
-  const best = candidates[0];
-  const title =
-    (best.item.question || best.item.category || best.item.url)
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 80) || best.item.url;
-  return [{ url: best.item.url, title }];
+    .filter((h) => h.score >= MIN_PASS_SCORE)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, TOP_ITEMS);
+  return buildClinicRegisteredKnowledgePrompt(scored);
 }
 
-/** JSON だけでは不足と判断するか（Web 補完のトリガー） */
-export function shouldSupplementWithWeb(userMessage, jsonTopScore) {
-  const text = String(userMessage || "").trim();
-  if (!text) return false;
+/** @deprecated 互換 */
+export function rankClinicKnowledge(userMessage) {
+  const items = getCachedItemsSync();
+  const scored = items
+    .map((item) => ({
+      item,
+      score: scoreClinicKnowledgeItem(userMessage, item).score,
+    }))
+    .filter((s) => s.score >= MIN_PASS_SCORE)
+    .sort((a, b) => b.score - a.score);
+  return {
+    items: scored.slice(0, TOP_ITEMS).map((s) => s.item),
+    topScore: scored[0]?.score || 0,
+  };
+}
 
-  if (/最新|更新|今の|現在の|変更|改定/.test(text)) {
-    return true;
-  }
+/** clinic-knowledge は患者向け Web チップに使わない */
+export function selectReferencedPagesFromCsv() {
+  return [];
+}
 
-  // 短い質問で FAQ がヒットしているときは Web を足さない（JSONを優先）
-  const isShort = text.length <= 24;
-  if (isShort && jsonTopScore >= 5) {
-    return false;
-  }
-
-  if (jsonTopScore < JSON_WEB_SUPPLEMENT_MIN_SCORE) {
-    return true;
-  }
-
-  return false;
+export function shouldSupplementWithWeb() {
+  // 併用方針: 常に公式サイト検索も許可（呼び出し側で制御）
+  return true;
 }
 
 export function peekClinicKnowledgeStatus() {
   return {
+    source: memoryCache.source,
+    version: memoryCache.version,
+    itemCount: memoryCache.items.length,
+    loadError: memoryCache.error,
+    minPassScore: MIN_PASS_SCORE,
+    topItems: TOP_ITEMS,
+    cacheTtlMs: CACHE_TTL_MS,
+    remoteUrlConfigured: Boolean(String(process.env.CLINIC_KNOWLEDGE_URL || "").trim()),
     jsonPath: "data/clinic-knowledge.json",
-    itemCount: CLINIC_FAQ_ITEMS.length,
-    referenceUrlCount: CLINIC_REFERENCE_URLS.length,
-    loadError: CLINIC_JSON_LOAD_ERROR,
-    topItemsPerRequest: JSON_TOP_ITEMS,
-    webSupplementMinScore: JSON_WEB_SUPPLEMENT_MIN_SCORE,
   };
 }

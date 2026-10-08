@@ -14,6 +14,11 @@ import {
   sourcePagesFromChunks,
   peekSiteKnowledgeStatus,
 } from "./_siteKnowledge.js";
+import {
+  buildClinicRegisteredKnowledgePrompt,
+  peekClinicKnowledgeStatus,
+  searchClinicKnowledge,
+} from "./_clinicKnowledge.js";
 
 /** 参照チップは最大1件 */
 const MAX_REFERENCE_CHIPS = 1;
@@ -174,16 +179,19 @@ const SYSTEM = `
 - 危険サインが疑われる場合は、一般説明を最小限にして「至急受診／救急」誘導を最優先する。
 - 個人情報（氏名、住所、電話番号、保険番号など）を求めない。入力されたら控えるよう促す。
 - 【院内固有情報と一般相談の分離（最重要）】
-  - **当院固有の情報**（診療時間・休診・予約方法・分娩予約・面会・立ち会い・入院・費用・医師・ワクチン・教室・設備・当院独自のサービス／ルール など）は、このターンで渡される**公式サイト抜粋に根拠がある場合のみ**答える。
-  - 抜粋に根拠がない当院固有の質問では、GPT自身の一般知識・推測・「一般的な産婦人科では」「通常は」などの補完は**禁止**。確認できない旨を伝え、当院への電話相談へ案内する。
+  - 情報の優先順位は次のとおり（上ほど強い）。**(1) 院内登録情報**（病院が明示登録した確定情報）→ **(2) 公式サイト抜粋** → **(3) GPT一般知識（当院固有の断定には使わない）**。
+  - **院内登録情報**が渡されている場合は、公式サイト抜粋より優先して使う。矛盾時は院内登録情報を採用する。
+  - **当院固有の情報**（診療時間・休診・予約方法・分娩予約・面会・立ち会い・入院・費用・医師・ワクチン・教室・設備・駐車場・持ち物・当院独自のサービス／ルール など）は、このターンで渡される**院内登録情報または公式サイト抜粋に根拠がある場合のみ**答える。
+  - どちらにも根拠がない当院固有の質問では、GPT自身の一般知識・推測・「一般的な産婦人科では」「通常は」などの補完は**禁止**。確認できない旨を伝え、当院への電話相談へ案内する。
   - **一般的な妊娠・出産・症状の相談**（例：つわり、むくみ、不安の整理）は、診断・処方をせず、既存の安全ルールに従って案内してよい（当院固有の制度・時間・可否の断定はしない）。
-- ユーザーの質問は短い1文が多い。当院固有の話題でサイト抜粋が渡されているときは、その内容を最優先で使い、一般論で薄めない・上書きしない。
-- 抜粋に「更新:」やページ種別が付いている場合、**新しい関連情報**（特に休診などのお知らせ）を、古い一般案内より優先して解釈する。
+  - 院内登録情報・公式サイト情報があっても、**緊急症状の判断・診断・処方指示には使わない**。危険サインは救急誘導を最優先。
+- ユーザーの質問は短い1文が多い。当院固有の話題で根拠が渡されているときは、その内容を最優先で使い、一般論で薄めない・上書きしない。
+- 抜粋に「更新:」やページ種別が付いている場合、**新しい関連情報**（特に休診などのお知らせ）を、古い一般案内より優先して解釈する。院内登録情報の「更新日:」も新しさの判断に使ってよい。
 - 「今日」「本日」「明日」等の日付表現は、別メッセージで渡される【現在日時（Asia/Tokyo）】を唯一の基準にする。現在日時を推測しない。過去日付のお知らせを「今日」の説明に使わない。
 - 【お礼→謝罪は例外のみ】「お問い合わせありがとうございます。大変申し訳ございませんが、…」は、(A) 当院へのクレーム・不満、または (B) 実施していない／お客様の要望に応えられない内容（例：無痛分娩、日曜診療、乳がん検診）のときだけ使う。分娩予約・利用できる制度・診療時間・料金などの通常の案内では謝罪文を書かない（お礼だけ、またはいきなり案内してよい）。「利用可能です」「できます」など案内できる内容の前に謝罪を置かない。
 - サイト抜粋で「実施していない／行っていない／休診」と分かる内容を聞かれたときだけ、冒頭をお礼→未実施／休診の案内にする。曖昧にしない。
-- 当院固有テーマで公式サイト抜粋に根拠がない場合は、「正確な情報を確認できないため、お手数ですが当院へお電話でお問い合わせください。」と案内する（一般論で埋めない）。
-- 回答内では「院内サイト抜粋」「KNOWLEDGE」などの内部用語は一切出さない。
+- 当院固有テーマで院内登録情報も公式サイト抜粋も根拠がない場合は、「正確な情報を確認できないため、お手数ですが当院へお電話でお問い合わせください。」と案内する（一般論で埋めない）。
+- 回答内では「院内サイト抜粋」「院内登録情報」「KNOWLEDGE」などの内部用語は一切出さない。
 - 回答内で「チャットボット」「AI」などと自称しない。必要な場合も「相談窓口としてご案内します」と表現する。
 - 相手が感情を示したときは短く受け止め、不安を言語化・整理する手助けをする。推測で感情を代弁しない。次の行動を「患者主体」で返す。
 - 不安を否定しない。他院批判に乗らない。当院の期待値をコントロールする。
@@ -730,6 +738,7 @@ function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
     /今日|本日|明日|明後日|今週|午後は診|午前は診/,
     /面会|お見舞い|会いに来|会いに行|立ち会|立会い|立ち合い|付き添|分娩室に入れ/,
     /料金|費用|いくらかか|入院費|自己負担|託児所|無痛分娩|乳がん検診/,
+    /駐車|パーキング|持ち物|持参|何を持/,
   ];
 
   return (
@@ -1829,18 +1838,55 @@ export default async function handler(req, res) {
       return res.status(200).json({ answer, emergency: false, instantGreeting: true });
     }
 
-    let clinicSnippet = "";
+    let clinicSnippet = ""; // 公式サイト抜粋
+    let registeredClinicPrompt = ""; // 院内登録情報（clinic-knowledge）
     let referencedPages = [];
     let knowledgeConfidence = "none";
     let siteKnowledgeDebug = null;
     let fetchedSourceChunks = [];
+    let clinicKnowledgeHits = [];
     const notOfferedHit = detectNotOfferedService(userMessage);
     const clinicFactual = isClinicSpecificFactualQuery(userMessage, safeHistory);
-    const shouldFetchWebKnowledge =
-      !casualGreetingOnly &&
-      (!SITE_KNOWLEDGE_GATED || clinicFactual || Boolean(notOfferedHit));
     const forceRefresh = shouldForceSiteKnowledgeRefresh(req);
     const includeDebug = shouldIncludeSiteKnowledgeDebug(req);
+
+    // 2) clinic-knowledge 検索（緊急判定の後・公式サイト検索の前）
+    //    ヒットしても確定回答にはせず、必要なら公式サイトも併用する
+    if (!casualGreetingOnly) {
+      try {
+        const ck = await searchClinicKnowledge(userMessage, { forceRefresh });
+        clinicKnowledgeHits = ck.hits || [];
+        registeredClinicPrompt = buildClinicRegisteredKnowledgePrompt(clinicKnowledgeHits);
+        if (includeDebug) {
+          siteKnowledgeDebug = {
+            ...(siteKnowledgeDebug || {}),
+            clinicKnowledge: {
+              source: ck.source,
+              topScore: ck.topScore,
+              hits: clinicKnowledgeHits.map((h) => ({
+                id: h.item.id,
+                category: h.item.category,
+                score: h.score,
+                reasons: h.reasons,
+                updatedAt: h.item.updatedAt,
+                sourceType: "clinic_registered",
+              })),
+              status: peekClinicKnowledgeStatus(),
+            },
+          };
+        }
+      } catch (e) {
+        console.error("clinic-knowledge search failed:", e?.message || e);
+      }
+    }
+
+    // 3) 公式サイト検索（併用可）
+    const shouldFetchWebKnowledge =
+      !casualGreetingOnly &&
+      (!SITE_KNOWLEDGE_GATED ||
+        clinicFactual ||
+        Boolean(notOfferedHit) ||
+        clinicKnowledgeHits.length > 0);
 
     if (shouldFetchWebKnowledge) {
       const attendFocused = isAttendFocusedQuery(userMessage);
@@ -1857,13 +1903,16 @@ export default async function handler(req, res) {
       });
       fetchedSourceChunks = sourceChunks || [];
       knowledgeConfidence = confidence || (webSnippet ? "low" : "none");
-      if (includeDebug && debug) siteKnowledgeDebug = debug;
+      if (includeDebug && debug) {
+        siteKnowledgeDebug = { ...(siteKnowledgeDebug || {}), ...debug };
+      }
 
       // 低関連のみのときは根拠として渡さない
       if (webSnippet && knowledgeConfidence !== "none") {
         clinicSnippet = webSnippet;
       }
 
+      // 参照チップは公式サイトURLのみ（clinic-knowledge はURLなし・チップ非表示）
       if (attendFocused && clinicSnippet) {
         referencedPages = [
           { url: ATTEND_INFO_PAGE_URL, title: "立ち会い分娩について" },
@@ -1934,7 +1983,8 @@ export default async function handler(req, res) {
       }
     }
 
-    const knowledgeHitScore = clinicSnippet || referencedPages.length > 0 ? 20 : 0;
+    const knowledgeHitScore =
+      registeredClinicPrompt || clinicSnippet || referencedPages.length > 0 ? 20 : 0;
     if (shouldSuppressReferencePages(userMessage, safeHistory, knowledgeHitScore)) {
       if (!isAttendFocusedQuery(userMessage) && !isMeetingFocusedQuery(userMessage)) {
         referencedPages = [];
@@ -1949,7 +1999,10 @@ export default async function handler(req, res) {
     referencedPages = await filterPagesBySitemap(referencedPages);
 
     const needNoEvidencePrompt =
-      clinicFactual && !clinicSnippet && !notOfferedHit;
+      clinicFactual &&
+      !clinicSnippet &&
+      !registeredClinicPrompt &&
+      !notOfferedHit;
 
     const tokyoDatetimePrompt = buildTokyoDatetimeSystemPrompt(userMessage);
 
@@ -1957,6 +2010,10 @@ export default async function handler(req, res) {
       { role: "system", content: SYSTEM },
       ...(tokyoDatetimePrompt
         ? [{ role: "system", content: tokyoDatetimePrompt }]
+        : []),
+      // 院内登録情報（公式サイトより優先）→ 公式サイト抜粋の順で渡す
+      ...(registeredClinicPrompt
+        ? [{ role: "system", content: registeredClinicPrompt }]
         : []),
       ...(clinicSnippet
         ? [
@@ -1974,7 +2031,7 @@ export default async function handler(req, res) {
       },
       ...(shouldForceRichHtmlForMessage(userMessage, safeHistory) &&
       !notOfferedHit &&
-      clinicSnippet
+      (clinicSnippet || registeredClinicPrompt)
         ? [{ role: "system", content: RICH_HTML_THIS_TURN }]
         : []),
       ...(shouldAddOtherHospitalExperiencePrompt(userMessage, safeHistory)
