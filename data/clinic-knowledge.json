@@ -259,29 +259,47 @@
       "pricingSource": "data/birth-pricing.js"
     },
     {
-      "id": "birth-cost-discount",
-      "category": "分娩料金/割引",
+      "id": "birth-cost-discounts",
+      "category": "産科/出産費用/割引制度",
       "intent": "birth_cost_discount",
       "service": "childbirth",
+      "discounts": [
+        {
+          "name": "きょうだい割引",
+          "amount": 15000,
+          "condition": "過去に当院で出産された方"
+        },
+        {
+          "name": "パパママ割引",
+          "amount": 10000,
+          "condition": "ご夫婦のどちらかが当院で生まれた方"
+        }
+      ],
       "questionPatterns": [
+        "独自の割引制度はありますか",
+        "独自の割引制度などはありますか",
         "出産費用の割引はありますか",
-        "2人目の出産は割引になりますか",
-        "きょうだい割引はありますか",
+        "分娩費用は安くなりますか",
+        "きょうだい割引とは何ですか",
         "パパママ割引とは何ですか",
-        "夫が金井産婦人科で生まれたのですが割引になりますか"
+        "二人目の出産は割引になりますか",
+        "夫がこちらで生まれた場合は割引になりますか",
+        "夫婦で受診すれば割引になりますか"
       ],
       "keywords": [
         "きょうだい割引",
         "パパママ割引",
         "出産費用",
-        "割引"
+        "割引制度",
+        "独自の割引"
       ],
-      "answer": "出産費用割引制度については、確定データ（data/birth-pricing.js）に基づき案内します。",
+      "answer": "はい、当院では出産費用に関する『きょうだい割引』と『パパママ割引』をご用意しています。きょうだい割引（15,000円）は過去に当院で出産された方が対象です。パパママ割引（10,000円）はご夫婦のどちらかが当院で生まれた方が対象です。",
       "priority": 100,
       "updatedAt": "2026-10-08",
       "enabled": true,
       "relatedSiteUrl": "https://kanai.or.jp/obstetrics/childbirth/#price_birth",
-      "pricingSource": "data/birth-pricing.js"
+      "pricingSource": "data/birth-pricing.js",
+      "note": "金額・条件の正本は data/birth-pricing.js。名称から適用条件を推測しない。"
     },
     {
       "id": "other-081",

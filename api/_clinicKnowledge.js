@@ -862,6 +862,7 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
     itemIntent === "birth_pricing_overview" ||
     String(item.id || "").startsWith("birth-")
   ) {
+    // 割引条件を予約金・入院費エントリへ流用しない（上で id 接頭辞に含む）
     if (isPostpartumCareFeeQuery(msg) || !isBirthPricingQuery(msg)) {
       return {
         score: 0,

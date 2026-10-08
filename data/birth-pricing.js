@@ -43,8 +43,27 @@ export const BIRTH_PRICING = {
     lumpSumDirectPaymentYen: 500000,
   },
   discounts: {
-    siblingYen: 15000,
-    papaMamaYen: 10000,
+    /** @type {{ id: string, name: string, amountYen: number, condition: string }[]} */
+    items: [
+      {
+        id: "sibling",
+        name: "きょうだい割引",
+        amountYen: 15000,
+        condition: "過去に当院で出産された方",
+      },
+      {
+        id: "papaMama",
+        name: "パパママ割引",
+        amountYen: 10000,
+        condition: "ご夫婦のどちらかが当院で生まれた方",
+      },
+    ],
+    get siblingYen() {
+      return this.items.find((x) => x.id === "sibling")?.amountYen ?? 15000;
+    },
+    get papaMamaYen() {
+      return this.items.find((x) => x.id === "papaMama")?.amountYen ?? 10000;
+    },
   },
 };
 
@@ -105,13 +124,42 @@ export function isBirthAdvancePaymentQuery(userMessage) {
 export function isBirthCostDiscountQuery(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg || isPostpartumCareFeeQuery(msg)) return false;
-  if (/ディナー|特典|プレゼント|キャンペーン|お祝い/.test(msg) && !/割引/.test(msg)) {
+  // お祝いディナー等の特典ページとは分離
+  if (
+    /ディナー|プレゼント|キャンペーン|お祝い/.test(msg) &&
+    !/割引/.test(msg)
+  ) {
+    return false;
+  }
+  if (/特典/.test(msg) && !/割引/.test(msg) && !/独自|制度/.test(msg)) {
     return false;
   }
   if (/きょうだい割引|兄弟割引|姉妹割引|パパママ割引/.test(msg)) return true;
+  if (/独自.{0,8}割引|割引制度|割引はあります|割引があります|安くなる制度|費用が安/.test(msg)) {
+    return true;
+  }
   if (
     /割引/.test(msg) &&
-    /(?:出産|分娩|入院|2人目|二人目|２人目|第二子|夫が|旦那が|当院で生|金井)/.test(msg)
+    /(?:出産|分娩|入院|2人目|二人目|２人目|第二子|夫|旦那|妻|パートナー|夫婦|一緒|同伴|付き添|当院で生|金井|受診)/.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+  // 「夫がこちらで生まれた場合は？」など割引語がなくてもパパママ条件の確認
+  if (
+    /(?:夫|旦那|妻|自分|パートナー).{0,12}(?:生まれ|お生まれ)|(?:生まれ|お生まれ).{0,12}(?:夫|旦那|妻)/.test(
+      msg
+    ) &&
+    /(?:割引|安く|制度|なりますか|ありますか|場合)/.test(msg)
+  ) {
+    return true;
+  }
+  if (
+    /(?:夫|旦那|妻|自分|パートナー).{0,12}(?:生まれ|お生まれ)|(?:こちら|当院|金井).{0,8}(?:で)?(?:生まれ|お生まれ)/.test(
+      msg
+    ) &&
+    msg.length <= 40
   ) {
     return true;
   }
@@ -268,29 +316,102 @@ function buildHospitalizationCostAnswer(msg) {
   ].join("\n");
 }
 
+function getDiscountItem(id) {
+  return BIRTH_PRICING.discounts.items.find((x) => x.id === id) || null;
+}
+
+function formatDiscountOverview() {
+  const sibling = getDiscountItem("sibling");
+  const papaMama = getDiscountItem("papaMama");
+  return [
+    "はい、当院では出産費用に関する『きょうだい割引』と『パパママ割引』をご用意しています。",
+    "",
+    `${sibling.name}（${formatYen(sibling.amountYen)}）`,
+    `${sibling.condition}が対象です。`,
+    "",
+    `${papaMama.name}（${formatYen(papaMama.amountYen)}）`,
+    `${papaMama.condition}が対象です。`,
+    "",
+    "詳しくは、以下のページをご確認ください。",
+  ].join("\n");
+}
+
+/**
+ * 同伴・一緒受診だけで割引になるかと聞いている（適用条件の誤推測を防ぐ）
+ * @param {string} msg
+ */
+function isCompanionOnlyDiscountQuery(msg) {
+  // 出生・当院出産歴など確定条件に触れている場合は同伴のみではない
+  if (
+    /生まれ|お生まれ|出産された|出産歴|パパママ割引|きょうだい割引/.test(msg)
+  ) {
+    return false;
+  }
+  return (
+    /(?:夫婦|夫|旦那|妻|パートナー|家族).{0,12}(?:一緒|同伴|付き添|来院|受診)/.test(
+      msg
+    ) ||
+    /(?:一緒|同伴|付き添).{0,12}(?:来院|受診|割引)/.test(msg) ||
+    /夫婦で受診|パートナーと一緒|付き添いがいる/.test(msg)
+  );
+}
+
 function buildDiscountAnswer(msg) {
-  const d = BIRTH_PRICING.discounts;
+  const sibling = getDiscountItem("sibling");
+  const papaMama = getDiscountItem("papaMama");
+
+  // 同伴のみでは対象外（「パートナーと来院で割引」等の誤案内を防ぐ）
+  if (isCompanionOnlyDiscountQuery(msg)) {
+    return [
+      "ご夫婦やパートナーと一緒にご受診・ご来院いただくだけでは、割引の対象にはなりません。",
+      "",
+      `出産費用の割引は次の制度です。`,
+      `・${sibling.name}（${formatYen(sibling.amountYen)}）：${sibling.condition}`,
+      `・${papaMama.name}（${formatYen(papaMama.amountYen)}）：${papaMama.condition}`,
+      "",
+      "詳しくは、以下のページをご確認ください。",
+    ].join("\n");
+  }
+
+  const askSiblingName = /きょうだい割引|兄弟割引|姉妹割引/.test(msg);
+  const askPapaMamaName = /パパママ割引/.test(msg);
   const wantSibling =
-    /きょうだい|兄弟|姉妹|2人目|二人目|２人目|第二子|過去に|以前に|前に当院/.test(msg);
+    askSiblingName ||
+    /2人目|二人目|２人目|第二子|過去に.{0,8}出産|以前に.{0,8}出産|前に当院/.test(
+      msg
+    );
   const wantPapaMama =
-    /パパママ|夫が|旦那が|妻が|自分が|当院で生|金井で生|母子手帳/.test(msg);
+    askPapaMamaName ||
+    /(?:夫|旦那|妻|自分|パートナー).{0,16}(?:生まれ|お生まれ)|(?:生まれ|お生まれ).{0,12}(?:夫|旦那|妻)|当院で生|金井で生|こちらで生/.test(
+      msg
+    );
+
   if (wantPapaMama && !wantSibling) {
-    return `パパママ割引があります。ご夫婦のどちらかが当院でお生まれになった方は、出産費用より${formatYen(
-      d.papaMamaYen
-    )}割引いたします。`;
+    return [
+      `${papaMama.name}があります。`,
+      `${papaMama.condition}は、出産費用より${formatYen(papaMama.amountYen)}割引いたします。`,
+      "",
+      "詳しくは、以下のページをご確認ください。",
+    ].join("\n");
   }
   if (wantSibling && !wantPapaMama) {
-    return `きょうだい割引があります。過去に当院でご出産された方は、出産費用より${formatYen(
-      d.siblingYen
-    )}割引いたします。`;
+    // 「二人目なら必ず割引」ではなく、当院での出産歴が条件
+    if (/2人目|二人目|２人目|第二子/.test(msg) && !askSiblingName) {
+      return [
+        `二人目以降の出産であることだけでは割引にはなりません。`,
+        `${sibling.name}（${formatYen(sibling.amountYen)}）は、${sibling.condition}が対象です。`,
+        "",
+        "詳しくは、以下のページをご確認ください。",
+      ].join("\n");
+    }
+    return [
+      `${sibling.name}があります。`,
+      `${sibling.condition}は、出産費用より${formatYen(sibling.amountYen)}割引いたします。`,
+      "",
+      "詳しくは、以下のページをご確認ください。",
+    ].join("\n");
   }
-  return [
-    "出産費用の割引制度があります。",
-    `・きょうだい割引：過去に当院でご出産された方は${formatYen(d.siblingYen)}割引`,
-    `・パパママ割引：ご夫婦のどちらかが当院でお生まれになった方は${formatYen(
-      d.papaMamaYen
-    )}割引`,
-  ].join("\n");
+  return formatDiscountOverview();
 }
 
 function buildOverviewAnswer() {
@@ -315,7 +436,9 @@ function buildOverviewAnswer() {
     `異常分娩 ${formatYenRange(h.abnormal)}（${h.abnormal.days}日間）`,
     "",
     "【割引】",
-    `きょうだい割引 ${formatYen(disc.siblingYen)}／パパママ割引 ${formatYen(disc.papaMamaYen)}`,
+    ...disc.items.map(
+      (x) => `${x.name} ${formatYen(x.amountYen)}（${x.condition}）`
+    ),
   ].join("\n");
 }
 
