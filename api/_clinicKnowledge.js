@@ -53,6 +53,7 @@ import {
   isBirthPricingQuery,
   isPostpartumCareFeeQuery,
 } from "../data/birth-pricing.js";
+import { isMorningSicknessQuery } from "../data/morning-sickness.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -101,7 +102,8 @@ function normalizeAvailability(raw) {
     v === "available" ||
     v === "unavailable" ||
     v === "unknown" ||
-    v === "limited"
+    v === "limited" ||
+    v === "information"
   ) {
     return v;
   }
@@ -146,6 +148,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "hospital_bag",
   "child_accompanied_visit",
   "infertility_consultation",
+  "morning_sickness_consultation",
   "birth_reservation_deposit",
   "birth_advance_payment",
   "birth_hospitalization_cost",
@@ -555,6 +558,11 @@ export function detectClinicIntent(userMessage) {
     return "infertility_consultation";
   }
 
+  // つわり相談（診断断定なし・セルフケア／受診案内）
+  if (isMorningSicknessQuery(msg)) {
+    return "morning_sickness_consultation";
+  }
+
   // 分娩料金（予約金・予納金・入院費・割引）。産後ケア料金は含めない
   {
     const birthIntent = detectBirthPricingIntent(msg);
@@ -850,6 +858,21 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["不妊相談:対象外質問のため除外"],
         rejected: true,
         rejectReason: "infertility_consultationは不妊・妊活質問のみ",
+      };
+    }
+  }
+  // つわり相談は対象質問以外に流用しない
+  if (
+    item.id === "pregnancy-morning-sickness" ||
+    itemIntent === "morning_sickness_consultation" ||
+    itemService === "pregnancy_health_support"
+  ) {
+    if (!isMorningSicknessQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["つわり相談:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "morning_sickness_consultationはつわり関連のみ",
       };
     }
   }

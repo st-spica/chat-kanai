@@ -76,6 +76,10 @@ import {
   isBirthPricingQuery,
   isPostpartumCareFeeQuery,
 } from "../data/birth-pricing.js";
+import {
+  buildMorningSicknessAnswer,
+  isMorningSicknessQuery,
+} from "../data/morning-sickness.js";
 
 const WEB_RESERVATION_NO_INFO_ANSWER =
   "WEB予約について確認できる情報がありません。お手数ですが、当院へお電話でお問い合わせください。";
@@ -935,6 +939,7 @@ const SYSTEM = `
 ・【お子さま同伴・キッズルーム】お子さま連れの来院は可能。院内にキッズルームあり。診療内容・時間帯による制限や「事前電話確認」を勝手に付け足さない。キッズルームを理由にスタッフ託児・診察中の預かり・分娩時同伴・入院宿泊まで対応可能と推測しない。お子さま本人の診察・予防接種と同伴案内を混同しない。
 ・【分娩料金】予約金（10,000円）と予納金（100,000円／300,000円）を混同しない。予約金のうち5,000円は入院費への精算であり「5,000円のみ返金不可」と誤解釈しない。金額は確定データ以外から推測しない。産後ケア料金に分娩料金を流用しない。きょうだい割引・パパママ割引は分娩料金ページの制度であり、分娩予約特典ページと混同しない。
 ・【出産費用割引】きょうだい割引＝過去に当院で出産された方（15,000円）。パパママ割引＝ご夫婦のどちらかが当院で生まれた方（10,000円）。名称から条件を推測しない。「パートナー同伴で割引」「夫婦受診で割引」「二人目なら必ず割引」「同じ家庭の二人目なら割引」は禁止。
+・【つわり】セルフケアは相談内容に合わせて1〜3点だけ。9項目の列挙禁止。水分がとれない・反復嘔吐・体重減少などは受診案内を優先。妊娠悪阻などの診断名を断定しない。「必ず治る」「食べられなくても大丈夫」は禁止。緊急症状は救急誘導を優先。
 ・【一般不妊相談】不妊治療・妊活の質問では診療時間表を出さない。対応は一般不妊相談に限り、妊娠を急がない方向けのタイミング療法・排卵誘発法（内服薬処方）のみ。担当医・曜日は推測せず診療体制表を案内する。体外受精・人工授精・顕微授精を一般不妊相談の根拠だけで対応可能としない。
 
 【絶対に守る基本原則】
@@ -1554,9 +1559,11 @@ function detectEmergency(text) {
     "呼吸が苦しい", "胸が痛い",
     "高熱", "39", "破水した",
     "胎動が少ない", "胎動ない", "胎動減少",
-    "失神", "耐えられない痛み"
+    "失神", "耐えられない痛み",
   ];
   if (keywords.some((k) => t.includes(k.toLowerCase()))) return true;
+  // 「意識がもうろうとします」など
+  if (/意識.{0,8}もうろう|もうろうと(?:し|な)/.test(t)) return true;
   // 乳児の呼吸苦・重篤サインは緊急優先
   if (isInfantUrgentSymptomMessage(text)) return true;
   return false;
@@ -3427,6 +3434,80 @@ export default async function handler(req, res) {
         payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
         payload.rejectedKnowledge = clinicRejected;
         payload.referenceChips = referencedPages;
+      }
+      return res.status(200).json(payload);
+    }
+
+    // つわり相談（症状に合わせたセルフケア／受診優先。診断断定なし）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isMorningSicknessQuery(
+        userMessage,
+        celebrationDinnerContextText(safeHistory, userMessage)
+      )
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "pregnancy-morning-sickness" ||
+          h.item?.intent === "morning_sickness_consultation"
+      );
+      const built = buildMorningSicknessAnswer(userMessage, safeHistory);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      const safety = built?.medicalSafetyLevel || "self_care";
+      const isUrgent = safety === "urgent";
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "morning_sickness_consultation",
+          detectedService: "pregnancy_health_support",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  availability: ckHit.item.availability || "information",
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          rejectedKnowledge: clinicRejected,
+          selectedSelfCareTips: built?.selectedSelfCareTips || [],
+          medicalSafetyLevel: safety,
+          referenceChips: [],
+          note: "つわりはセルフケアを最大3点。受診優先・緊急は安全ルール優先",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "morning_sickness_consultation",
+          service: "pregnancy_health_support",
+          morningSickness: true,
+          medicalSafetyLevel: safety,
+          selectedSelfCareTips: built?.selectedSelfCareTips || [],
+          emergency: isUrgent,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: isUrgent,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "morning_sickness_consultation";
+        payload.detectedService = "pregnancy_health_support";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.selectedSelfCareTips = built?.selectedSelfCareTips || [];
+        payload.medicalSafetyLevel = safety;
+        payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(payload);
     }

@@ -908,6 +908,10 @@ export function detectClinicService(userMessage) {
   if (isInfertilityConsultationQuery(msg) || isAdvancedInfertilityQuery(msg)) {
     return "general_infertility_consultation";
   }
+  // つわり相談
+  if (/つわり|悪阻|妊娠.{0,8}(?:気持|吐き気|吐)/.test(msg)) {
+    return "pregnancy_health_support";
+  }
   // 分娩料金（産後ケア料金は除外）
   if (
     /予約金|予納金|出産費用|分娩費用|分娩料金|入院費|きょうだい割引|パパママ割引|出産育児一時金/.test(

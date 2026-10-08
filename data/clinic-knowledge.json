@@ -821,6 +821,62 @@
       "priority": 90,
       "updatedAt": "2026-10-08",
       "enabled": true
+    },
+    {
+      "id": "pregnancy-morning-sickness",
+      "category": "妊娠期/日常生活の注意",
+      "intent": "morning_sickness_consultation",
+      "service": "pregnancy_health_support",
+      "target": "pregnant_patient",
+      "availability": "information",
+      "questionPatterns": [
+        "つわりが辛い",
+        "つわりがつらいです",
+        "つわりがひどい",
+        "つわりがしんどい",
+        "吐き気が続いています",
+        "妊娠中で気持ち悪い",
+        "妊娠中に食欲がありません",
+        "つわりで食べられません",
+        "つわりで吐いてしまいます",
+        "つわりを軽くする方法はありますか",
+        "つわりはいつまで続きますか",
+        "つわりでにおいがつらい",
+        "食べ物を受け付けません",
+        "水も飲めません",
+        "毎日吐いています",
+        "つわりで便秘になりました",
+        "つわりで体重が減っています"
+      ],
+      "keywords": [
+        "つわり",
+        "悪阻",
+        "妊娠初期",
+        "吐き気",
+        "嘔吐",
+        "食欲不振",
+        "におい",
+        "食べられない",
+        "気持ち悪い"
+      ],
+      "summary": "妊娠初期には、むかつきや嘔吐、食べ物の好みの変化などがみられることがあります。症状や程度には個人差があります。",
+      "typicalCourse": {
+        "description": "妊娠16〜20週頃には落ち着くことが多いですが、個人差があります。",
+        "caution": "症状が強い場合や長引く場合は、妊娠悪阻などの可能性があるため、自己判断せず受診を案内する。"
+      },
+      "selfCareSource": "data/morning-sickness.js",
+      "answer": "つわりは妊娠初期によくみられる症状で、個人差があります。食べられるときに食べられるものを少しずつとり、無理をせず休むことが大切です。水分がとれない・繰り返し吐く・体重が減るなど強い症状のときは、我慢せず当院へご相談ください。つわりは妊娠16〜20週頃に落ち着くことが多いですが個人差があります。",
+      "responseRules": {
+        "tone": "empathetic",
+        "maxSelfCareTips": 3,
+        "avoidLongLists": true,
+        "avoidDiagnosis": true,
+        "avoidUnsupportedReassurance": true,
+        "askFollowUpWhenNecessary": true
+      },
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true
     }
   ]
 }
