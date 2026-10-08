@@ -197,6 +197,9 @@ function inferItemIntent(id, category, patterns) {
   if (/reception-001|当日予約|reservation_availability/.test(hay)) {
     return "reservation_availability";
   }
+  if (/childbirth_bonus_dinner|お祝いディナー|ディナーご招待/.test(hay)) {
+    return "childbirth_bonus_dinner";
+  }
   return null;
 }
 
@@ -371,6 +374,16 @@ export function detectClinicIntent(userMessage) {
   const hasWeb = /WEB|ウェブ|ネット|オンライン/i.test(msg);
   const hasChange = /変更/.test(msg);
   const hasCancel = /キャンセル|取り消|取消/.test(msg);
+
+  // お祝いディナー（分娩予約特典）
+  if (
+    /お祝いディナー|出産祝いの食事|お祝いの食事/.test(msg) ||
+    (/(?:ディナー|食事)/.test(msg) &&
+      /(?:家族|夫|旦那|パートナー|招待|呼べ|食べ)/.test(msg)) ||
+    /(?:何人|何名).{0,10}招待|招待.{0,10}(?:何人|何名)/.test(msg)
+  ) {
+    return "childbirth_bonus_dinner";
+  }
 
   // 変更・キャンセルは可否より優先
   if (hasReserve && hasChange) {

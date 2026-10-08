@@ -10,10 +10,13 @@
 import { Redis } from "@upstash/redis";
 import {
   isAttendFocusedMessage,
+  isDeliveryBenefitsFocusedMessage,
   isVisitFocusedMessage,
   matchSiteRoutes,
   preferredUrlsForMessage,
 } from "../data/site-route-map.js";
+
+const RSV_BONUS_PAGE_URL = "https://kanai.or.jp/obstetrics/rsv_bonus/";
 
 const REDIS_KEY = "chat:site-knowledge:v6";
 
@@ -663,6 +666,12 @@ export function expandQueryForSearch(userMessage, now = new Date()) {
   } else if (/診察|診療|診て/.test(msg)) {
     extras.push("診療時間", "午前診", "午後診");
   }
+  if (isDeliveryBenefitsFocusedMessage(msg)) {
+    extras.push("分娩予約特典", "割引", "特典", "プレゼント");
+    if (/ディナー|食事|招待|家族|夫/.test(msg)) {
+      extras.push("お祝いディナーご招待", "ご家族様1名");
+    }
+  }
   if (!extras.length) return msg;
   return `${msg} ${extras.join(" ")}`.replace(/\s+/g, " ").trim();
 }
@@ -1210,6 +1219,7 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
     [(m) => /子宮頸がん|子宮がん検診/.test(m), /子宮頸がん|子宮がん検診|\/gynecology/],
     [(m) => /産後ケア|産後サポート/.test(m), /産後ケア|産後サポート|\/aftersupport/],
     [(m) => /休診|診療時間|午後診|午前診|今日|本日|明日/.test(m), /休診|診療時間|午前診|午後診|夜診/],
+    [isDeliveryBenefitsFocusedMessage, /分娩予約特典|rsv_bonus|出産費用割引|お祝いディナー|特典|割引|プレゼント/],
     [(m) => /分娩予約/.test(m), /分娩予約|分娩/],
     [(m) => /料金|費用|いくらかか|入院費|自己負担/.test(m), /費用|料金|#price_birth|円/],
   ];
@@ -1385,6 +1395,35 @@ function scoreUrlEntryForQuery(userMessage, entry, routeBoostMap, now = new Date
   return scoreChunkForQuery(userMessage, stub, routeBoostMap, now);
 }
 
+/**
+ * 本文に「分娩予約特典」リンク言及がある／特典質問なのに実ページ未取得なら追加取得する
+ * @param {KnowledgeChunk[]} chunks
+ * @param {string} userMessage
+ * @param {number} maxChars
+ */
+async function ensureLinkedBenefitPageFetched(chunks, userMessage, maxChars) {
+  const list = Array.isArray(chunks) ? [...chunks] : [];
+  const hasBonus = list.some((c) => /\/obstetrics\/rsv_bonus\/?/i.test(String(c?.url || "")));
+  if (hasBonus) return list;
+
+  const benefitsQuery = isDeliveryBenefitsFocusedMessage(userMessage);
+  const linkMention = list.some((c) => {
+    const hay = `${c?.title || ""}\n${c?.text || ""}`;
+    return /分娩予約特典|rsv_bonus|出産費用割引サービス|お祝いディナーご招待/.test(hay);
+  });
+
+  if (!benefitsQuery && !linkMention) return list;
+
+  const bonus = await fetchPageChunk(RSV_BONUS_PAGE_URL, maxChars, {
+    lastmod: null,
+    pageType: "fixed",
+  });
+  if (bonus) {
+    list.push(bonus);
+  }
+  return list;
+}
+
 async function loadFreshKnowledgeForQuery(
   userMessage,
   maxPages = DEFAULT_MAX_PAGES,
@@ -1475,7 +1514,8 @@ async function loadFreshKnowledgeForQuery(
   const pickSource = positive.length ? positive : preScored;
   const picked = pickSource.slice(0, maxPages);
 
-  const chunks = (
+  /** @type {KnowledgeChunk[]} */
+  let chunks = (
     await Promise.all(
       picked.map(({ entry }) =>
         fetchPageChunk(entry.url, maxChars, {
@@ -1485,6 +1525,9 @@ async function loadFreshKnowledgeForQuery(
       )
     )
   ).filter(Boolean);
+
+  // 他ページの「分娩予約特典はこちら」リンク文だけで答えず、実ページを追加取得
+  chunks = await ensureLinkedBenefitPageFetched(chunks, userMessage, maxChars);
 
   const retrievedUrls = chunks.map((c) => c.url);
 

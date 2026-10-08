@@ -35,6 +35,16 @@ export const QUERY_NORMALIZERS = {
     pattern:
       /料金|費用|予納|いくらかか|お金はいくら|自己負担|入院費|分娩費用|出産費用|出産はいくら|費用はいくら/,
   },
+  delivery_benefits: {
+    id: "delivery_reservation_benefits",
+    label: "分娩予約特典",
+    /**
+     * 割引・特典・キャンペーン・プレゼント等（分娩/出産文脈）
+     * ＋お祝いディナー（家族招待）系
+     */
+    pattern:
+      /(?:分娩|出産|お産).{0,12}(?:割引|特典|キャンペーン|プレゼント|優待|お得)|(?:割引|特典|キャンペーン|プレゼント|優待|お得).{0,12}(?:分娩|出産|お産)|分娩予約特典|出産特典|分娩特典|出産したら.{0,8}(?:特典|プレゼント)|出産すると.{0,8}(?:特典|プレゼント)|お祝いディナー|お祝いの食事|出産祝いの食事|家族とディナー|夫とディナー|家族も一緒に食べ|ディナーに呼|ディナーを食べ|(?:何人|何名).{0,8}招待|招待.{0,8}(?:何人|何名)|家族.{0,12}ディナー|ディナー.{0,12}(?:家族|夫|招待)|夫.{0,12}ディナー|お祝いディナーご招待/,
+  },
 };
 
 /** @param {string} userMessage */
@@ -53,6 +63,13 @@ export function isVisitFocusedMessage(userMessage) {
 /** @param {string} userMessage */
 export function isFeeFocusedMessage(userMessage) {
   return QUERY_NORMALIZERS.fee.pattern.test(String(userMessage || "").trim());
+}
+
+/** @param {string} userMessage */
+export function isDeliveryBenefitsFocusedMessage(userMessage) {
+  return QUERY_NORMALIZERS.delivery_benefits.pattern.test(
+    String(userMessage || "").trim()
+  );
 }
 
 /** @type {SiteRouteRule[]} */
@@ -118,6 +135,13 @@ export const SITE_ROUTE_MAP = [
     // トップの診療時間表を優先。日付不一致の「休診のお知らせ（本日）」は本文除去する
     urls: ["https://kanai.or.jp/", "https://kanai.or.jp/beginner/"],
     boost: 120,
+  },
+  {
+    id: "delivery_reservation_benefits",
+    label: "分娩予約特典",
+    patterns: [QUERY_NORMALIZERS.delivery_benefits.pattern],
+    urls: ["https://kanai.or.jp/obstetrics/rsv_bonus/"],
+    boost: 240,
   },
   {
     id: "delivery_booking",

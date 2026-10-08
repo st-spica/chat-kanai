@@ -88,6 +88,35 @@
       "relatedSiteUrl": "https://kanai.or.jp/news/"
     },
     {
+      "id": "childbirth_bonus_dinner",
+      "category": "reservation",
+      "intent": "childbirth_bonus_dinner",
+      "questionPatterns": [
+        "お祝いディナーは家族と食べられますか",
+        "お祝いディナーに家族を呼べますか",
+        "夫もお祝いディナーを食べられますか",
+        "夫も一緒にお祝いディナーを食べられますか",
+        "家族もディナーに参加できますか",
+        "家族をディナーに呼べますか",
+        "何人まで招待できますか",
+        "お祝いディナーは何人まで",
+        "ご家族様は何名招待できますか",
+        "家族と一緒にお祝いディナー"
+      ],
+      "keywords": [
+        "お祝いディナー",
+        "ディナー",
+        "ご家族",
+        "招待",
+        "分娩予約特典"
+      ],
+      "answer": "はい。分娩予約特典の『お祝いディナーご招待』では、ご家族様1名をご招待いただけます。",
+      "priority": 100,
+      "updatedAt": "2026-10-08",
+      "enabled": true,
+      "relatedSiteUrl": "https://kanai.or.jp/obstetrics/rsv_bonus/"
+    },
+    {
       "id": "web_reservation_availability",
       "category": "reservation",
       "intent": "web_reservation_availability",
