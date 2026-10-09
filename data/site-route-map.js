@@ -1303,7 +1303,9 @@ export const SITE_ROUTE_MAP = [
   {
     id: "first_visit",
     label: "初めての方・予約",
-    patterns: [/初診|初めて|予約の仕方|WEB予約|ウェブ予約/i],
+    patterns: [
+      /初診|初めて|予約の仕方|予約方法|電話で予約|電話予約|WEB予約|ウェブ予約/i,
+    ],
     urls: ["https://kanai.or.jp/beginner/"],
     boost: 160,
   },

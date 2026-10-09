@@ -22,7 +22,7 @@
 const CLINIC_PHONE = "06-6931-2391（番号非通知は不可）";
 
 const LABOR_TOPIC_RE =
-  /陣痛|子宮収縮|破水|胎動|入院.?連絡|病院に(?:電話|連絡)|いつ(?:電話|連絡|入院)|何分間隔|分間隔|分おき|早めに(?:来る|来て|入院)|早く来るように|早めの入院/;
+  /陣痛|子宮収縮|破水|胎動|入院.?連絡|いつ(?:電話|連絡|入院)|何分間隔|分間隔|分おき|早めに(?:来る|来て|入院)|早く来るように|早めの入院/;
 
 /**
  * @param {string} text
@@ -73,6 +73,14 @@ export function isLaborHospitalContactQuery(userMessage, contextText = "") {
   if (/さかご|逆子|骨盤位|外回転/.test(msg)) return false;
   // 体重など明確な別話題は履歴があっても陣痛にしない
   if (isClearOtherTopicMessage(msg)) return false;
+  // 「今すぐ連絡したい」だけの一般連絡は appointment-guidance 側へ
+  if (
+    /今すぐ|すぐに|至急/.test(msg) &&
+    /連絡|電話/.test(msg) &&
+    !/陣痛|破水|胎動|出血|間隔|初産|経産/.test(msg)
+  ) {
+    return false;
+  }
 
   if (mentionsLaborContactTopic(msg)) return true;
 

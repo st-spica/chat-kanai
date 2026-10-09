@@ -141,6 +141,14 @@ import {
   PRENATAL_CLASSES_REF_PAGE,
 } from "../data/prenatal-classes.js";
 import {
+  buildAppointmentGuidanceAnswer,
+  containsClinicPhoneNumber,
+  isAppointmentGuidanceQuery,
+  isUrgentContactQuery,
+  stripClinicPhoneNumbers,
+  APPOINTMENT_GUIDANCE_REF_PAGE,
+} from "../data/appointment-guidance.js";
+import {
   buildFemaleDoctorAnswer,
   DOCTOR_SCHEDULE_REF_PAGE,
   isFemaleDoctorQuery,
@@ -1006,6 +1014,7 @@ const SYSTEM = `
 ・【お子さま同伴・キッズルーム】お子さま連れの来院は可能。院内にキッズルームあり。診療内容・時間帯による制限や「事前電話確認」を勝手に付け足さない。キッズルームを理由にスタッフ託児・診察中の預かり・分娩時同伴・入院宿泊まで対応可能と推測しない。お子さま本人の診察・予防接種と同伴案内を混同しない。
 ・【院内施設・入院部屋】施設案内は公式ページ（facilities）を優先案内する。共用の授乳スペース・休憩スペースは設置していない（院内確定）。カフェスペース・ラウンジ・売店・託児室など、抜粋／院内知識に無い設備を一般的な産婦人科の設備として推測・追加しない。授乳スペースがないことと入院中に授乳できないことは別。母乳ケア・キッズルーム・面会・個室料金と混同しない。
 ・【産前産後教室】lessonページ掲載の教室のみ案内。質問された教室を優先し、聞いていない教室を毎回並べない。未掲載・休止中の教室を実施中と推測しない。開催日時・料金・予約はページ根拠がある範囲のみ。「断定できません」を安易に使わず公式ページへ自然に案内。一般的な有無の質問で毎回医師確認を付けない。出血・張り・切迫早産・安静指示や参加可否判断を求められた場合は医療安全優先（AIは参加可否を断定しない）。体重管理・マタニティフォトと混同しない。
+・【予約方法・電話番号】診療内容が不明なまま「電話で予約できる」と断定しない。予約方法はサービスにより異なる。通常の回答では当院の電話番号（06-6931-2391等）を出力しない。電話番号を聞かれたら公式サイト（beginner等）へ案内する。母乳ケアは電話予約のみ、夜診は予約不可・受付順。緊急の医療相談では直ちに当院へ連絡・必要時は119番を案内する（緊急時は電話番号表示可）。
 ・【分娩料金】予約金（10,000円）と予納金（100,000円／300,000円）を混同しない。予約金のうち5,000円は入院費への精算であり「5,000円のみ返金不可」と誤解釈しない。金額は確定データ以外から推測しない。産後ケア料金に分娩料金を流用しない。きょうだい割引・パパママ割引は分娩料金ページの制度であり、分娩予約特典ページと混同しない。
 ・【初診料】確定は1,080円のみ。3,300円（文書料など）やその他金額を初診料としない。初回受診の合計は初診料＋検査料で、検査料・合計は断定しない。再診料・妊婦健診・分娩予約金・中絶・ワクチン料金と混同しない。電話問い合わせを原則付け足さない。
 ・【4D超音波撮影】当院で実施している。未実施と答えない。通常の健診エコー・性別確認・動画ダウンロードと混同しない。詳細は公式の #ultraimaging を案内する。
@@ -2857,6 +2866,19 @@ function stripContradictoryYesNoLead(text, userMessage) {
 }
 
 /** サービス案内から不要な感想・励まし・締めを除去 */
+/**
+ * 通常回答から院内電話番号を除去（緊急案内・陣痛連絡などは除外）
+ * @param {string} text
+ * @param {{ allowPhone?: boolean }} [opts]
+ */
+function preparePatientFacingAnswer(text, opts = {}) {
+  const raw = String(text || "").trim();
+  if (!raw) return raw;
+  if (opts.allowPhone) return raw;
+  if (!containsClinicPhoneNumber(raw)) return raw;
+  return stripClinicPhoneNumbers(raw);
+}
+
 function stripServiceGushPhrases(text) {
   let s = String(text || "");
   const patterns = [
@@ -2912,7 +2934,7 @@ function stripComplaintEmpathyPhrases(text, userMessage, safeHistory) {
 }
 
 function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory = []) {
-  return stripContradictoryYesNoLead(
+  const cleaned = stripContradictoryYesNoLead(
     stripServiceGushPhrases(
       stripMisplacedThanksApologyOnNormalQuestions(
         ensureNotOfferedThanksThenApology(
@@ -2953,6 +2975,8 @@ function finalizeAssistantAnswer(text, referencedPages, userMessage, safeHistory
     ),
     userMessage
   );
+  // 通常のGPT回答では院内電話番号を出さない（緊急ハンドラは別経路）
+  return preparePatientFacingAnswer(cleaned, { allowPhone: false });
 }
 
 function normalizeLegacyTwoLayerAnswer(text) {
@@ -3688,6 +3712,98 @@ export default async function handler(req, res) {
         payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(payload);
+    }
+
+    // 予約方法一般・電話番号案内（診療内容不明時に電話予約可と断定しない。通常は番号非表示）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isAppointmentGuidanceQuery(userMessage) &&
+      !isMilkcareQuery(userMessage) &&
+      !isEveningConsultationReservationQuery(userMessage, dinnerContextText) &&
+      !isPrenatalClassesQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "appointment-guidance" ||
+          h.item?.intent === "reservation_method_guidance" ||
+          h.item?.intent === "first_visit_reservation" ||
+          h.item?.intent === "clinic_phone_number"
+      );
+      const built = buildAppointmentGuidanceAnswer(userMessage);
+      const intentName = built?.intent || "reservation_method_guidance";
+      let answer = String(built?.answer || "").trim();
+      if (!answer) {
+        answer = String(ckHit?.item?.answer || "").trim();
+      }
+      if (!built?.allowPhone) {
+        answer = preparePatientFacingAnswer(answer, { allowPhone: false });
+      }
+      if (!built?.useExactAnswer) {
+        answer = stripServiceGushPhrases(answer);
+      }
+      const referencedPages = (built?.referencedPages?.length
+        ? built.referencedPages
+        : [APPOINTMENT_GUIDANCE_REF_PAGE]
+      ).map((p) => ({
+        url: String(p.url || APPOINTMENT_GUIDANCE_REF_PAGE.url),
+        title: String(p.title || APPOINTMENT_GUIDANCE_REF_PAGE.title),
+      }));
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: intentName,
+          detectedService: "outpatient",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "appointment-guidance",
+                  intent: intentName,
+                  service: "outpatient",
+                  score: 100,
+                },
+              ],
+          matchedSiteUrl: APPOINTMENT_GUIDANCE_REF_PAGE.url,
+          referenceChips: referencedPages,
+          focus: built?.focus || "generic",
+          allowPhone: Boolean(built?.allowPhone),
+          rejectedKnowledge: clinicRejected,
+          note: "予約方法は診療内容次第。通常回答は電話番号非表示。緊急連絡は番号可",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: intentName,
+          service: "outpatient",
+          appointmentGuidance: true,
+          allowPhone: Boolean(built?.allowPhone),
+        },
+      });
+      const payload = {
+        answer,
+        emergency: Boolean(built?.allowPhone && isUrgentContactQuery(userMessage)),
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = intentName;
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = APPOINTMENT_GUIDANCE_REF_PAGE.url;
+        payload.referenceChips = referencedPages;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(attachTopicDebug(payload, intentName));
     }
 
     // 夜診の予約：予約不可・受付順（電話/事前予約可と案内しない。診療時間表は出さない）

@@ -53,6 +53,62 @@
       "relatedSiteUrl": "https://kanai.or.jp/beginner/"
     },
     {
+      "id": "appointment-guidance",
+      "category": "診療案内/予約方法",
+      "intent": "reservation_method_guidance",
+      "service": "outpatient",
+      "availability": "information",
+      "responseMode": "guided",
+      "questionPatterns": [
+        "電話で予約できますか",
+        "電話予約はできますか",
+        "予約は電話でできますか",
+        "診察の予約方法を教えて",
+        "初診の予約方法を教えて",
+        "初めて受診する場合は予約が必要ですか",
+        "電話で診察予約をしたい",
+        "予約はどうしたらいいですか",
+        "予約の仕方を教えて",
+        "初めて受診したいのですが",
+        "電話番号を教えて",
+        "予約の電話番号を教えて",
+        "病院の電話番号は"
+      ],
+      "keywords": [
+        "電話予約",
+        "電話で予約",
+        "予約方法",
+        "予約の仕方",
+        "初診予約",
+        "電話番号"
+      ],
+      "summary": "予約方法は診療内容により異なる。一般の電話予約可否は断定せず beginner へ案内。通常回答では電話番号を表示しない。",
+      "answer": "ご予約については、診療内容によってご案内が異なります。初めて当院を受診される方の予約方法や、受診までの流れについては、下記のページで詳しくご案内しております。ご希望の診療内容に合わせてご確認ください。",
+      "careSource": "data/appointment-guidance.js",
+      "clinicInformation": {
+        "phoneNumberInChat": false,
+        "genericPhoneReservation": false,
+        "guidancePage": "https://kanai.or.jp/beginner/",
+        "serviceSpecific": {
+          "milkcare": "telephone_only",
+          "eveningConsultation": "no_reservation_walk_in_order",
+          "firstVisit": "see_beginner_page"
+        }
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/beginner/",
+      "relatedSiteLabel": "初めての方へ・ご予約のご案内",
+      "responseRules": {
+        "neverShowPhoneNumberInNormalAnswers": true,
+        "avoidGenericPhoneReservationClaim": true,
+        "preferServiceSpecificReservationRules": true,
+        "preferOfficialPage": true,
+        "avoidUnnecessaryPhoneReferral": true
+      },
+      "priority": 190,
+      "updatedAt": "2026-10-09",
+      "enabled": true
+    },
+    {
       "id": "evening-consultation-reservation",
       "category": "診療案内/夜診",
       "intent": "reservation_availability",

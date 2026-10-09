@@ -42,7 +42,15 @@ import {
 import { isClinicFacilitiesQuery } from "./clinic-facilities.js";
 import { isPrenatalClassesQuery } from "./prenatal-classes.js";
 import { isClinicHoursQuery } from "./clinic-hours.js";
-import { isKidsRoomQuery } from "./site-route-map.js";
+import {
+  isAppointmentGuidanceQuery,
+  isPhoneNumberQuery,
+  isUrgentContactQuery,
+} from "./appointment-guidance.js";
+import {
+  isKidsRoomQuery,
+  isEveningConsultationReservationQuery,
+} from "./site-route-map.js";
 
 /** @typedef {string|null} TopicIntent */
 
@@ -131,6 +139,21 @@ export function detectStandaloneIntent(userMessage) {
 
   // 診療時間・休診日
   if (isClinicHoursQuery(msg)) return "clinic_hours";
+
+  // 緊急の病院連絡（電話番号案内可）
+  if (isUrgentContactQuery(msg)) return "urgent_clinic_contact";
+
+  // 予約方法一般・電話番号（サービス別予約より後・母乳ケア/夜診は先に判定済み）
+  if (isAppointmentGuidanceQuery(msg)) {
+    if (isPhoneNumberQuery(msg)) return "clinic_phone_number";
+    if (/初診|初めて受診|初めて来院/.test(msg)) return "first_visit_reservation";
+    return "reservation_method_guidance";
+  }
+
+  // 夜診予約（予約方法一般より後でも可。明示夜診はここでも拾う）
+  if (isEveningConsultationReservationQuery(msg)) {
+    return "reservation_availability";
+  }
 
   // 分娩費用
   if (isBirthPricingQuery(msg)) {
@@ -451,6 +474,10 @@ export function clinicKnowledgeIdForIntent(intent) {
     clinic_facilities: "clinic-facilities",
     prenatal_classes: "prenatal-classes",
     clinic_hours: "clinic-consultation-hours",
+    reservation_method_guidance: "appointment-guidance",
+    first_visit_reservation: "appointment-guidance",
+    clinic_phone_number: "appointment-guidance",
+    urgent_clinic_contact: "appointment-guidance",
     birth_reservation_deposit: "birth-reservation-deposit",
     kids_room: null,
   };

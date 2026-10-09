@@ -76,6 +76,11 @@ import {
 } from "../data/milkcare.js";
 import { isClinicFacilitiesQuery } from "../data/clinic-facilities.js";
 import { isPrenatalClassesQuery } from "../data/prenatal-classes.js";
+import {
+  isAppointmentGuidanceQuery,
+  isPhoneNumberQuery,
+  isUrgentContactQuery,
+} from "../data/appointment-guidance.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -153,6 +158,9 @@ export const RESERVATION_INTENTS = new Set([
   "reservation_change",
   "reservation_cancel",
   "first_visit_reservation",
+  "reservation_method_guidance",
+  "clinic_phone_number",
+  "urgent_clinic_contact",
   "revisit_reservation",
   "class_reservation",
 ]);
@@ -610,6 +618,14 @@ export function detectClinicIntent(userMessage) {
   // 産前産後教室（体重管理より先。教室名を体重トピックに流さない）
   if (isPrenatalClassesQuery(msg)) {
     return "prenatal_classes";
+  }
+
+  // 緊急連絡・予約方法一般・電話番号（サービス別予約より先に曖昧な電話予約断定を防ぐ）
+  if (isUrgentContactQuery(msg)) return "urgent_clinic_contact";
+  if (isPhoneNumberQuery(msg)) return "clinic_phone_number";
+  if (isAppointmentGuidanceQuery(msg)) {
+    if (/初診|初めて受診|初めて来院/.test(msg)) return "first_visit_reservation";
+    return "reservation_method_guidance";
   }
 
   // 妊娠中の体重管理（つわり主体・一般ダイエットと混同しない）
@@ -1107,6 +1123,22 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["母乳ケア:対象外質問のため除外"],
         rejected: true,
         rejectReason: "milkcareは母乳ケア関連のみ",
+      };
+    }
+  }
+  // 予約案内一般はサービス別予約（夜診・母乳ケア等）に流用しない
+  if (
+    item.id === "appointment-guidance" ||
+    itemIntent === "reservation_method_guidance" ||
+    itemIntent === "clinic_phone_number" ||
+    itemIntent === "urgent_clinic_contact"
+  ) {
+    if (!isAppointmentGuidanceQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["予約案内:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "appointment-guidanceは予約方法・電話番号関連のみ",
       };
     }
   }
