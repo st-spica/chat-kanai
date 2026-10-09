@@ -21,6 +21,7 @@ import { isMorningSicknessQuery } from "./morning-sickness.js";
 import { isPregnancyWorkDocumentQuery } from "./pregnancy-work-document.js";
 import { isPatientComplaintQuery } from "./patient-complaint.js";
 import { isPostpartumCareQuery } from "./postpartum-care.js";
+import { isHospitalMealsQuery } from "./hospital-meals.js";
 import {
   isPregnancyFolicAcidQuery,
   isPregnancyMedicationQuery,
@@ -59,6 +60,8 @@ import {
 import {
   isKidsRoomQuery,
   isEveningConsultationReservationQuery,
+  isCelebrationDinnerAllergyQuery,
+  isCelebrationDinnerFoodRequestQuery,
 } from "./site-route-map.js";
 
 /** @typedef {string|null} TopicIntent */
@@ -116,6 +119,11 @@ export function detectStandaloneIntent(userMessage) {
 
   // 産後ケア全般
   if (isPostpartumCareQuery(msg)) return "postpartum_care";
+
+  // 入院中の食事全般（お祝いディナーより先）
+  if (isHospitalMealsQuery(msg)) return "hospital_meals";
+  if (isCelebrationDinnerAllergyQuery(msg)) return "meal_allergy";
+  if (isCelebrationDinnerFoodRequestQuery(msg)) return "meal_customization";
 
   // 明示参照は最優先
   if (/さっきの.{0,12}(?:逆子|さかご|骨盤位)|(?:逆子|さかご).{0,8}話/.test(msg)) {
@@ -491,6 +499,9 @@ export function clinicKnowledgeIdForIntent(intent) {
       "pregnancy-work-accommodation-document",
     patient_complaint: "patient-complaint",
     postpartum_care: "postpartum-care",
+    hospital_meals: "hospital-meal-preferences",
+    meal_customization: "celebration-dinner-food-request",
+    meal_allergy: "celebration-dinner-allergy",
     pregnancy_medication_consultation: "pregnancy-medication-consultation",
     pregnancy_folic_acid: "pregnancy-folic-acid",
     homecoming_delivery: "obstetrics-homecoming-delivery",

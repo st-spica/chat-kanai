@@ -95,6 +95,10 @@ import {
   POSTPARTUM_CARE_REF_PAGE,
 } from "../data/postpartum-care.js";
 import {
+  buildHospitalMealsAnswer,
+  isHospitalMealsQuery,
+} from "../data/hospital-meals.js";
+import {
   buildBreastfeedingMedicationAnswer,
   buildPregnancyFolicAcidAnswer,
   buildPregnancyMedicationAnswer,
@@ -1033,6 +1037,7 @@ const SYSTEM = `
 ・通常の相談は原則2〜3文で簡潔に。同じ意味の繰り返し、不要な励まし、一般的なアドバイスの付け足し、内部システムの説明はしない。
 ・医療上の注意喚起・緊急時の案内など安全に必要な情報は省略しない（その場合は文数制限より安全を優先）。
 ・共感は必要なときだけ、相手の言葉に寄せて自然に。毎回の共感は不要。
+・【入院中の食事とお祝いディナー】入院食・病院のご飯・好き嫌いの一般相談は hospital_meals。お祝いディナー明示時のみ celebration_dinner／meal_customization。入院食の質問にお祝いディナーの説明を流用しない。入院食はスタッフ相談・可能な範囲の配慮・全希望対応は保証しない。食物アレルギーは好き嫌いと別扱いし、安全のためスタッフ申告を案内（対応可否は断定しない）。
 ・【お祝いディナーの食材】メニューはあらかじめ決まっている。苦手な食材による変更は原則不可。可能な範囲での配慮にとどめる。「食材を外せます」「ご希望に沿った料理を提供できます」など対応保証は禁止。直前にお祝いディナーの話がある場合、食材の苦手・除外希望はその続きとして理解し、話題の聞き直しはしない。
 ・日常的な赤ちゃんの育児相談（夜泣き・睡眠・生活リズム等）では、「いつでも／お気軽にご相談ください」「具体的な状況を教えてください」「当院でサポートします」など、常時相談窓口と誤認される表現は使わない。月齢を認識し、1・2ヶ月健診の対象時期なら健診時相談を案内し、それ以降（目安:生後3ヶ月〜）は自治体の保健センターや小児科などを案内する。過ぎた健診をこれから使える相談先として案内しない。月齢不明で案内先の判断に必要なときだけ簡潔に月齢を確認する（体調不良・母親の限界・緊急は除く）。
 ・【診療サービスの対応可否を推測しない（最重要）】「婦人科だからできるはず」「ワクチンページがあるから子供も接種できるはず」「産婦人科だから小児も診られるはず」「分娩を扱うから分娩スタイルも選べるはず」「関連ページがあるから対応しているはず」「一般的な産婦人科では対応している」などの推測は禁止。「できます／対応しています」と答えるには、対象サービスと対象者が一致する明確な院内情報（院内登録情報または公式サイトの該当記述）が必要。情報が確認できないときは「できる／できない」を断定せず、確認できる情報がない旨を伝え当院へ直接問い合わせるよう案内する。妊婦向けワクチンの記載を、お子さま本人への予防接種の根拠にしない。産み分けは「婦人科でご相談いただけます」と案内しない（未実施の院内情報がある場合はそれに従う）。
@@ -3755,6 +3760,80 @@ export default async function handler(req, res) {
       return res
         .status(200)
         .json(attachTopicDebug(payload, "patient_complaint"));
+    }
+
+    // 入院中の食事全般（お祝いディナーより先。好き嫌いはスタッフ相談）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      allowStructuredIntent("hospital_meals") &&
+      isHospitalMealsQuery(userMessage, dinnerContextText)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "hospital-meal-preferences" ||
+          h.item?.intent === "hospital_meals"
+      );
+      const built = buildHospitalMealsAnswer(userMessage, dinnerContextText);
+      let answer = String(built?.answer || ckHit?.item?.answer || "").trim();
+      // お祝いディナー説明が混入したら確定文へ戻す
+      if (/お祝いディナー/.test(answer) && built?.focus !== "food_allergy") {
+        answer = String(built?.answer || "").trim();
+      }
+      answer = preparePatientFacingAnswer(answer, { allowPhone: false });
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "hospital_meals",
+          detectedService: "hospital_meals",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "hospital-meal-preferences",
+                  intent: "hospital_meals",
+                  service: "hospital_meals",
+                  score: 100,
+                },
+              ],
+          focus: built?.focus || "preferences",
+          referenceChips: [],
+          responseMode: "fixed",
+          rejectedKnowledge: clinicRejected,
+          note: "入院食はスタッフ相談・可能な範囲の配慮。お祝いディナーと分離。アレルギーは安全申告",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "hospital_meals",
+          service: "hospital_meals",
+          hospitalMeals: true,
+          focus: built?.focus || "preferences",
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages: [],
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "hospital_meals";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.referenceChips = [];
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(attachTopicDebug(payload, "hospital_meals"));
     }
 
     // お祝いディナー：苦手食材・メニュー変更（固定メニュー・変更は原則不可。チップなし）

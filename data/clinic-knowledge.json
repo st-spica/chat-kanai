@@ -679,6 +679,54 @@
       "relatedSiteUrl": "https://kanai.or.jp/obstetrics/rsv_bonus/"
     },
     {
+      "id": "hospital-meal-preferences",
+      "category": "obstetrics",
+      "intent": "hospital_meals",
+      "service": "hospital_meals",
+      "availability": "information",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "入院中の食事で嫌いな食べ物があったら言ってもいいですか",
+        "入院食で苦手なものがあるのですが",
+        "病院のご飯で食べられないものがあります",
+        "にんじんが嫌いなので抜いてもらえますか",
+        "入院中の食事は変更できますか",
+        "入院中の食事で好き嫌いを伝えていいですか",
+        "入院食の苦手な食材を相談できますか"
+      ],
+      "keywords": [
+        "入院中の食事",
+        "入院食",
+        "病院のご飯",
+        "苦手な食べ物",
+        "嫌いな食べ物",
+        "好き嫌い",
+        "食事の変更"
+      ],
+      "summary": "入院中の食事について、苦手な食べ物はスタッフに相談できる。可能な範囲で配慮するが、すべての希望への対応は保証しない。お祝いディナー・食物アレルギーとは区別。",
+      "answer": "はい、もちろんです。\n\n苦手な食べ物がございましたら、遠慮なくスタッフにご相談ください。\n\nすべてのご希望にお応えできるとは限りませんが、可能な範囲で配慮させていただきますので、お気軽にお申し付けください。",
+      "careSource": "data/hospital-meals.js",
+      "clinicInformation": {
+        "canConsultStaffAboutDislikes": true,
+        "accommodateWhenPossible": true,
+        "guaranteeAllRequests": false,
+        "distinctFrom": [
+          "お祝いディナー",
+          "食物アレルギー"
+        ]
+      },
+      "responseRules": {
+        "useExactAnswer": true,
+        "distinguishCelebrationDinner": true,
+        "distinguishFoodAllergy": true,
+        "avoidGuaranteedAccommodation": true,
+        "encourageStaffConsultation": true
+      },
+      "priority": 200,
+      "updatedAt": "2026-10-09",
+      "enabled": true
+    },
+    {
       "id": "celebration-dinner-food-request",
       "category": "分娩予約特典/お祝いディナー",
       "intent": "meal_customization",
@@ -686,30 +734,22 @@
       "questionPatterns": [
         "お祝いディナーの苦手な食材を抜いてほしい",
         "お祝いディナーは嫌いな食べ物を変更できますか",
-        "嫌いな食べ物があるのですが変更できますか",
-        "嫌いな食材を抜いてほしいです",
-        "にんじん食べれないので出して欲しく無いんです",
-        "ディナーのメニューを変更できますか",
+        "お祝いディナーで苦手な食材を変更できますか",
         "お祝いディナーのメニューを変更できますか",
-        "苦手な食材を使わないでほしい",
         "お祝いディナーの食材は選べますか",
         "お祝いディナーのメニューは選べますか",
-        "お祝いディナーはメニューが決まっていますか"
+        "お祝いディナーはメニューが決まっていますか",
+        "お祝いディナーで苦手な食材を使わないでほしい"
       ],
       "keywords": [
         "お祝いディナー",
         "苦手な食材",
-        "好き嫌い",
-        "嫌いな食べ物",
-        "嫌いな食材",
         "メニュー変更",
-        "食材変更",
-        "抜いて",
-        "出して欲しく"
+        "食材変更"
       ],
       "answer": "お祝いディナーはあらかじめメニューが決まっているため、苦手な食材による変更は原則として承っておりません。\nただし、可能な範囲で配慮いたしますので、スタッフにお伝えください。",
       "priority": 100,
-      "updatedAt": "2026-10-08",
+      "updatedAt": "2026-10-09",
       "enabled": true
     },
     {
@@ -721,7 +761,7 @@
         "お祝いディナーでアレルギー対応はできますか",
         "お祝いディナーの食物アレルギーは大丈夫ですか",
         "ディナーのアレルギー対応は可能ですか",
-        "アレルギーがあるのですが対応できますか",
+        "お祝いディナーでアレルギーがあるのですが対応できますか",
         "アレルギーの食材を避けてもらえますか"
       ],
       "keywords": [

@@ -57,6 +57,7 @@ import { isMorningSicknessQuery } from "../data/morning-sickness.js";
 import { isPregnancyWorkDocumentQuery } from "../data/pregnancy-work-document.js";
 import { isPatientComplaintQuery } from "../data/patient-complaint.js";
 import { isPostpartumCareQuery } from "../data/postpartum-care.js";
+import { isHospitalMealsQuery } from "../data/hospital-meals.js";
 import {
   isBreastfeedingMedicationQuery,
   isPregnancyFolicAcidQuery,
@@ -191,6 +192,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "pregnancy_work_accommodation_document",
   "patient_complaint",
   "postpartum_care",
+  "hospital_meals",
   "pregnancy_medication_consultation",
   "pregnancy_folic_acid",
   "breech_presentation_consultation",
@@ -773,6 +775,11 @@ export function detectClinicIntent(userMessage) {
   // 面会（サービスは detectClinicService で別判定）
   if (isVisitationIntentMessage(msg)) {
     return "visitation";
+  }
+
+  // 入院中の食事全般（お祝いディナーより先）
+  if (isHospitalMealsQuery(msg)) {
+    return "hospital_meals";
   }
 
   // お祝いディナー：アレルギー／食材変更／家族招待を分離
@@ -1394,6 +1401,20 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
     }
   }
 
+  // 入院食は対象外（お祝いディナー等）に流用しない
+  if (
+    item.id === "hospital-meal-preferences" ||
+    itemIntent === "hospital_meals"
+  ) {
+    if (!isHospitalMealsQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["入院食:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "hospital_mealsは入院中の食事全般のみ",
+      };
+    }
+  }
   // お祝いディナー：食材変更／アレルギー／家族招待を相互流用しない
   if (
     item.id === "celebration-dinner-food-request" ||

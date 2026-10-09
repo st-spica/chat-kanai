@@ -462,7 +462,8 @@ export function isGynecologicMedicationQuery(userMessage) {
 
 /** お祝いディナー／院内食事の話題か（履歴含む） */
 export function mentionsCelebrationDinnerTopic(text) {
-  return /お祝いディナー|(?:お祝い|出産祝い)の食事|ディナーご招待|(?:お祝い)?ディナー|レストランBebe|レストランBébé/.test(
+  // 「ディナー」単独や「入院中の食事」だけではお祝いディナーとしない
+  return /お祝いディナー|(?:お祝い|出産祝い)の食事|ディナーご招待|特別ディナー|お祝い膳|レストランBebe|レストランBébé/.test(
     String(text || "")
   );
 }
@@ -517,18 +518,13 @@ export function isCelebrationDinnerAllergyQuery(userMessage, contextText = "") {
     return false;
   }
   const ctx = `${msg}\n${String(contextText || "")}`;
-  if (
-    mentionsCelebrationDinnerTopic(ctx) ||
-    /レストラン|入院食|入院中の食事|お食事|食材/.test(ctx)
-  ) {
-    return true;
-  }
-  // 「アレルギーがあるのですが対応できますか」など短い食事アレルギー確認
-  return /対応|避け|できますか|大丈夫/.test(msg);
+  // お祝いディナー文脈があるときのみ（入院食一般のアレルギーは hospital_meals へ）
+  return mentionsCelebrationDinnerTopic(ctx);
 }
 
 /**
  * お祝いディナーの苦手食材・好き嫌い・メニュー変更か（アレルギーは含めない）
+ * ディナー明示（または直前文脈）があるときのみ。入院食一般は hospital_meals へ。
  * @param {string} userMessage
  * @param {string} [contextText] 直前の会話など（ディナー文脈の補完）
  */
@@ -536,12 +532,15 @@ export function isCelebrationDinnerFoodRequestQuery(userMessage, contextText = "
   const msg = String(userMessage || "").trim();
   if (!msg || isCelebrationDinnerAllergyQuery(msg, contextText)) return false;
   if (!isFoodDislikeOrRemovalRequest(msg)) return false;
-  const ctx = `${msg}\n${String(contextText || "")}`;
-  if (mentionsCelebrationDinnerTopic(ctx) || /レストラン/.test(ctx)) {
-    return true;
+  // 入院食明示がある場合はお祝いディナーに流さない
+  if (
+    /入院中の食事|入院食|病院のご飯|病院のごはん|病院食/.test(msg) &&
+    !mentionsCelebrationDinnerTopic(msg)
+  ) {
+    return false;
   }
-  // ディナー未言及でも、院内の食事カスタム要望として扱う（当院の確定情報はお祝いディナー）
-  return true;
+  const ctx = `${msg}\n${String(contextText || "")}`;
+  return mentionsCelebrationDinnerTopic(ctx);
 }
 
 /** 夜診・夜間診察の言及か */
@@ -962,6 +961,20 @@ export function detectClinicService(userMessage) {
   // 婦人科のエコー頻度（妊婦健診と分離）
   if (isGynecologyUltrasoundFrequencyQuery(msg)) {
     return "gynecology";
+  }
+  // 入院中の食事・好き嫌い（入院一般サービスより先）
+  if (
+    (/入院中の食事|入院食|病院のご飯|病院のごはん|病院食/.test(msg) ||
+      (/入院/.test(msg) && /食事|ご飯|ごはん|お食事/.test(msg))) &&
+    /嫌い|苦手|好き嫌い|変更|食べられ|食べれな|言って|相談/.test(msg)
+  ) {
+    return "hospital_meals";
+  }
+  if (
+    /嫌いな(?:食材|食べ物)|苦手な(?:食材|食べ物)|好き嫌い/.test(msg) &&
+    !mentionsCelebrationDinnerTopic(msg)
+  ) {
+    return "hospital_meals";
   }
   // お祝いディナー（家族招待・食材変更・アレルギー）
   if (
