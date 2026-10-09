@@ -3,6 +3,61 @@
   "description": "院内登録情報（公式サイト未掲載でもチャットで案内してよい確定情報）。enabled=false は検索対象外。intent / service で適用範囲を分離する。",
   "items": [
     {
+      "id": "postpartum-care",
+      "category": "産後ケア",
+      "intent": "postpartum_care",
+      "service": "postpartum_care",
+      "availability": "available",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "産後ケアについて教えてください",
+        "産後ケアはありますか",
+        "産後ケアを利用したいです",
+        "産後ケアの料金を教えてください",
+        "産後ケアの予約方法は",
+        "産後ケアは何ヶ月まで利用できますか",
+        "産後ケアの対象者を教えてください",
+        "産後ケアでは何をしてもらえますか",
+        "産後ケアの宿泊について教えてください",
+        "産後ケアの日帰り利用はできますか",
+        "出産後に赤ちゃんと利用できるサービスはありますか",
+        "産後ケアの内容を教えてください",
+        "産後ケアを予約したいです"
+      ],
+      "keywords": [
+        "産後ケア",
+        "産後サポート",
+        "ショートステイ",
+        "産後"
+      ],
+      "summary": "出産後0か月〜2か月未満のママと赤ちゃん向けの産後ケア。からだ・こころ・育児サポート。詳細・料金は公式 aftersupport ページ。母乳ケア（#milkcare）とは分離。",
+      "answer": "当院では、出産後のお母さんと赤ちゃんが安心して過ごせるよう、産後ケアを行っています。おっぱいの相談や授乳指導、育児に関するご相談など、お母さんの心と身体をサポートしています。対象となる方やケアの内容、料金などの詳細は、下記のページでご案内しておりますので、ぜひご覧ください。",
+      "careSource": "data/postpartum-care.js",
+      "clinicInformation": {
+        "accessPage": "https://kanai.or.jp/aftersupport/",
+        "target": "出産後0か月から2か月未満のママと赤ちゃん",
+        "supports": [
+          "からだサポート",
+          "こころサポート",
+          "育児サポート"
+        ],
+        "informationPolicy": "公式ページで確認できた範囲のみ案内。未確認の日帰り可否・詳細料金は推測せずページへ案内。母乳ケア予約は #milkcare。"
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/aftersupport/",
+      "relatedSiteLabel": "産後ケアのご案内",
+      "responseRules": {
+        "useExactAnswer": true,
+        "alwaysShowRelatedLink": true,
+        "preferAftersupportTopPage": true,
+        "distinguishMilkcare": true,
+        "avoidInventedFees": true,
+        "avoidUnnecessaryPhoneReferral": true
+      },
+      "priority": 200,
+      "updatedAt": "2026-10-09",
+      "enabled": true
+    },
+    {
       "id": "postpartum-care-visitation",
       "category": "産後ケア",
       "intent": "visitation",

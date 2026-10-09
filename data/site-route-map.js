@@ -1269,9 +1269,14 @@ export const SITE_ROUTE_MAP = [
   {
     id: "aftercare",
     label: "産後ケア",
-    patterns: [/産後ケア|産後サポート/],
-    urls: ["https://kanai.or.jp/aftersupport/", "https://kanai.or.jp/aftersupport/#aftercare"],
-    boost: 200,
+    patterns: [
+      /産後ケア|産後サポート/,
+      /出産後.{0,16}(?:赤ちゃんと|母子).{0,12}(?:利用|サービス|ケア)/,
+      /産後ケアの?(?:料金|予約|対象|内容|宿泊|日帰り)/,
+    ],
+    // 一般の産後ケア案内はトップを優先（#milkcare は母乳ケアルート）
+    urls: ["https://kanai.or.jp/aftersupport/"],
+    boost: 270,
   },
   {
     id: "lesson",

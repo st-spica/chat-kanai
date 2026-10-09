@@ -20,6 +20,7 @@ import {
 import { isMorningSicknessQuery } from "./morning-sickness.js";
 import { isPregnancyWorkDocumentQuery } from "./pregnancy-work-document.js";
 import { isPatientComplaintQuery } from "./patient-complaint.js";
+import { isPostpartumCareQuery } from "./postpartum-care.js";
 import {
   isPregnancyFolicAcidQuery,
   isPregnancyMedicationQuery,
@@ -102,6 +103,20 @@ export function detectStandaloneIntent(userMessage) {
   // クレーム・ご意見（他トピックより先）
   if (isPatientComplaintQuery(msg)) return "patient_complaint";
 
+  // 母乳ケア（産後ケア全般より先）
+  if (isMilkcareQuery(msg)) {
+    if (isMilkcareReservationQuery(msg)) return "milkcare_reservation";
+    if (/受付|再来機|待合|予約当日|来院後/.test(msg)) {
+      return "milkcare_reception";
+    }
+    if (/料金|費用|いくら|値段|価格/.test(msg)) return "milkcare_price";
+    if (/何曜日|曜日|いつ受け|実施日/.test(msg)) return "milkcare_schedule";
+    return "milkcare_overview";
+  }
+
+  // 産後ケア全般
+  if (isPostpartumCareQuery(msg)) return "postpartum_care";
+
   // 明示参照は最優先
   if (/さっきの.{0,12}(?:逆子|さかご|骨盤位)|(?:逆子|さかご).{0,8}話/.test(msg)) {
     return "breech_presentation_consultation";
@@ -130,17 +145,6 @@ export function detectStandaloneIntent(userMessage) {
 
   // ニューボーン＆マタニティフォト
   if (isNewbornMaternityPhotoQuery(msg)) return "newborn_maternity_photo";
-
-  // 母乳ケア（予約／受付／料金／曜日を分離）
-  if (isMilkcareQuery(msg)) {
-    if (isMilkcareReservationQuery(msg)) return "milkcare_reservation";
-    if (/受付|再来機|待合|予約当日|来院後/.test(msg)) {
-      return "milkcare_reception";
-    }
-    if (/料金|費用|いくら|値段|価格/.test(msg)) return "milkcare_price";
-    if (/何曜日|曜日|いつ受け|実施日/.test(msg)) return "milkcare_schedule";
-    return "milkcare_overview";
-  }
 
   // 交通アクセス・最寄駅・駐車場
   if (isClinicAccessQuery(msg)) return "clinic_access";
@@ -486,6 +490,7 @@ export function clinicKnowledgeIdForIntent(intent) {
     pregnancy_work_accommodation_document:
       "pregnancy-work-accommodation-document",
     patient_complaint: "patient-complaint",
+    postpartum_care: "postpartum-care",
     pregnancy_medication_consultation: "pregnancy-medication-consultation",
     pregnancy_folic_acid: "pregnancy-folic-acid",
     homecoming_delivery: "obstetrics-homecoming-delivery",

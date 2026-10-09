@@ -90,6 +90,11 @@ import {
   isPatientComplaintQuery,
 } from "../data/patient-complaint.js";
 import {
+  buildPostpartumCareAnswer,
+  isPostpartumCareQuery,
+  POSTPARTUM_CARE_REF_PAGE,
+} from "../data/postpartum-care.js";
+import {
   buildBreastfeedingMedicationAnswer,
   buildPregnancyFolicAcidAnswer,
   buildPregnancyMedicationAnswer,
@@ -2323,6 +2328,8 @@ function defaultRefPageTitle(url) {
   if (/\/facilities\/?/i.test(u)) return "院内施設のご案内";
   if (/\/about\/?/i.test(u)) return "当院について";
   if (/\/beginner\/?/i.test(u)) return "初めての方へ";
+  if (/\/aftersupport\//i.test(u) && /#milkcare/i.test(u)) return "母乳ケアについて";
+  if (/\/aftersupport\//i.test(u)) return "産後ケアのご案内";
   if (/\/visit|\/gai/i.test(u)) return "外来のご案内";
   return "当院サイト";
 }
@@ -2385,6 +2392,21 @@ function relatedSiteUrlChipFromClinicHits(
           reason: "clinic relatedSiteUrl（分娩料金）",
         };
       }
+    }
+    // 産後ケア全般：aftersupport トップ（本文チャンク無しでもチップ可）
+    if (
+      (h.item?.intent === "postpartum_care" ||
+        h.item?.id === "postpartum-care" ||
+        /\/aftersupport\//i.test(url)) &&
+      isPostpartumCareQuery(userMessage) &&
+      !/#milkcare/i.test(url)
+    ) {
+      return {
+        url: POSTPARTUM_CARE_REF_PAGE.url,
+        title: POSTPARTUM_CARE_REF_PAGE.title,
+        score: 100,
+        reason: "clinic relatedSiteUrl（産後ケア）",
+      };
     }
     // 一般不妊相談：#doctor_schedule を保持
     if (
@@ -2525,6 +2547,12 @@ function guardReferenceChipsByQuestion(pages, userMessage, opts = {}) {
       (/\/obstetrics\/checkup\//i.test(p.url || "") &&
         isPrenatalUltrasoundFrequencyQuery(msg)) ||
       (/#hos_bring/i.test(p.url || "") && isHospitalBagQuery(msg)) ||
+      // 産後ケア：タイトルが aftersupport でも 産後ケア質問なら許可
+      (/\/aftersupport\//i.test(p.url || "") &&
+        !/#milkcare/i.test(p.url || "") &&
+        isPostpartumCareQuery(msg)) ||
+      (/\/aftersupport\/?#milkcare/i.test(p.url || "") &&
+        /母乳ケア|母乳相談|おっぱいケア|授乳相談|母乳外来/.test(msg)) ||
       (/#visit|#assist_birth|#price_birth|#doctor_schedule|\/vaccine\/|\/beginner\/|\/hospitalization\/|\/rsv_bonus\/|\/notpermit\//i.test(
         p.url || ""
       ) &&
@@ -2538,7 +2566,19 @@ function guardReferenceChipsByQuestion(pages, userMessage, opts = {}) {
             msg
           )));
     if (hit || routeOk) {
-      kept.push(p);
+      // 産後ケア一般はトップURLに正規化
+      if (
+        isPostpartumCareQuery(msg) &&
+        /\/aftersupport\//i.test(p.url || "") &&
+        !/#milkcare/i.test(p.url || "")
+      ) {
+        kept.push({
+          url: POSTPARTUM_CARE_REF_PAGE.url,
+          title: POSTPARTUM_CARE_REF_PAGE.title,
+        });
+      } else {
+        kept.push(p);
+      }
     } else {
       excluded.push({
         url: p.url || "",
@@ -5420,6 +5460,95 @@ export default async function handler(req, res) {
         payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(attachTopicDebug(payload, "clinic_facilities"));
+    }
+
+    // 産後ケア全般（チップ必須。母乳ケア #milkcare とは分離）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      allowStructuredIntent("postpartum_care") &&
+      isPostpartumCareQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "postpartum-care" ||
+          h.item?.intent === "postpartum_care"
+      );
+      const built = buildPostpartumCareAnswer(userMessage);
+      let answer = String(built?.answer || ckHit?.item?.answer || "").trim();
+      answer = preparePatientFacingAnswer(answer, { allowPhone: false });
+      const referencedPages = (built?.referencedPages?.length
+        ? built.referencedPages
+        : [POSTPARTUM_CARE_REF_PAGE]
+      ).map((p) => ({
+        url: String(p.url || POSTPARTUM_CARE_REF_PAGE.url),
+        title: String(p.title || POSTPARTUM_CARE_REF_PAGE.title),
+      }));
+      for (const p of referencedPages) {
+        if (!/\/aftersupport\//i.test(p.url) || /#milkcare/i.test(p.url)) {
+          p.url = POSTPARTUM_CARE_REF_PAGE.url;
+          p.title = POSTPARTUM_CARE_REF_PAGE.title;
+        } else if (/#aftercare/i.test(p.url)) {
+          p.url = POSTPARTUM_CARE_REF_PAGE.url;
+          p.title = POSTPARTUM_CARE_REF_PAGE.title;
+        }
+      }
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "postpartum_care",
+          detectedService: "postpartum_care",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "postpartum-care",
+                  intent: "postpartum_care",
+                  service: "postpartum_care",
+                  score: 100,
+                },
+              ],
+          matchedSiteUrl: POSTPARTUM_CARE_REF_PAGE.url,
+          referenceChips: referencedPages,
+          focus: built?.focus || "overview",
+          responseMode: "fixed",
+          rejectedKnowledge: clinicRejected,
+          note: "産後ケアは aftersupport トップへチップ。母乳ケア #milkcare と分離",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "postpartum_care",
+          service: "postpartum_care",
+          postpartumCare: true,
+          matchedSiteUrl: POSTPARTUM_CARE_REF_PAGE.url,
+          focus: built?.focus || "overview",
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "postpartum_care";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = POSTPARTUM_CARE_REF_PAGE.url;
+        payload.referenceChips = referencedPages;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(attachTopicDebug(payload, "postpartum_care"));
     }
 
     // 母乳ケア（電話予約のみ。再来機受付と混同しない。#milkcare を維持）

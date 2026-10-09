@@ -56,6 +56,7 @@ import {
 import { isMorningSicknessQuery } from "../data/morning-sickness.js";
 import { isPregnancyWorkDocumentQuery } from "../data/pregnancy-work-document.js";
 import { isPatientComplaintQuery } from "../data/patient-complaint.js";
+import { isPostpartumCareQuery } from "../data/postpartum-care.js";
 import {
   isBreastfeedingMedicationQuery,
   isPregnancyFolicAcidQuery,
@@ -189,6 +190,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "morning_sickness_consultation",
   "pregnancy_work_accommodation_document",
   "patient_complaint",
+  "postpartum_care",
   "pregnancy_medication_consultation",
   "pregnancy_folic_acid",
   "breech_presentation_consultation",
@@ -601,6 +603,11 @@ export function detectClinicIntent(userMessage) {
   // クレーム・ご意見（待ち時間・順番・対応等。他案内より先）
   if (isPatientComplaintQuery(msg)) {
     return "patient_complaint";
+  }
+
+  // 産後ケア全般（母乳ケア専用は milkcare 側）
+  if (isPostpartumCareQuery(msg)) {
+    return "postpartum_care";
   }
 
   // 院内撮影・録音の可否（立ち会い等の状況語より優先）
@@ -1030,6 +1037,17 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["クレーム:対象外質問のため除外"],
         rejected: true,
         rejectReason: "patient_complaintはクレーム・ご意見関連のみ",
+      };
+    }
+  }
+  // 産後ケア全般は母乳ケア専用質問などに流用しない
+  if (item.id === "postpartum-care" || itemIntent === "postpartum_care") {
+    if (!isPostpartumCareQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["産後ケア:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "postpartum_careは産後ケア全般のみ（母乳ケアは別）",
       };
     }
   }

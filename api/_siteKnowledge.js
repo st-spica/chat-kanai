@@ -2105,6 +2105,12 @@ export function labelForKnowledgeChunk(c) {
   if (/#milkcare/i.test(url)) {
     return "母乳ケアについて";
   }
+  if (/\/aftersupport\/?#aftercare/i.test(url) || /\/aftersupport\/?$/i.test(url)) {
+    return "産後ケアのご案内";
+  }
+  if (/\/aftersupport\//i.test(url) && !/#milkcare/i.test(url)) {
+    return "産後ケアのご案内";
+  }
   if (/#cervical_cancer/i.test(url)) {
     return "子宮頸がんワクチンについて";
   }
