@@ -922,6 +922,7 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
   }
   // 診療時間の確定データ要約は診療時間質問以外に流用しない
   if (
+    item.id === "clinic-consultation-hours" ||
     item.id === "clinic-hours-schedule" ||
     itemIntent === "clinic_hours" ||
     itemService === "clinic_hours"

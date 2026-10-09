@@ -1131,16 +1131,19 @@ export const SITE_ROUTE_MAP = [
   {
     id: "hours",
     label: "診療時間",
-    patterns: [/診療時間|診察時間|受付時間|夜診|午前診|午後診|何時から|何時まで/],
-    // トップに曜日別診療時間表がある。beginner は初診案内の補助
-    urls: ["https://kanai.or.jp/", "https://kanai.or.jp/beginner/"],
-    boost: 160,
+    patterns: [
+      /診療時間|診察時間|受付時間|休診日|夜診|午前診|午後診|何時から|何時まで/,
+      /土日|週末|土曜日|日曜日|第[1-5]土曜日|祝日は/,
+    ],
+    // beginner を主案内。トップにも曜日別表あり
+    urls: ["https://kanai.or.jp/beginner/", "https://kanai.or.jp/"],
+    boost: 220,
   },
   {
     id: "hours_today",
     label: "本日・直近の診療可否",
     patterns: [
-      /今日|本日|明日|明後日|今週|\d{1,2}月\d{1,2}日|午後は診|午前は診|休診.*今日|今日.*休診|診療して|診てもら/,
+      /今日|本日|明日|明後日|今週|\d{1,2}月\d{1,2}日|午後は診|午前は診|休診.*今日|今日.*休診/,
     ],
     // トップの診療時間表を優先。日付不一致の「休診のお知らせ（本日）」は本文除去する
     urls: ["https://kanai.or.jp/", "https://kanai.or.jp/beginner/"],

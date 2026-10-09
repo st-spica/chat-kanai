@@ -4354,8 +4354,16 @@ export default async function handler(req, res) {
     if (
       !metaChatHit &&
       !casualGreetingOnly &&
+      (!topicResolution?.detectedIntent ||
+        String(topicResolution.detectedIntent).startsWith("clinic_hours")) &&
       isClinicHoursQuery(userMessage)
     ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "clinic-consultation-hours" ||
+          h.item?.id === "clinic-hours-schedule" ||
+          h.item?.intent === "clinic_hours"
+      );
       const built = buildClinicHoursAnswer(userMessage, {
         nowParts: getTokyoNowParts(),
       });
@@ -4370,11 +4378,27 @@ export default async function handler(req, res) {
           ...(siteKnowledgeDebug || {}),
           detectedIntent: built?.intent || "clinic_hours",
           detectedService: "clinic_hours",
-          matchedClinicKnowledge: [],
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "clinic-consultation-hours",
+                  intent: "clinic_hours",
+                  service: "clinic_hours",
+                  score: 100,
+                },
+              ],
           rejectedKnowledge: clinicRejected,
           referenceChips: referencedPages,
           scheduleData: built?.scheduleData || null,
-          note: "診療時間は data/clinic-hours.js の確定データから生成",
+          note: "診療時間は data/clinic-hours.js の確定データから生成。土日は土曜午前＋日曜休診",
         };
       }
       await appendChatLog({

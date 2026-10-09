@@ -9,8 +9,8 @@
 /** @typedef {0|1|2|3|4|5|6} WeekdayIndex */ // 0=日 … 6=土
 
 export const CLINIC_HOURS_REF_PAGE = {
-  url: "https://kanai.or.jp/",
-  title: "診療時間・休診日について",
+  url: "https://kanai.or.jp/beginner/",
+  title: "診療時間のご案内",
 };
 
 export const CLINIC_SESSIONS = {
@@ -400,9 +400,30 @@ export function detectSaturdayOrdinalInMessage(msg) {
  * 診療時間・休診に関する質問か（夜診の予約可否は除外）
  * @param {string} userMessage
  */
+/**
+ * 土日・週末をまとめて聞いているか
+ * @param {string} msg
+ */
+export function isWeekendHoursQuery(msg) {
+  const text = String(msg || "");
+  return /土日|週末|土・日|土と日/.test(text);
+}
+
+/**
+ * 緊急性のある症状を伴うか（診療時間案内より医療安全を優先）
+ * @param {string} msg
+ */
+export function hasUrgentObstetricSymptomsForHours(msg) {
+  return /大量.{0,4}出血|出血が止ま|強い腹痛|破水|胎動が少|胎動が減|規則的な.{0,6}張り/.test(
+    String(msg || "")
+  );
+}
+
 export function isClinicHoursQuery(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg) return false;
+  // 緊急性のある症状は診療時間ハンドラに流さない
+  if (hasUrgentObstetricSymptomsForHours(msg)) return false;
   // 不妊・妊活などサービス可否は診療時間ではない（「やっていますか」の誤反応防止）
   if (
     /不妊|妊活|タイミング療法|排卵誘発|体外受精|人工授精|顕微授精|ART|IVF/.test(
@@ -418,6 +439,13 @@ export function isClinicHoursQuery(userMessage) {
   ) {
     return false;
   }
+  // 土日・週末（「土日診療」「週末に受診」など）
+  if (
+    isWeekendHoursQuery(msg) &&
+    /診療|診察|受診|開い|やって|診て|何時|休診|午後|午前|夜診/.test(msg)
+  ) {
+    return true;
+  }
   // 明示的な診療時間・枠・休診
   if (
     /診療時間|診察時間|受付時間|休診|午前診|午後診|何時から|何時まで/.test(msg)
@@ -432,24 +460,26 @@ export function isClinicHoursQuery(userMessage) {
   ) {
     return true;
   }
-  if (/開いてい/.test(msg)) return true;
-  // 「診察していますか」は日付・曜日文脈があるときだけ
+  if (/開いてい|開いてます|開いてる/.test(msg)) return true;
+  // 「診察していますか」は日付・曜日・土日文脈があるときだけ
   if (
-    /(診察|診療)して(い|る|ます)/.test(msg) &&
+    /(診察|診療)して(い|る|ます)|受診できますか/.test(msg) &&
     (detectWeekdayInMessage(msg) != null ||
-      /今日|本日|明日|明後日|祝日|土曜|日曜/.test(msg))
+      isWeekendHoursQuery(msg) ||
+      /今日|本日|明日|明後日|祝日|土曜|日曜|平日/.test(msg))
   ) {
     return true;
   }
   if (
     detectWeekdayInMessage(msg) != null &&
-    /診察|診療|開い|やって|診て|午前|午後|夜診|何時|休診/.test(msg)
+    /診察|診療|開い|やって|診て|午前|午後|夜診|何時|休診|受診/.test(msg)
   ) {
     return true;
   }
-  if (/祝日/.test(msg) && /診察|診療|休診|開い|やって|診て/.test(msg)) {
+  if (/祝日/.test(msg) && /診察|診療|休診|開い|やって|診て|受診/.test(msg)) {
     return true;
   }
+  if (/平日/.test(msg) && /何時|診療|診察|開い/.test(msg)) return true;
   if (/第\s*[1-5１-５一二三四五]\s*土曜/.test(msg)) return true;
   return false;
 }
@@ -485,6 +515,27 @@ export function buildClinicHoursAnswer(userMessage, opts = {}) {
     };
   }
 
+  // 土日・週末（土曜と日曜の両方を案内。全表にフォールバックしない）
+  if (isWeekendHoursQuery(msg) && satOrdinal == null) {
+    const m = CLINIC_SESSIONS.morning;
+    return {
+      answer: [
+        "はい、当院では土曜日の午前診療を行っております。",
+        "",
+        "ただし、第3・第5土曜日と日曜日は休診です。",
+        `土曜日の診療時間は${m.start}〜${m.end}です。`,
+      ].join("\n"),
+      intent: "clinic_hours_weekend",
+      scheduleData: {
+        weekend: true,
+        saturdaySessions: [CLINIC_SESSIONS.morning],
+        sundayClosed: true,
+        closedRules: CLINIC_CLOSED_RULES,
+      },
+      referencedPages: ref,
+    };
+  }
+
   // 祝日（「祝日」内の「日」を日曜判定に使わない）
   if (/祝日/.test(msg) && !/日曜/.test(msg) && satOrdinal == null && weekday == null) {
     return {
@@ -496,13 +547,24 @@ export function buildClinicHoursAnswer(userMessage, opts = {}) {
     };
   }
 
+  // 休診日一覧
+  if (/休診日/.test(msg) && weekday == null && satOrdinal == null) {
+    return {
+      answer:
+        "休診日は、日曜日・祝日・第3土曜日・第5土曜日です。第1・第2・第4土曜日は午前診のみです。",
+      intent: "clinic_hours_closed_days",
+      scheduleData: { closedRules: CLINIC_CLOSED_RULES },
+      referencedPages: ref,
+    };
+  }
+
   // 第n土曜日
   if (satOrdinal != null) {
     const closed =
       CLINIC_CLOSED_RULES.saturdayClosedOrdinals.includes(satOrdinal);
     if (closed) {
       return {
-        answer: `第${satOrdinal}土曜日は休診です。第1・第2・第4土曜日は、祝日や臨時休診に該当しない限り午前診（${CLINIC_SESSIONS.morning.start}〜${CLINIC_SESSIONS.morning.end}）のみです。`,
+        answer: `はい、第${satOrdinal}土曜日は休診です。第1・第2・第4土曜日は、祝日に該当しない限り午前診（${CLINIC_SESSIONS.morning.start}〜${CLINIC_SESSIONS.morning.end}）のみです。`,
         intent: "clinic_hours_saturday_nth",
         scheduleData: {
           saturdayOrdinal: satOrdinal,
@@ -513,7 +575,7 @@ export function buildClinicHoursAnswer(userMessage, opts = {}) {
       };
     }
     return {
-      answer: `第${satOrdinal}土曜日は、祝日や臨時休診に該当しない限り午前診（${CLINIC_SESSIONS.morning.start}〜${CLINIC_SESSIONS.morning.end}）のみです。第3・第5土曜日は休診です。`,
+      answer: `第${satOrdinal}土曜日は、祝日に該当しない限り午前診（${CLINIC_SESSIONS.morning.start}〜${CLINIC_SESSIONS.morning.end}）のみです。第3・第5土曜日は休診です。`,
       intent: "clinic_hours_saturday_nth",
       scheduleData: {
         saturdayOrdinal: satOrdinal,
@@ -526,8 +588,22 @@ export function buildClinicHoursAnswer(userMessage, opts = {}) {
 
   // 土曜日全般
   if (weekday === 6 && /土曜/.test(msg)) {
+    const m = CLINIC_SESSIONS.morning;
+    // 土曜の午後
+    if (/午後/.test(msg)) {
+      return {
+        answer: `土曜日に午後診はありません。土曜日は${m.start}〜${m.end}の午前診のみです。ただし、第3・第5土曜日と祝日は休診です。`,
+        intent: "clinic_hours_saturday_afternoon",
+        scheduleData: {
+          weekday: 6,
+          afternoon: false,
+          sessions: [CLINIC_SESSIONS.morning],
+        },
+        referencedPages: ref,
+      };
+    }
     return {
-      answer: `土曜日は、第1・第2・第4土曜日に限り午前診（${CLINIC_SESSIONS.morning.start}〜${CLINIC_SESSIONS.morning.end}）を行っています。第3土曜日・第5土曜日、および祝日は休診です。`,
+      answer: `はい、土曜日は${m.start}〜${m.end}に診療しています。ただし、第3・第5土曜日と祝日は休診です。`,
       intent: "clinic_hours_saturday",
       scheduleData: {
         weekday: 6,
@@ -540,8 +616,12 @@ export function buildClinicHoursAnswer(userMessage, opts = {}) {
 
   // 日曜日
   if (weekday === 0) {
+    const m = CLINIC_SESSIONS.morning;
     return {
-      answer: "日曜日は休診です。",
+      answer: [
+        "日曜日は休診日となっております。",
+        `土曜日は午前診療（${m.start}〜${m.end}）を行っていますが、第3・第5土曜日は休診です。`,
+      ].join("\n"),
       intent: "clinic_hours_sunday",
       scheduleData: { weekday: 0, closed: true },
       referencedPages: ref,
@@ -611,7 +691,7 @@ export function buildClinicHoursAnswer(userMessage, opts = {}) {
   ) {
     const days = CLINIC_SESSIONS.evening.weekdays;
     return {
-      answer: `夜診は${formatWeekdayList(days)}です（${CLINIC_SESSIONS.evening.start}〜${CLINIC_SESSIONS.evening.end}）。予約制ではなく、受付順での診察となります。`,
+      answer: `夜診は月曜日と水曜日の${CLINIC_SESSIONS.evening.start}〜${CLINIC_SESSIONS.evening.end}に行っています。`,
       intent: "clinic_hours_evening_weekdays",
       scheduleData: { session: CLINIC_SESSIONS.evening },
       referencedPages: ref,
@@ -708,9 +788,23 @@ export function buildClinicHoursAnswer(userMessage, opts = {}) {
   if (session === "evening") {
     const e = CLINIC_SESSIONS.evening;
     return {
-      answer: `夜診は${formatWeekdayList(e.weekdays)}の${e.start}〜${e.end}です。予約制ではなく、受付順での診察となります。`,
+      answer: `夜診は月曜日と水曜日の${e.start}〜${e.end}に行っています。`,
       intent: "clinic_hours_evening",
       scheduleData: { session: e },
+      referencedPages: ref,
+    };
+  }
+
+  // 平日の終了時刻
+  if (/平日/.test(msg) && /何時|終了|終わり|まで/.test(msg)) {
+    const e = CLINIC_SESSIONS.evening;
+    return {
+      answer: [
+        `平日の診療は、午前診 ${CLINIC_SESSIONS.morning.start}〜${CLINIC_SESSIONS.morning.end}、午後診 ${CLINIC_SESSIONS.afternoon.start}〜${CLINIC_SESSIONS.afternoon.end}（火を除く）、夜診 ${e.start}〜${e.end}（月・水）です。`,
+        "火曜は午前診のみ、木・金に夜診はありません。",
+      ].join("\n"),
+      intent: "clinic_hours_weekday_general",
+      scheduleData: { sessions: CLINIC_SESSIONS },
       referencedPages: ref,
     };
   }

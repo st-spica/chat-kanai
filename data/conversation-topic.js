@@ -41,6 +41,7 @@ import {
 } from "./milkcare.js";
 import { isClinicFacilitiesQuery } from "./clinic-facilities.js";
 import { isPrenatalClassesQuery } from "./prenatal-classes.js";
+import { isClinicHoursQuery } from "./clinic-hours.js";
 import { isKidsRoomQuery } from "./site-route-map.js";
 
 /** @typedef {string|null} TopicIntent */
@@ -127,6 +128,9 @@ export function detectStandaloneIntent(userMessage) {
 
   // 産前産後教室（体重管理より先）
   if (isPrenatalClassesQuery(msg)) return "prenatal_classes";
+
+  // 診療時間・休診日
+  if (isClinicHoursQuery(msg)) return "clinic_hours";
 
   // 分娩費用
   if (isBirthPricingQuery(msg)) {
@@ -446,6 +450,7 @@ export function clinicKnowledgeIdForIntent(intent) {
     milkcare_overview: "postpartum-milkcare-reservation",
     clinic_facilities: "clinic-facilities",
     prenatal_classes: "prenatal-classes",
+    clinic_hours: "clinic-consultation-hours",
     birth_reservation_deposit: "birth-reservation-deposit",
     kids_room: null,
   };

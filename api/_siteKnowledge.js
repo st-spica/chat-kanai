@@ -617,6 +617,10 @@ async function fetchPageChunk(url, maxChars, meta = {}) {
       /#hos_bring/i.test(url) ||
       /#doctor_schedule/i.test(url) ||
       /\/facilities\/?/i.test(url) ||
+      // トップ／初めての方の診療時間表（曜日×枠の対応を維持）
+      /^https?:\/\/(?:www\.)?kanai\.or\.jp\/?(?:beginner\/?)?(?:[?#]|$)/i.test(
+        String(meta.displayUrl || url || "")
+      ) ||
       Boolean(meta.displayUrl && /#doctor_schedule/i.test(meta.displayUrl)) ||
       Boolean(meta.displayUrl && /\/facilities\/?/i.test(meta.displayUrl));
     const text = (

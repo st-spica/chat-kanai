@@ -84,21 +84,37 @@
       "relatedSiteUrl": "https://kanai.or.jp/"
     },
     {
-      "id": "clinic-hours-schedule",
+      "id": "clinic-consultation-hours",
       "category": "診療案内/診療時間",
       "intent": "clinic_hours",
       "service": "clinic_hours",
+      "availability": "available",
       "questionPatterns": [
         "診療時間を全部教えて",
-        "診療時間を教えて",
+        "診療時間を教えてください",
         "診察時間はいつですか",
         "休診日はいつですか",
+        "土日診療はしていますか",
+        "土日は開いていますか",
+        "週末に受診できますか",
         "土曜日は診察していますか",
+        "土曜日は開いていますか",
+        "土曜日は何時までですか",
+        "土曜日の午後は診療していますか",
+        "日曜日は診察していますか",
+        "日曜日は診療していますか",
         "第3土曜日は診察していますか",
+        "第3土曜日は休診ですか",
+        "第5土曜日は診療していますか",
         "第5土曜日は休診ですか",
+        "祝日は診療していますか",
+        "祝日は開いていますか",
+        "平日は何時まで診療していますか",
         "夜診は何曜日ですか",
+        "月曜日の診療時間は",
+        "火曜日は夜診がありますか",
+        "水曜日は何時までですか",
         "火曜日は午後も診察していますか",
-        "火曜日に夜診はありますか",
         "木曜日は夜診がありますか",
         "金曜日の夜診は何時からですか"
       ],
@@ -106,20 +122,63 @@
         "診療時間",
         "診察時間",
         "休診",
+        "休診日",
         "午前診",
         "午後診",
         "夜診",
+        "土日",
+        "週末",
+        "土曜日",
+        "日曜日",
+        "祝日",
         "第3土曜日",
         "第5土曜日"
       ],
-      "answer": "午前診 9:00〜11:30（月・火・水・木・金・土）、午後診 13:00〜14:30（月・水・木・金）、夜診 17:30〜19:00（月・水）です。休診日は日曜・祝日・第3土曜日・第5土曜日です。第1・第2・第4土曜日は午前診のみです。火曜に午後診・夜診はありません。木・金に夜診はありません。",
-      "priority": 95,
-      "updatedAt": "2026-10-08",
+      "summary": "午前診は月〜土9:00〜11:30。午後診は月・水・木・金13:00〜14:30。夜診は月・水17:30〜19:00。休診は日曜・祝日・第3・第5土曜。土曜は午前のみ。",
+      "answer": "午前診は月〜土 9:00〜11:30、午後診は月・水・木・金 13:00〜14:30、夜診は月・水 17:30〜19:00です。休診日は日曜日・祝日・第3土曜日・第5土曜日です。土曜日は午前診のみです。",
+      "careSource": "data/clinic-hours.js",
+      "clinicInformation": {
+        "morning": {
+          "label": "午前診",
+          "start": "09:00",
+          "end": "11:30",
+          "weekdays": ["月", "火", "水", "木", "金", "土"]
+        },
+        "afternoon": {
+          "label": "午後診",
+          "start": "13:00",
+          "end": "14:30",
+          "weekdays": ["月", "水", "木", "金"]
+        },
+        "evening": {
+          "label": "夜診",
+          "start": "17:30",
+          "end": "19:00",
+          "weekdays": ["月", "水"]
+        },
+        "closedDays": {
+          "sunday": true,
+          "holidays": true,
+          "saturdayOrdinals": [3, 5],
+          "description": "日曜日・祝日・第3土曜日・第5土曜日は休診。土曜日は午前診のみ（第1・2・4）。"
+        }
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/beginner/",
+      "relatedSiteLabel": "診療時間のご案内",
+      "responseRules": {
+        "useConfirmedHours": true,
+        "preferOfficialPage": true,
+        "avoidNoInfoAnswer": true,
+        "avoidUnnecessaryPhoneReferral": true,
+        "distinguishTemporaryClosure": true,
+        "answerWeekendAsSaturdayAndSunday": true
+      },
+      "priority": 200,
+      "updatedAt": "2026-10-09",
       "enabled": true,
-      "relatedSiteUrl": "https://kanai.or.jp/",
       "structuredHours": {
         "source": "data/clinic-hours.js",
-        "note": "回答生成はプログラム側の確定データを優先。本エントリは参照用。"
+        "note": "回答生成はプログラム側の確定データを優先。本エントリは参照用。旧ID clinic-hours-schedule から統合。"
       }
     },
     {
