@@ -19,6 +19,7 @@ import {
 } from "./labor-contact.js";
 import { isMorningSicknessQuery } from "./morning-sickness.js";
 import { isPregnancyWorkDocumentQuery } from "./pregnancy-work-document.js";
+import { isPatientComplaintQuery } from "./patient-complaint.js";
 import {
   isPregnancyFolicAcidQuery,
   isPregnancyMedicationQuery,
@@ -97,6 +98,9 @@ export function userTurnsText(safeHistory, userMessage = "") {
 export function detectStandaloneIntent(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg) return null;
+
+  // クレーム・ご意見（他トピックより先）
+  if (isPatientComplaintQuery(msg)) return "patient_complaint";
 
   // 明示参照は最優先
   if (/さっきの.{0,12}(?:逆子|さかご|骨盤位)|(?:逆子|さかご).{0,8}話/.test(msg)) {
@@ -481,6 +485,7 @@ export function clinicKnowledgeIdForIntent(intent) {
     morning_sickness_consultation: "pregnancy-morning-sickness",
     pregnancy_work_accommodation_document:
       "pregnancy-work-accommodation-document",
+    patient_complaint: "patient-complaint",
     pregnancy_medication_consultation: "pregnancy-medication-consultation",
     pregnancy_folic_acid: "pregnancy-folic-acid",
     homecoming_delivery: "obstetrics-homecoming-delivery",

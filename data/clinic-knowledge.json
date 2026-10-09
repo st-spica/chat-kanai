@@ -1100,6 +1100,66 @@
       "enabled": true
     },
     {
+      "id": "patient-complaint",
+      "category": "ご意見・クレーム",
+      "intent": "patient_complaint",
+      "service": "patient_feedback",
+      "availability": "information",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "待ち時間が長すぎです",
+        "全然呼ばれません",
+        "予約したのに1時間待っています",
+        "私より後に来た人が先に呼ばれました",
+        "診察の順番がおかしいです",
+        "受付の態度が悪かったです",
+        "看護師の対応が冷たかったです",
+        "先生の説明が不十分でした",
+        "もう二度と来たくありません",
+        "改善してください",
+        "苦情があります",
+        "待ち時間が長くてお腹が痛くなってきました"
+      ],
+      "keywords": [
+        "待ち時間",
+        "クレーム",
+        "苦情",
+        "順番",
+        "態度",
+        "対応",
+        "改善",
+        "呼ばれない",
+        "不親切"
+      ],
+      "summary": "患者さんからのクレーム・ご意見には、まずご不便・ご不快への謝罪から応じる。未確認の過失事実は断定しない。言い訳から始めない。関連リンクは原則出さない。",
+      "answer": "ご不快な思いをさせてしまい、申し訳ございません。お寄せいただいたご意見を大切にし、今後の改善に役立ててまいります。",
+      "careSource": "data/patient-complaint.js",
+      "clinicInformation": {
+        "responsePolicy": {
+          "leadWithApology": true,
+          "avoidExcuseFirst": true,
+          "avoidUnconfirmedFaultClaims": true,
+          "avoidFakeEscalationClaims": true,
+          "suppressReferenceLinksByDefault": true,
+          "prioritizeMedicalSafetyWhenSymptomsPresent": true
+        }
+      },
+      "relatedSiteUrl": "",
+      "relatedSiteLabel": "",
+      "responseRules": {
+        "useExactAnswer": true,
+        "leadWithApology": true,
+        "avoidExcuseOpening": true,
+        "avoidUnconfirmedFault": true,
+        "avoidFakeReportClaims": true,
+        "suppressRelatedLinks": true,
+        "prioritizeMedicalSafety": true
+      },
+      "priority": 220,
+      "updatedAt": "2026-10-09",
+      "enabled": true
+    },
+    {
       "id": "pregnancy-morning-sickness",
       "category": "妊娠期/日常生活の注意",
       "intent": "morning_sickness_consultation",

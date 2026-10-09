@@ -55,6 +55,7 @@ import {
 } from "../data/birth-pricing.js";
 import { isMorningSicknessQuery } from "../data/morning-sickness.js";
 import { isPregnancyWorkDocumentQuery } from "../data/pregnancy-work-document.js";
+import { isPatientComplaintQuery } from "../data/patient-complaint.js";
 import {
   isBreastfeedingMedicationQuery,
   isPregnancyFolicAcidQuery,
@@ -187,6 +188,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "infertility_consultation",
   "morning_sickness_consultation",
   "pregnancy_work_accommodation_document",
+  "patient_complaint",
   "pregnancy_medication_consultation",
   "pregnancy_folic_acid",
   "breech_presentation_consultation",
@@ -595,6 +597,11 @@ export function detectClinicIntent(userMessage) {
   const hasWeb = /WEB|ウェブ|ネット|オンライン/i.test(msg);
   const hasChange = /変更/.test(msg);
   const hasCancel = /キャンセル|取り消|取消/.test(msg);
+
+  // クレーム・ご意見（待ち時間・順番・対応等。他案内より先）
+  if (isPatientComplaintQuery(msg)) {
+    return "patient_complaint";
+  }
 
   // 院内撮影・録音の可否（立ち会い等の状況語より優先）
   if (isPhotoRecordingFocusedMessage(msg)) {
@@ -1012,6 +1019,17 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["不妊相談:対象外質問のため除外"],
         rejected: true,
         rejectReason: "infertility_consultationは不妊・妊活質問のみ",
+      };
+    }
+  }
+  // クレームは対象外質問に流用しない
+  if (item.id === "patient-complaint" || itemIntent === "patient_complaint") {
+    if (!isPatientComplaintQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["クレーム:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "patient_complaintはクレーム・ご意見関連のみ",
       };
     }
   }
