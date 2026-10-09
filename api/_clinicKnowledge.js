@@ -603,6 +603,7 @@ export function detectClinicIntent(userMessage) {
   const hasCancel = /キャンセル|取り消|取消/.test(msg);
 
   // クレーム・ご意見（待ち時間・順番・対応等。他案内より先）
+  // 短い継続合図は履歴付き判定が必要なため、単体では内容クレームのみ
   if (isPatientComplaintQuery(msg)) {
     return "patient_complaint";
   }

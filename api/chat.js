@@ -1352,19 +1352,13 @@ const RICH_HTML_THIS_TURN = [
 /** クレーム・不満（条件付きで付与。他会話テンプレより優先） */
 const PROMPT_COMPLAINT = [
   "【このターン：クレーム・不満への対応（最優先）】",
-  "・ユーザーは当院への不満・クレームを話しています。「他の病院に変更したい」など転院意向があっても、他院での過去経験の相談ではない。当院への不満として対応する。",
-  "・構成：①謝罪（必須・先頭）②具体内容への短い共感 ③必要な場合のみ短い説明 ④ご意見への感謝・改善への姿勢。",
-  "・謝罪例（内容に合わせて選ぶ）：「長い時間お待たせしてしまい、申し訳ございません。」「ご不快な思いをさせてしまい、申し訳ございません。」「ご不便をおかけし、申し訳ございません。」",
-  "・言い訳から始めない（「さまざまな要因」「混雑のためご了承」「仕方ありません」等を冒頭に置かない）。",
-  "・相手の言葉を受け止める（評価・分析しない）。「理解できます」「そのお気持ちは理解できます」「自然なことです」は禁止。",
-  "・未確認の過失事実（スタッフが間違えた・順番を飛ばした等）は断定しない。ご不快・ご不便へのお詫びはしてよい。",
-  "・「担当部署に報告しました」「院長に伝えました」など未確認の共有完了は言わない。ご意見を大切にし改善に役立てる表現は可。",
-  "・原則3〜5文。同じ共感・お礼を繰り返さない。",
-  "・上から目線の言い回しも禁止（「私たちのサービス」「期待に応えられなかった」「残念です」等）。",
-  "・詳細の催促は禁止。「具体的な状況を教えてください」等は書かない。",
-  "・話題を流す締めも禁止。「他に気になることがあれば〜」等を毎回付けない。",
-  "・関連リンクは付けない（患者が具体情報を求めていない限り）。",
-  "・良い例：長い時間お待たせしてしまい、申し訳ございません。お待ちいただくことでご負担をおかけしたことと思います。お寄せいただいたご意見を大切にし、今後の診療環境の改善に役立ててまいります。",
+  "・ユーザーは当院への不満・クレームを話しています。会話履歴の直前クレームも必ず踏まえる。",
+  "・【初回】構成：①謝罪（必須・先頭）②具体内容への短い受け止め ③必要な説明 ④改善への姿勢。",
+  "・【継続】「謝ってほしいわけじゃない」「そういうことじゃない」「なんで？」等の場合：同じ謝罪を繰り返さない。空虚な共感（当然です／よく分かります／ご不満なのですね）だけで終わらない。直前で未回答の説明・座席・改善要望に進む。",
+  "・予約していても待ち時間が生じる一般的な理由（診察時間・当日の診療状況）は説明してよい。当日の具体原因は断定しない。",
+  "・言い訳から始めない。「担当部署に報告しました」「院長に伝えました」など未確認の共有完了は言わない。",
+  "・未確認の過失事実は断定しない。ご意見を改善に役立てる姿勢は述べてよい。",
+  "・詳細の催促・話題を流す締めは禁止。関連リンクは付けない。",
 ].join("\n");
 
 /** 他院・以前の病院での経験（当院クレームではない） */
@@ -1994,8 +1988,11 @@ function shouldAddComplaintPrompt(userMessage, safeHistory) {
   const text = recentUserText(userMessage, safeHistory);
   const current = String(userMessage || "").trim();
 
-  // 専用モジュールのクレーム判定を優先（待ち時間・順番・接遇など）
-  if (isPatientComplaintQuery(current) || isPatientComplaintQuery(text)) {
+  // 専用モジュールのクレーム判定を優先（待ち時間・順番・接遇など。継続合図は履歴必須）
+  if (
+    isPatientComplaintQuery(current, safeHistory) ||
+    isPatientComplaintQuery(text, safeHistory)
+  ) {
     return true;
   }
 
@@ -3684,20 +3681,31 @@ export default async function handler(req, res) {
 
     const dinnerContextText = celebrationDinnerContextText(safeHistory, userMessage);
 
-    // クレーム・ご意見（謝罪優先。関連リンクなし。言い訳冒頭禁止）
+    // クレーム・ご意見（謝罪優先。継続時は文脈で未回答点へ。関連リンクなし）
     if (
       !metaChatHit &&
       !casualGreetingOnly &&
-      allowStructuredIntent("patient_complaint") &&
-      isPatientComplaintQuery(userMessage)
+      (allowStructuredIntent("patient_complaint") ||
+        topicResolution?.detectedIntent === "patient_complaint") &&
+      isPatientComplaintQuery(userMessage, safeHistory)
     ) {
       const ckHit = clinicKnowledgeHits.find(
         (h) =>
           h.item?.id === "patient-complaint" ||
           h.item?.intent === "patient_complaint"
       );
-      const built = buildPatientComplaintAnswer(userMessage);
+      const built = buildPatientComplaintAnswer(userMessage, safeHistory);
       let answer = String(built?.answer || ckHit?.item?.answer || "").trim();
+      // 継続ターンで謝罪繰り返し・空虚な共感が混入したら確定文へ戻す
+      if (
+        built?.phase === "followup" &&
+        (/申し訳ございません|お詫び申し上げます/.test(answer) ||
+          /当然のことだと思います|お気持ちはよく分かります|そう思われるのも無理は/.test(
+            answer
+          ))
+      ) {
+        answer = String(built?.answer || "").trim();
+      }
       answer = preparePatientFacingAnswer(answer, { allowPhone: false });
       const safety = built?.medicalSafetyLevel || "information";
       const isUrgent = safety === "urgent";
@@ -3724,11 +3732,15 @@ export default async function handler(req, res) {
                 },
               ],
           focus: built?.focus || "general",
+          phase: built?.phase || "initial",
           medicalSafetyLevel: safety,
           referenceChips: [],
           responseMode: "fixed",
           rejectedKnowledge: clinicRejected,
-          note: "クレームは謝罪先頭。言い訳冒頭禁止。関連リンクなし。未確認過失断定禁止",
+          note:
+            built?.phase === "followup"
+              ? "クレーム継続：謝罪反復禁止。未回答の説明・改善要望を優先"
+              : "クレーム初回：謝罪先頭。複合不満は座席・予約理由も触れる",
         };
       }
       await appendChatLog({

@@ -19,7 +19,11 @@ import {
 } from "./labor-contact.js";
 import { isMorningSicknessQuery } from "./morning-sickness.js";
 import { isPregnancyWorkDocumentQuery } from "./pregnancy-work-document.js";
-import { isPatientComplaintQuery } from "./patient-complaint.js";
+import {
+  isPatientComplaintQuery,
+  isComplaintFollowUpCue,
+  isPatientComplaintContent,
+} from "./patient-complaint.js";
 import { isPostpartumCareQuery } from "./postpartum-care.js";
 import { isHospitalMealsQuery } from "./hospital-meals.js";
 import {
@@ -103,8 +107,8 @@ export function detectStandaloneIntent(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg) return null;
 
-  // クレーム・ご意見（他トピックより先）
-  if (isPatientComplaintQuery(msg)) return "patient_complaint";
+  // クレーム・ご意見（他トピックより先。短い継続合図は履歴側で判定）
+  if (isPatientComplaintContent(msg)) return "patient_complaint";
 
   // 母乳ケア（産後ケア全般より先）
   if (isMilkcareQuery(msg)) {
@@ -279,6 +283,14 @@ export function isFollowUpForIntent(msg, previousIntent) {
     );
   }
 
+  if (previousIntent === "patient_complaint") {
+    return (
+      isComplaintFollowUpCue(m) ||
+      (isPatientComplaintContent(m) && m.length <= 120) ||
+      (/^(?:なんで|なぜ|どうして|改善して)/.test(m) && m.length <= 40)
+    );
+  }
+
   return false;
 }
 
@@ -376,6 +388,23 @@ export function resolveConversationTopic(userMessage, safeHistory = []) {
       continuingUrgent: false,
       useHistory: true,
     };
+  }
+
+  // クレーム継続（直前がクレーム内容で、謝罪拒否・説明要求など）
+  if (
+    previousIntent === "patient_complaint" ||
+    (previousUser && isPatientComplaintContent(previousUser))
+  ) {
+    if (isComplaintFollowUpCue(msg) || isPatientComplaintQuery(msg, safeHistory)) {
+      return {
+        latestUserMessage: msg,
+        previousIntent: previousIntent || "patient_complaint",
+        detectedIntent: "patient_complaint",
+        isTopicChange: false,
+        continuingUrgent: false,
+        useHistory: true,
+      };
+    }
   }
 
   // モジュール側の文脈フォロー（厳格化した各 is*Query に委譲）
