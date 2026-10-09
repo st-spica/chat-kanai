@@ -4541,6 +4541,13 @@ export default async function handler(req, res) {
         url: String(p.url || WORK_DOCUMENT_REF_PAGE.url),
         title: String(p.title || WORK_DOCUMENT_REF_PAGE.title),
       }));
+      // 勤務書類相談では初診案内ではなく公式トップを維持
+      for (const p of referencedPages) {
+        if (/\/beginner\/?/i.test(p.url) || !p.url) {
+          p.url = WORK_DOCUMENT_REF_PAGE.url;
+          p.title = WORK_DOCUMENT_REF_PAGE.title;
+        }
+      }
       const safety = built?.medicalSafetyLevel || "information";
       const isUrgent = safety === "urgent";
       if (includeDebug) {

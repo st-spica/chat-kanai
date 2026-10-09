@@ -1333,10 +1333,24 @@ export const SITE_ROUTE_MAP = [
     boost: 260,
   },
   {
+    id: "maternity_work_document",
+    label: "母健連絡カード・勤務調整書類",
+    patterns: [
+      /母健連絡カード|母性健康管理指導事項連絡カード|母性健康管理カード|母健カード/,
+      /(?:つわり|悪阻|妊娠).{0,24}(?:仕事を休|休みたい|休職|出勤でき|勤務時間|時短|書類|診断書)/,
+      /(?:仕事を休むための書類|会社に提出する書類|会社へ提出|勤務先に提出)/,
+      /妊娠中の?勤務時間|勤務時間を短く/,
+    ],
+    // 書類相談は初診案内ではなく公式トップを優先
+    urls: ["https://kanai.or.jp/"],
+    boost: 280,
+  },
+  {
     id: "first_visit",
     label: "初めての方・予約",
     patterns: [
-      /初診|初めて|予約の仕方|予約方法|電話で予約|電話予約|WEB予約|ウェブ予約/i,
+      // 「受診」「診察」単独ではマッチさせない（母健カード等の誤誘導防止）
+      /初診|初めての方|初めて受診|初めて来院|予約の仕方|予約方法|電話で予約|電話予約|WEB予約|ウェブ予約/i,
     ],
     urls: ["https://kanai.or.jp/beginner/"],
     boost: 160,
@@ -1372,6 +1386,13 @@ export function matchSiteRoutes(userMessage) {
     if (rule.id === "visit" && service === "postpartum_care") continue;
     // お子さまの予防接種は妊婦向けワクチンページを根拠にしない
     if (rule.id === "vaccine" && isChildVaccinationQuery(msg)) continue;
+    // 母健連絡カード・勤務書類は初診案内へ流さない（トップ優先）
+    if (
+      service === "maternity_health_guidance_card" &&
+      (rule.id === "first_visit" || rule.id === "web_reservation")
+    ) {
+      continue;
+    }
     // 食材変更・アレルギーは特典ページに対応範囲の記載がないためルート付けしない
     if (
       (rule.id === "delivery_reservation_benefits" ||

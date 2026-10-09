@@ -12,8 +12,8 @@
  */
 
 export const WORK_DOCUMENT_REF_PAGE = {
-  url: "https://kanai.or.jp/beginner/",
-  title: "初めての方へ・ご受診のご案内",
+  url: "https://kanai.or.jp/",
+  title: "金井産婦人科 公式サイト",
 };
 
 export const MATERNITY_HEALTH_CARD_NAME =

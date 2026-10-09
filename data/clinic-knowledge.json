@@ -1080,8 +1080,8 @@
         ],
         "informationPolicy": "院内確認済みの母健連絡カード案内のみ。未確認の発行可否・費用は推測しない。通常回答で電話番号を出さない。"
       },
-      "relatedSiteUrl": "https://kanai.or.jp/beginner/",
-      "relatedSiteLabel": "初めての方へ・ご受診のご案内",
+      "relatedSiteUrl": "https://kanai.or.jp/",
+      "relatedSiteLabel": "金井産婦人科 公式サイト",
       "responseRules": {
         "useExactAnswer": true,
         "prioritizeDocumentAnswerOverSelfCare": true,
@@ -1091,6 +1091,8 @@
         "avoidUnnecessaryPhoneReferral": true,
         "avoidPhoneNumberInChat": true,
         "prioritizeMedicalSafetyForSevereSymptoms": true,
+        "preferOfficialTopPageLink": true,
+        "avoidBeginnerPageUnlessFirstVisitQuery": true,
         "alwaysShowRelatedLink": true
       },
       "priority": 210,
