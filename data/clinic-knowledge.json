@@ -1728,6 +1728,89 @@
       "enabled": true
     },
     {
+      "id": "clinic-access",
+      "category": "アクセス/交通案内",
+      "intent": "clinic_access",
+      "service": "access_information",
+      "availability": "available",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "最寄駅を教えてください",
+        "一番近い駅はどこですか",
+        "何駅で降りればいいですか",
+        "電車で行きたいです",
+        "蒲生四丁目駅から何分ですか",
+        "蒲生四丁目駅の何番出口ですか",
+        "鴫野駅から歩いて何分ですか",
+        "鴫野駅から行けますか",
+        "病院への行き方を教えてください",
+        "アクセス方法を教えてください",
+        "病院の場所を教えてください",
+        "駐車場はありますか",
+        "車で行けますか",
+        "自転車で行けますか",
+        "バスで行けますか"
+      ],
+      "keywords": [
+        "最寄駅",
+        "アクセス",
+        "行き方",
+        "蒲生四丁目",
+        "鴫野",
+        "駐車場",
+        "パーキング",
+        "バス",
+        "電車",
+        "所在地",
+        "地図"
+      ],
+      "summary": "最寄は大阪メトロ蒲生四丁目駅（3号出口から南へ徒歩約3分）とJR鴫野駅（徒歩約10分）。駐車場5台（8:30〜20:00）。詳細は公式アクセスページ。",
+      "answer": "当院の最寄駅は、以下の2つです。\n\n🚃 大阪メトロ『蒲生四丁目』駅\n長堀鶴見緑地線・今里筋線\n3号出口から南へ徒歩約3分\n\n🚃 JR『鴫野』駅\n学研都市線・おおさか東線\n徒歩約10分\n\n駅からの道順や詳しいアクセス方法は、下記のページでご案内しておりますので、ぜひご覧ください。",
+      "careSource": "data/clinic-access.js",
+      "clinicInformation": {
+        "accessPage": "https://kanai.or.jp/access/",
+        "address": "大阪府大阪市城東区今福西１丁目２-８",
+        "stations": [
+          {
+            "name": "蒲生四丁目",
+            "operator": "大阪メトロ",
+            "lines": ["長堀鶴見緑地線", "今里筋線"],
+            "exit": "3号出口",
+            "walk": "約3分",
+            "walkDetail": "3号出口から南へ徒歩約3分"
+          },
+          {
+            "name": "鴫野",
+            "operator": "JR",
+            "lines": ["学研都市線", "おおさか東線"],
+            "walk": "約10分"
+          }
+        ],
+        "bus": {
+          "summary": "大阪シティバス21・35号系統『新喜多大橋』バス停（35号系統）下車すぐ"
+        },
+        "parking": {
+          "capacity": 5,
+          "hours": "8:30〜20:00",
+          "entrance": "今里筋側から出入り"
+        },
+        "informationPolicy": "公式サイトで確認できた交通情報のみ案内し、一般的なアクセス質問では電話問い合わせを勧めない"
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/access/",
+      "relatedSiteLabel": "交通アクセス・アクセスマップ",
+      "responseRules": {
+        "useConfirmedAccessOnly": true,
+        "avoidInventedTransitInfo": true,
+        "preferOfficialAccessPage": true,
+        "avoidUnnecessaryPhoneReferral": true,
+        "alwaysShowRelatedLink": true,
+        "useExactAnswer": true
+      },
+      "priority": 200,
+      "updatedAt": "2026-10-09",
+      "enabled": true
+    },
+    {
       "id": "clinic-facilities",
       "category": "院内案内/施設・入院部屋",
       "intent": "clinic_facilities",

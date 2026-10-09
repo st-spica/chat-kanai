@@ -40,6 +40,7 @@ import {
   isMilkcareReservationQuery,
 } from "./milkcare.js";
 import { isClinicFacilitiesQuery } from "./clinic-facilities.js";
+import { isClinicAccessQuery } from "./clinic-access.js";
 import { isPrenatalClassesQuery } from "./prenatal-classes.js";
 import { isClinicHoursQuery } from "./clinic-hours.js";
 import {
@@ -135,6 +136,9 @@ export function detectStandaloneIntent(userMessage) {
     if (/何曜日|曜日|いつ受け|実施日/.test(msg)) return "milkcare_schedule";
     return "milkcare_overview";
   }
+
+  // 交通アクセス・最寄駅・駐車場
+  if (isClinicAccessQuery(msg)) return "clinic_access";
 
   // 院内施設・入院部屋（未確認設備の推測禁止）
   if (isClinicFacilitiesQuery(msg)) return "clinic_facilities";
@@ -482,6 +486,7 @@ export function clinicKnowledgeIdForIntent(intent) {
     milkcare_price: "postpartum-milkcare-reservation",
     milkcare_overview: "postpartum-milkcare-reservation",
     clinic_facilities: "clinic-facilities",
+    clinic_access: "clinic-access",
     prenatal_classes: "prenatal-classes",
     clinic_hours: "clinic-consultation-hours",
     hpv_vaccination: "cervical-cancer-hpv-vaccine",

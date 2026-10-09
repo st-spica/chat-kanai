@@ -136,6 +136,11 @@ import {
   isClinicFacilitiesQuery,
 } from "../data/clinic-facilities.js";
 import {
+  buildClinicAccessAnswer,
+  ACCESS_REF_PAGE,
+  isClinicAccessQuery,
+} from "../data/clinic-access.js";
+import {
   buildPrenatalClassesAnswer,
   isPrenatalClassesQuery,
   PRENATAL_CLASSES_REF_PAGE,
@@ -1024,6 +1029,7 @@ const SYSTEM = `
 ・【診療時間・休診】曜日別の確定データ以外から推測しない。一般的な病院の時間をコピーしたり、別曜日の枠を流用したりしない。第3・第5土曜日は休診。火曜に午後診・夜診はない。木・金に夜診はない。臨時休診は通常予定と混同しない。
 ・【お子さま同伴・キッズルーム】お子さま連れの来院は可能。院内にキッズルームあり。診療内容・時間帯による制限や「事前電話確認」を勝手に付け足さない。キッズルームを理由にスタッフ託児・診察中の預かり・分娩時同伴・入院宿泊まで対応可能と推測しない。お子さま本人の診察・予防接種と同伴案内を混同しない。
 ・【院内施設・入院部屋】施設案内は公式ページ（facilities）を優先案内する。共用の授乳スペース・休憩スペースは設置していない（院内確定）。カフェスペース・ラウンジ・売店・託児室など、抜粋／院内知識に無い設備を一般的な産婦人科の設備として推測・追加しない。授乳スペースがないことと入院中に授乳できないことは別。母乳ケア・キッズルーム・面会・個室料金と混同しない。
+・【アクセス・最寄駅・駐車場】公式アクセスページ（https://kanai.or.jp/access/）の確定情報のみ案内する。最寄は大阪メトロ蒲生四丁目駅（3号出口から南へ徒歩約3分）とJR鴫野駅（徒歩約10分）。一般的なアクセス質問では電話問い合わせを勧めない。道順・詳細はアクセスページへ案内する。未確認の駐輪場や交通手段を推測しない。診療案内・初診案内ページへ誘導しない。
 ・【産前産後教室】lessonページ掲載の教室のみ案内。質問された教室を優先し、聞いていない教室を毎回並べない。未掲載・休止中の教室を実施中と推測しない。開催日時・料金・予約はページ根拠がある範囲のみ。「断定できません」を安易に使わず公式ページへ自然に案内。一般的な有無の質問で毎回医師確認を付けない。出血・張り・切迫早産・安静指示や参加可否判断を求められた場合は医療安全優先（AIは参加可否を断定しない）。体重管理・マタニティフォトと混同しない。
 ・【予約方法・電話番号】診療内容が不明なまま「電話で予約できる」と断定しない。予約方法はサービスにより異なる。通常の回答では当院の電話番号（06-6931-2391等）を出力しない。電話番号を聞かれたら公式サイト（beginner等）へ案内する。母乳ケアは電話予約のみ、夜診は予約不可・受付順。緊急の医療相談では直ちに当院へ連絡・必要時は119番を案内する（緊急時は電話番号表示可）。
 ・【子宮頸がんワクチンと検診】別サービス。ワクチン質問に #gyne_cancer（検診）を使わない。ワクチンは gynecology/#cervical_cancer。検診は #gyne_cancer。インフル・RS・小児ワクチンと混同しない。通常回答で電話番号を出さない。
@@ -5004,6 +5010,99 @@ export default async function handler(req, res) {
         payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(attachTopicDebug(payload, "prenatal_classes"));
+    }
+
+    // 交通アクセス・最寄駅・駐車場（公式 access へ案内。一般質問では電話不要）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      allowStructuredIntent("clinic_access") &&
+      isClinicAccessQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "clinic-access" ||
+          h.item?.intent === "clinic_access"
+      );
+      const built = buildClinicAccessAnswer(userMessage);
+      let answer = String(built?.answer || ckHit?.item?.answer || "").trim();
+      // アクセス一般案内に電話誘導が混入したら除去して確定文へ戻す
+      if (
+        /お電話|電話でお問い合わせ|受付へお問い合わせ|病院にお電話/.test(answer)
+      ) {
+        answer = String(built?.answer || "").trim();
+      }
+      answer = preparePatientFacingAnswer(answer, { allowPhone: false });
+      const referencedPages = (built?.referencedPages?.length
+        ? built.referencedPages
+        : [ACCESS_REF_PAGE]
+      ).map((p) => ({
+        url: String(p.url || ACCESS_REF_PAGE.url),
+        title: String(p.title || ACCESS_REF_PAGE.title),
+      }));
+      // アクセス質問では access 以外（beginner/診療案内等）へ誘導しない
+      for (const p of referencedPages) {
+        if (!/\/access\/?/i.test(p.url)) {
+          p.url = ACCESS_REF_PAGE.url;
+          p.title = ACCESS_REF_PAGE.title;
+        }
+      }
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "clinic_access",
+          detectedService: "access_information",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "clinic-access",
+                  intent: "clinic_access",
+                  service: "access_information",
+                  score: 100,
+                },
+              ],
+          matchedSiteUrl: ACCESS_REF_PAGE.url,
+          referenceChips: referencedPages,
+          focus: built?.focus || "overview",
+          responseMode: "fixed",
+          rejectedKnowledge: clinicRejected,
+          note: "アクセスは公式 /access/ へ案内。最寄駅・徒歩・出口は確定文。電話案内不要",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "clinic_access",
+          service: "access_information",
+          access: true,
+          matchedSiteUrl: ACCESS_REF_PAGE.url,
+          focus: built?.focus || "overview",
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "clinic_access";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = ACCESS_REF_PAGE.url;
+        payload.referenceChips = referencedPages;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(attachTopicDebug(payload, "clinic_access"));
     }
 
     // 院内施設・入院部屋（未確認設備の推測禁止。facilities へ案内）
