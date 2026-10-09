@@ -353,6 +353,9 @@ function stripTagsToText(html) {
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    // 画像中心ページ（施設案内など）のため alt を本文に残す
+    .replace(/<img\b[^>]*\balt=["']([^"']+)["'][^>]*>/gi, " $1 ")
+    .replace(/<img\b[^>]*>/gi, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -550,6 +553,9 @@ function htmlToStructuredText(html) {
   h = h.replace(/<table[\s\S]*?<\/table>/gi, (table) => htmlTableToText(table));
   h = h.replace(/<br\s*\/?>/gi, "\n");
   h = h.replace(/<\/(?:div|section|ul|ol|table|tr)>/gi, "\n");
+  // 施設案内など画像中心ページの alt を本文へ
+  h = h.replace(/<img\b[^>]*\balt=["']([^"']+)["'][^>]*>/gi, " $1 ");
+  h = h.replace(/<img\b[^>]*>/gi, " ");
   h = h.replace(/<[^>]+>/g, " ");
   h = h
     .replace(/&nbsp;/g, " ")
@@ -610,7 +616,9 @@ async function fetchPageChunk(url, maxChars, meta = {}) {
       focusHospitalBag ||
       /#hos_bring/i.test(url) ||
       /#doctor_schedule/i.test(url) ||
-      Boolean(meta.displayUrl && /#doctor_schedule/i.test(meta.displayUrl));
+      /\/facilities\/?/i.test(url) ||
+      Boolean(meta.displayUrl && /#doctor_schedule/i.test(meta.displayUrl)) ||
+      Boolean(meta.displayUrl && /\/facilities\/?/i.test(meta.displayUrl));
     const text = (
       useStructured
         ? htmlToStructuredText(focusedHtml)
@@ -1410,6 +1418,20 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
     [
       (m) => /母乳ケア|母乳相談|母乳外来|おっぱいケア|授乳相談/.test(m),
       /母乳ケア|#milkcare|\/aftersupport/,
+    ],
+    [
+      (m) =>
+        /院内施設|施設案内|入院部屋|病室|授乳スペース|休憩スペース|キッズルーム/.test(
+          m
+        ),
+      /施設|facilities|キッズ|個室|LDR/,
+    ],
+    [
+      (m) =>
+        /産前教室|産後教室|マタニティヨーガ|マタニティヨガ|マタニティビクス|ママフィット|ママヨガ|後期クラス|母親教室/.test(
+          m
+        ),
+      /教室|lesson|マタニティ|ママフィット|ヨーガ|ビクス/,
     ],
     [(m) => /産後ケア|産後サポート/.test(m), /産後ケア|産後サポート|\/aftersupport/],
     [(m) => /休診|診療時間|午後診|午前診|今日|本日|明日/.test(m), /休診|診療時間|午前診|午後診|夜診/],

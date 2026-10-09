@@ -39,6 +39,8 @@ import {
   isMilkcareQuery,
   isMilkcareReservationQuery,
 } from "./milkcare.js";
+import { isClinicFacilitiesQuery } from "./clinic-facilities.js";
+import { isPrenatalClassesQuery } from "./prenatal-classes.js";
 import { isKidsRoomQuery } from "./site-route-map.js";
 
 /** @typedef {string|null} TopicIntent */
@@ -119,6 +121,12 @@ export function detectStandaloneIntent(userMessage) {
     if (/何曜日|曜日|いつ受け|実施日/.test(msg)) return "milkcare_schedule";
     return "milkcare_overview";
   }
+
+  // 院内施設・入院部屋（未確認設備の推測禁止）
+  if (isClinicFacilitiesQuery(msg)) return "clinic_facilities";
+
+  // 産前産後教室（体重管理より先）
+  if (isPrenatalClassesQuery(msg)) return "prenatal_classes";
 
   // 分娩費用
   if (isBirthPricingQuery(msg)) {
@@ -379,7 +387,7 @@ export function answerMatchesIntent(answer, intent, userMessage) {
 
   if (intent === "labor_hospital_contact") {
     if (
-      /体重増加の目安|BMI18\.5|ダイエット|マタニティヨーガ/.test(a) &&
+      /体重増加の目安|BMI18\.5|ダイエット/.test(a) &&
       !/陣痛|破水|連絡|入院/.test(a)
     ) {
       return false;
@@ -436,6 +444,8 @@ export function clinicKnowledgeIdForIntent(intent) {
     milkcare_schedule: "postpartum-milkcare-reservation",
     milkcare_price: "postpartum-milkcare-reservation",
     milkcare_overview: "postpartum-milkcare-reservation",
+    clinic_facilities: "clinic-facilities",
+    prenatal_classes: "prenatal-classes",
     birth_reservation_deposit: "birth-reservation-deposit",
     kids_room: null,
   };

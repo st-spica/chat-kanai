@@ -18,16 +18,30 @@
  */
 
 const WEIGHT_TOPIC_RE =
-  /体重|太り|太っ|やせ|痩せ|BMI|ｂｍｉ|ダイエット|体重管理|体重増加|食事管理|マタニティヨーガ|マタニティヨガ|マタニティビクス|マタニティエクサ|何\s*(?:kg|キロ|ｋｇ)|増えていい|増えて良い|(?:\d+\s*(?:kg|キロ|ｋｇ).{0,8}増)|(?:急に|急激|短期間).{0,12}増|増えすぎ|増えませ|増えない/;
+  /体重|太り|太っ|やせ|痩せ|BMI|ｂｍｉ|ダイエット|体重管理|体重増加|食事管理|何\s*(?:kg|キロ|ｋｇ)|増えていい|増えて良い|(?:\d+\s*(?:kg|キロ|ｋｇ).{0,8}増)|(?:急に|急激|短期間).{0,12}増|増えすぎ|増えませ|増えない/;
 
 /**
  * @param {string} text
  */
 export function mentionsPregnancyWeightTopic(text) {
   const t = String(text || "");
+  // 教室名だけの質問は prenatal-classes 側へ
+  if (
+    /マタニティヨーガ|マタニティヨガ|マタニティビクス|ママフィット|ママヨガ|産前教室|産後教室|後期クラス/.test(
+      t
+    ) &&
+    !/体重|太り|BMI|ダイエット|増え/.test(t)
+  ) {
+    return false;
+  }
   if (WEIGHT_TOPIC_RE.test(t)) return true;
-  // 「妊娠中に運動」など体重管理文脈の運動
-  if (/妊娠中.{0,12}運動|運動.{0,12}妊娠/.test(t)) return true;
+  // 「妊娠中に運動」など体重管理文脈の運動（教室名なし）
+  if (
+    /妊娠中.{0,12}運動|運動.{0,12}妊娠/.test(t) &&
+    !/マタニティ|教室|ヨーガ|ヨガ|ビクス/.test(t)
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -41,6 +55,22 @@ export function isPregnancyWeightQuery(userMessage, contextText = "") {
 
   // つわり主体は morning-sickness 側へ
   if (/つわり|悪阻/.test(msg) && !/ダイエット|BMI|何(?:kg|キロ)|増えすぎ|太りすぎ/.test(msg)) {
+    return false;
+  }
+  // 教室・運動可否は prenatal-classes 側へ
+  if (
+    /マタニティヨーガ|マタニティヨガ|マタニティビクス|ママフィット|ママヨガ|産前教室|産後教室|後期クラス|母親教室/.test(
+      msg
+    )
+  ) {
+    return false;
+  }
+  if (
+    /妊娠中.{0,12}運動.{0,12}(?:大丈夫|いい|良い)|運動して(?:大丈夫|いい|良い)/.test(
+      msg
+    ) &&
+    !/体重|BMI|ダイエット|太り/.test(msg)
+  ) {
     return false;
   }
   // 陣痛・逆子など明確な別話題は履歴があっても体重にしない
@@ -402,31 +432,15 @@ export function buildPregnancyWeightAnswer(userMessage, safeHistory = []) {
     };
   }
 
-  // マタニティヨーガ・ビクス
-  if (/マタニティヨーガ|マタニティヨガ|マタニティビクス|マタニティエクサ/.test(msg)) {
-    return {
-      answer: [
-        "当院ではマタニティヨーガ・マタニティビクスを実施しています。",
-        "",
-        "参加条件や実施日時、予約方法はこちらでは断定できませんので、健診時や受付でご確認ください。",
-        "運動を始める前に、現在の妊娠経過で行ってよいか医師に確認してください。",
-      ].join("\n"),
-      intent: "pregnancy_weight_management",
-      prePregnancyBMI: bmi,
-      selectedWeightGuideline: null,
-      medicalSafetyLevel: "information",
-    };
-  }
-
-  // 運動一般
+  // 運動一般（個別教室の案内は prenatal-classes 側。ここでは体重文脈のみ）
   if (/運動|散歩|体を動か/.test(msg)) {
     const tips = pickSelfCareTips(msg);
     return {
       answer: [
         "妊娠経過に問題がなければ、散歩などの無理のない運動が選択肢になります。",
-        "",
-        "当院ではマタニティヨーガやマタニティビクスも実施しています。",
         "運動を始める前に、現在の妊娠経過で行ってよいか医師に確認してください。",
+        "",
+        "産前産後の運動教室については、公式サイトの教室案内ページもご参照ください。",
         "",
         ...tips.map((t) => `・${t}`),
       ].join("\n"),

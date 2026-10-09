@@ -1085,8 +1085,6 @@
         "妊娠中にダイエットしてもいいですか",
         "妊娠中の食事管理について教えてください",
         "妊娠中におすすめの運動はありますか",
-        "マタニティヨガはできますか",
-        "マタニティビクスはありますか",
         "妊娠中に急に体重が増えました",
         "妊娠中に体重が増えません",
         "妊娠中に体重が減っています"
@@ -1100,9 +1098,7 @@
         "体重が増えない",
         "体重が減った",
         "食事管理",
-        "ダイエット",
-        "マタニティヨーガ",
-        "マタニティビクス"
+        "ダイエット"
       ],
       "summary": "妊娠中の体重増加の目安は妊娠前のBMIによって異なります。妊娠期間全体の体重増加を一律に判断せず、妊娠前の体格や妊娠経過に応じて医師と確認することが大切です。",
       "answer": "妊娠中の体重増加の目安は妊娠前のBMIによって異なります。詳細は確定データ（data/pregnancy-weight.js）に基づき案内します。",
@@ -1138,11 +1134,6 @@
           "医師から個別に指導されている場合は、その指示を優先する。"
         ]
       },
-      "clinicInformation": {
-        "maternityYogaAvailable": true,
-        "maternityExerciseAvailable": true,
-        "description": "当院ではマタニティヨーガ・マタニティビクスを実施しています。"
-      },
       "medicalSafety": {
         "consultClinicIf": [
           "短期間で急激に体重が増えた",
@@ -1172,7 +1163,122 @@
         "askFollowUpWhenNecessary": true
       },
       "priority": 100,
-      "updatedAt": "2026-10-08",
+      "updatedAt": "2026-10-09",
+      "enabled": true
+    },
+    {
+      "id": "prenatal-classes",
+      "category": "産前産後教室",
+      "intent": "prenatal_classes",
+      "service": "prenatal_postnatal_class",
+      "availability": "available",
+      "responseMode": "guided",
+      "questionPatterns": [
+        "マタニティヨガはありますか",
+        "マタニティヨーガはやっていますか",
+        "マタニティビクスはありますか",
+        "マタニティビクスに参加したい",
+        "マタニティビクスはいつですか",
+        "マタニティビクスの予約方法は",
+        "妊婦向けの運動教室はありますか",
+        "産前教室はありますか",
+        "妊娠中に参加できる教室はありますか",
+        "母親教室について教えてください",
+        "教室の開催日時を教えてください",
+        "教室の予約方法を教えてください",
+        "教室の料金はいくらですか",
+        "教室にはどんな種類がありますか",
+        "ママフィットはありますか",
+        "ママヨガはありますか",
+        "後期クラスについて教えてください"
+      ],
+      "keywords": [
+        "産前教室",
+        "産後教室",
+        "産前産後教室",
+        "マタニティヨーガ",
+        "マタニティヨガ",
+        "マタニティビクス",
+        "ママフィット",
+        "ママヨガ",
+        "後期クラス",
+        "母親教室",
+        "アクティブクラス"
+      ],
+      "summary": "当院では産前産後教室（後期クラス、マタニティビクス、マタニティヨーガ、ママフィット、ママヨガ）を実施。詳細は lesson ページ。医学的参加可否はAIが判断しない。",
+      "answer": "はい、当院では産前産後教室を実施しています。開催日時や参加方法などの詳細は、下記のページでご案内しておりますので、ぜひご覧ください。",
+      "careSource": "data/prenatal-classes.js",
+      "clinicInformation": {
+        "classesPage": "https://kanai.or.jp/lesson/",
+        "classes": [
+          {
+            "name": "後期クラス",
+            "available": true,
+            "feeYen": 0,
+            "scheduleSummary": "第2・4火曜日 10:00（妊娠33〜36週）"
+          },
+          {
+            "name": "マタニティビクス",
+            "available": true,
+            "feeYen": 1000,
+            "scheduleSummary": "木曜 09:30〜／火曜 14:40〜（妊娠13週以降）",
+            "requiresDoctorPermission": true
+          },
+          {
+            "name": "マタニティヨーガ",
+            "available": true,
+            "feeYen": 1000,
+            "scheduleSummary": "木曜 13:00〜（妊娠16週以降）"
+          },
+          {
+            "name": "ママフィット withベビー",
+            "available": true,
+            "feeYen": 1000,
+            "scheduleSummary": "木曜 11:00〜（1ヵ月健診以降）"
+          },
+          {
+            "name": "ママヨガ withベビー",
+            "available": true,
+            "feeYen": 1000,
+            "scheduleSummary": "火曜 13:00〜（1ヵ月健診以降）"
+          }
+        ],
+        "reservation": {
+          "method": "internet",
+          "description": "各クラスは完全予約制。インターネット予約ページにて予約可能。当日は2階Bébéホールへ。"
+        },
+        "unavailableOrPaused": [
+          {
+            "name": "前期クラス",
+            "status": "paused",
+            "note": "公式ページ上で休止中。実施中と案内しない。"
+          }
+        ]
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/lesson/",
+      "relatedSiteLabel": "産前産後教室のご案内",
+      "responseRules": {
+        "answerAskedClassFirst": true,
+        "avoidListingUnaskedClasses": true,
+        "preferOfficialPage": true,
+        "avoidInventedClasses": true,
+        "avoidUnsupportedScheduleGuess": true,
+        "avoidUnnecessaryPhoneReferral": true,
+        "avoidHardDenialPhrases": true,
+        "doNotJudgeMedicalEligibility": true,
+        "avoidDoctorCheckOnEveryClassAvailability": true
+      },
+      "medicalSafety": {
+        "preferMedicalRulesIf": [
+          "出血がある",
+          "お腹の張りが強い",
+          "切迫早産と診断されている",
+          "安静指示が出ている"
+        ],
+        "rule": "一般的な教室案内では毎回医師確認を付けない。妊娠経過に関する相談や参加可否の判断を求められた場合は医療安全を優先し、AIは参加可否を断定しない。"
+      },
+      "priority": 200,
+      "updatedAt": "2026-10-09",
       "enabled": true
     },
     {
@@ -1411,6 +1517,74 @@
       },
       "priority": 200,
       "updatedAt": "2026-10-08",
+      "enabled": true
+    },
+    {
+      "id": "clinic-facilities",
+      "category": "院内案内/施設・入院部屋",
+      "intent": "clinic_facilities",
+      "service": "facilities_information",
+      "availability": "available",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "院内施設について知りたい",
+        "院内にはどんな設備がありますか",
+        "病院の施設を教えてください",
+        "病院の中はどんな感じですか",
+        "院内の様子を知りたい",
+        "院内の様子を見たい",
+        "施設の写真はありますか",
+        "入院部屋について知りたい",
+        "入院する部屋を見たい",
+        "入院する部屋はどんな感じですか",
+        "病室について教えてください",
+        "入院中の部屋はどんな感じですか",
+        "入院中の部屋の写真はありますか",
+        "個室について教えてください",
+        "個室はありますか",
+        "授乳スペースはありますか",
+        "授乳室はありますか",
+        "休憩スペースはありますか",
+        "休憩室はありますか"
+      ],
+      "keywords": [
+        "院内施設",
+        "施設案内",
+        "院内設備",
+        "病院の設備",
+        "院内の様子",
+        "入院部屋",
+        "病室",
+        "個室",
+        "授乳スペース",
+        "授乳室",
+        "休憩スペース",
+        "休憩室"
+      ],
+      "summary": "院内施設・入院部屋は公式の施設案内ページで紹介。共用の授乳スペース・休憩スペースは設置していない。",
+      "answer": "当院の院内施設や入院部屋については、公式サイトの施設案内ページでご紹介しています。院内の様子や各施設の詳細をご確認いただけますので、下記のページをご覧ください。",
+      "careSource": "data/clinic-facilities.js",
+      "clinicInformation": {
+        "facilitiesPage": "https://kanai.or.jp/facilities/",
+        "facilitiesInformation": "院内施設や入院部屋については公式サイトの施設案内ページで紹介しています。",
+        "unavailableFacilities": [
+          "共用の授乳スペース",
+          "共用の休憩スペース"
+        ],
+        "informationPolicy": "院内知識または現行の公式サイトで確認できた施設のみ案内する"
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/facilities/",
+      "relatedSiteLabel": "院内施設のご案内",
+      "responseRules": {
+        "useConfirmedFacilitiesOnly": true,
+        "avoidInventedFacilities": true,
+        "preferOfficialPage": true,
+        "avoidUnnecessaryPhoneReferral": true,
+        "alwaysShowRelatedLink": true,
+        "useExactAnswer": true
+      },
+      "priority": 200,
+      "updatedAt": "2026-10-09",
       "enabled": true
     },
     {

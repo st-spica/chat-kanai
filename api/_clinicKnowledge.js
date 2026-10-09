@@ -74,6 +74,8 @@ import {
   isMilkcareQuery,
   isMilkcareReservationQuery,
 } from "../data/milkcare.js";
+import { isClinicFacilitiesQuery } from "../data/clinic-facilities.js";
+import { isPrenatalClassesQuery } from "../data/prenatal-classes.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -184,6 +186,8 @@ export const STRICT_MATCH_INTENTS = new Set([
   "milkcare_schedule",
   "milkcare_price",
   "milkcare_overview",
+  "clinic_facilities",
+  "prenatal_classes",
   "birth_reservation_deposit",
   "birth_advance_payment",
   "birth_hospitalization_cost",
@@ -603,6 +607,11 @@ export function detectClinicIntent(userMessage) {
     return "breech_presentation_consultation";
   }
 
+  // 産前産後教室（体重管理より先。教室名を体重トピックに流さない）
+  if (isPrenatalClassesQuery(msg)) {
+    return "prenatal_classes";
+  }
+
   // 妊娠中の体重管理（つわり主体・一般ダイエットと混同しない）
   if (isPregnancyWeightQuery(msg)) {
     return "pregnancy_weight_management";
@@ -647,6 +656,11 @@ export function detectClinicIntent(userMessage) {
     if (/料金|費用|いくら|値段|価格/.test(msg)) return "milkcare_price";
     if (/何曜日|曜日|いつ受け|実施日/.test(msg)) return "milkcare_schedule";
     return "milkcare_overview";
+  }
+
+  // 院内施設・入院部屋（未確認設備の推測禁止）
+  if (isClinicFacilitiesQuery(msg)) {
+    return "clinic_facilities";
   }
 
   // 葉酸 / 妊娠中の服薬 / 授乳中の服薬（混同禁止）
@@ -1092,6 +1106,34 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["母乳ケア:対象外質問のため除外"],
         rejected: true,
         rejectReason: "milkcareは母乳ケア関連のみ",
+      };
+    }
+  }
+  // 院内施設は対象外（母乳ケア・面会・個室料金等）に流用しない
+  if (
+    item.id === "clinic-facilities" ||
+    itemIntent === "clinic_facilities"
+  ) {
+    if (!isClinicFacilitiesQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["院内施設:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "clinic_facilitiesは施設・入院部屋関連のみ",
+      };
+    }
+  }
+  // 産前産後教室は対象外（体重管理・フォト等）に流用しない
+  if (
+    item.id === "prenatal-classes" ||
+    itemIntent === "prenatal_classes"
+  ) {
+    if (!isPrenatalClassesQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["産前産後教室:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "prenatal_classesは教室関連のみ",
       };
     }
   }

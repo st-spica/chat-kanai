@@ -1176,6 +1176,19 @@ export const SITE_ROUTE_MAP = [
     boost: 200,
   },
   {
+    id: "clinic_facilities",
+    label: "院内施設・入院部屋",
+    patterns: [
+      /院内施設|施設案内|院内設備|院内の様子|施設の写真|院内の写真/,
+      /病院の(?:中|設備|施設)|どんな設備|設備がありますか/,
+      /入院部屋|病室|入院する部屋|入院中の部屋|部屋の写真|病室の写真/,
+      /授乳スペース|授乳室|休憩スペース|休憩室/,
+      /個室(?:は|が|について|を)|個室あり/,
+    ],
+    urls: ["https://kanai.or.jp/facilities/"],
+    boost: 280,
+  },
+  {
     id: "child_accompanied_visit",
     label: "お子さま同伴・キッズルーム",
     patterns: [
@@ -1189,7 +1202,7 @@ export const SITE_ROUTE_MAP = [
   {
     id: "hospitalization",
     label: "入院",
-    patterns: [/入院|個室|LDR|母子同室/],
+    patterns: [/入院|LDR|母子同室/],
     urls: ["https://kanai.or.jp/obstetrics/hospitalization/", "https://kanai.or.jp/facilities/"],
     boost: 180,
   },
@@ -1231,10 +1244,14 @@ export const SITE_ROUTE_MAP = [
   },
   {
     id: "lesson",
-    label: "教室",
-    patterns: [/教室|産前教室|産後教室|ママフィット|離乳食/],
+    label: "産前産後教室",
+    patterns: [
+      /教室|産前教室|産後教室|産前産後教室|母親教室|アクティブクラス|離乳食/,
+      /マタニティ\s*(?:ヨーガ|ヨガ|ビクス)|ママフィット|ママヨガ|後期クラス/,
+      /妊娠中.{0,12}運動.{0,12}(?:大丈夫|いい|良い)|運動して(?:大丈夫|いい|良い)/,
+    ],
     urls: ["https://kanai.or.jp/lesson/"],
-    boost: 180,
+    boost: 260,
   },
   {
     id: "birth_reservation_deposit",
@@ -1346,6 +1363,18 @@ export function matchSiteRoutes(userMessage) {
       ) ||
       /(?:赤ちゃん|新生児).{0,12}(?:写真|フォト|撮影)/.test(msg) ||
       /(?:院内|病院|当院)で(?:撮影|写真).{0,10}(?:してもら|撮ってもら)/.test(msg)
+    ) {
+      if (rule.id === "photo_recording") continue;
+    }
+    // 施設・病室・入院部屋の写真／様子は facilities 専用。撮影可否（notpermit）に寄せない
+    if (
+      /(?:施設|院内).{0,12}(?:写真|様子|見たい)/.test(msg) ||
+      /(?:入院部屋|入院中の部屋|病室|個室).{0,12}(?:写真|様子|見たい)/.test(
+        msg
+      ) ||
+      /(?:写真|様子).{0,12}(?:施設|院内|入院部屋|入院中の部屋|病室|個室)/.test(
+        msg
+      )
     ) {
       if (rule.id === "photo_recording") continue;
     }
