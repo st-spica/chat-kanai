@@ -18,6 +18,7 @@ import {
   mentionsLaborContactTopic,
 } from "./labor-contact.js";
 import { isMorningSicknessQuery } from "./morning-sickness.js";
+import { isPregnancyWorkDocumentQuery } from "./pregnancy-work-document.js";
 import {
   isPregnancyFolicAcidQuery,
   isPregnancyMedicationQuery,
@@ -189,6 +190,11 @@ export function detectStandaloneIntent(userMessage) {
   // 陣痛・破水・胎動・出血など（最新文にトピックがある場合のみ）
   if (mentionsLaborContactTopic(msg) && isLaborHospitalContactQuery(msg, "")) {
     return "labor_hospital_contact";
+  }
+
+  // 妊娠中の勤務調整・書類（つわりセルフケアより先）
+  if (isPregnancyWorkDocumentQuery(msg)) {
+    return "pregnancy_work_accommodation_document";
   }
 
   // つわり
@@ -473,6 +479,8 @@ export function clinicKnowledgeIdForIntent(intent) {
     pregnancy_weight_management: "pregnancy-weight-gain",
     breech_presentation_consultation: "pregnancy-breech-presentation",
     morning_sickness_consultation: "pregnancy-morning-sickness",
+    pregnancy_work_accommodation_document:
+      "pregnancy-work-accommodation-document",
     pregnancy_medication_consultation: "pregnancy-medication-consultation",
     pregnancy_folic_acid: "pregnancy-folic-acid",
     homecoming_delivery: "obstetrics-homecoming-delivery",

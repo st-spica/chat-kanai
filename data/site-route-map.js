@@ -882,6 +882,19 @@ export function isDailyBabyCareConsultMessage(userMessage) {
 export function detectClinicService(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg) return null;
+  // 母健連絡カード・勤務書類（つわり一般サポートより先）
+  if (
+    /母健連絡カード|母性健康管理指導事項連絡カード|母性健康管理カード|母健カード/.test(
+      msg
+    ) ||
+    ((/つわり|悪阻|妊娠|妊婦/.test(msg) ||
+      /仕事|勤務|会社|休職|出勤|休業/.test(msg)) &&
+      /書類|診断書|書いて|書いてもら|会社に提出|勤務時間|時短|休みたい|休むための/.test(
+        msg
+      ))
+  ) {
+    return "maternity_health_guidance_card";
+  }
   // より具体的なサービスを先に判定
   if (/産後ケア|産後サポート|産後デイ|産後のデイ|ショートステイ/.test(msg)) {
     return "postpartum_care";

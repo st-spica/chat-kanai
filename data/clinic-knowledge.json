@@ -1031,6 +1031,73 @@
       "enabled": true
     },
     {
+      "id": "pregnancy-work-accommodation-document",
+      "category": "obstetrics",
+      "intent": "pregnancy_work_accommodation_document",
+      "service": "maternity_health_guidance_card",
+      "target": "pregnant_patient",
+      "availability": "available_with_visit",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "つわりがきついです。仕事を休むための書類を書いてくれますか",
+        "つわりがつらいので仕事を休みたい",
+        "仕事を休むための書類を書いてほしい",
+        "母健連絡カードを書いてもらえますか",
+        "母性健康管理指導事項連絡カードが欲しい",
+        "妊娠中なので休職したい",
+        "会社に提出する書類が欲しい",
+        "つわりで診断書を書いてもらえますか",
+        "仕事を休むために病院で何か書いてもらえますか",
+        "妊娠中の勤務時間を短くしたい",
+        "つわりがひどくて出勤できません",
+        "母性健康管理指導事項連絡カードは受診しないともらえませんか",
+        "つわりで仕事を休みたいです"
+      ],
+      "keywords": [
+        "母健連絡カード",
+        "母性健康管理指導事項連絡カード",
+        "仕事を休む",
+        "休職",
+        "勤務時間",
+        "会社に提出",
+        "診断書",
+        "書類",
+        "つわり"
+      ],
+      "summary": "妊娠中の症状による勤務調整・休業のための書類として母性健康管理指導事項連絡カード（母健連絡カード）がある。記入には受診が必要。医師が診察で確認し必要に応じて記入。記入を無条件保証しない。診断書とは別書類。",
+      "answer": "つわりがおつらいのですね。お仕事への影響も心配かと思います。お仕事を休むための書類として、『母性健康管理指導事項連絡カード（母健連絡カード）』があります。当院では、受診時に医師が症状や体調を確認し、必要に応じて記入いたします。書類の記入には診察が必要となりますので、ご希望の場合はご受診ください。",
+      "careSource": "data/pregnancy-work-document.js",
+      "clinicInformation": {
+        "documentName": "母性健康管理指導事項連絡カード（母健連絡カード）",
+        "purpose": "妊娠中の健康状態に応じた医師等の指導事項を勤務先へ伝えるための書類",
+        "visitRequired": true,
+        "doctorJudgmentRequired": true,
+        "guaranteedIssuance": false,
+        "distinctFrom": [
+          "診断書",
+          "傷病手当金の申請書",
+          "その他の会社提出用書類"
+        ],
+        "informationPolicy": "院内確認済みの母健連絡カード案内のみ。未確認の発行可否・費用は推測しない。通常回答で電話番号を出さない。"
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/beginner/",
+      "relatedSiteLabel": "初めての方へ・ご受診のご案内",
+      "responseRules": {
+        "useExactAnswer": true,
+        "prioritizeDocumentAnswerOverSelfCare": true,
+        "requireVisitForIssuance": true,
+        "avoidGuaranteedIssuance": true,
+        "distinguishDiagnosisCertificate": true,
+        "avoidUnnecessaryPhoneReferral": true,
+        "avoidPhoneNumberInChat": true,
+        "prioritizeMedicalSafetyForSevereSymptoms": true,
+        "alwaysShowRelatedLink": true
+      },
+      "priority": 210,
+      "updatedAt": "2026-10-09",
+      "enabled": true
+    },
+    {
       "id": "pregnancy-morning-sickness",
       "category": "妊娠期/日常生活の注意",
       "intent": "morning_sickness_consultation",

@@ -54,6 +54,7 @@ import {
   isPostpartumCareFeeQuery,
 } from "../data/birth-pricing.js";
 import { isMorningSicknessQuery } from "../data/morning-sickness.js";
+import { isPregnancyWorkDocumentQuery } from "../data/pregnancy-work-document.js";
 import {
   isBreastfeedingMedicationQuery,
   isPregnancyFolicAcidQuery,
@@ -185,6 +186,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "child_accompanied_visit",
   "infertility_consultation",
   "morning_sickness_consultation",
+  "pregnancy_work_accommodation_document",
   "pregnancy_medication_consultation",
   "pregnancy_folic_acid",
   "breech_presentation_consultation",
@@ -614,6 +616,11 @@ export function detectClinicIntent(userMessage) {
     return "infertility_consultation";
   }
 
+  // 妊娠中の勤務調整・書類（母健連絡カード）。つわりセルフケアより先
+  if (isPregnancyWorkDocumentQuery(msg)) {
+    return "pregnancy_work_accommodation_document";
+  }
+
   // つわり相談（診断断定なし・セルフケア／受診案内）
   if (isMorningSicknessQuery(msg)) {
     return "morning_sickness_consultation";
@@ -1008,12 +1015,27 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
       };
     }
   }
-  // つわり相談は対象質問以外に流用しない
+  // 勤務書類は対象外（一般つわりセルフケア等）に流用しない
+  if (
+    item.id === "pregnancy-work-accommodation-document" ||
+    itemIntent === "pregnancy_work_accommodation_document"
+  ) {
+    if (!isPregnancyWorkDocumentQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["勤務書類:対象外質問のため除外"],
+        rejected: true,
+        rejectReason:
+          "pregnancy_work_accommodation_documentは勤務調整・書類関連のみ",
+      };
+    }
+  }
+  // つわり相談は対象質問以外に流用しない（勤務書類は除外済み）
   if (
     item.id === "pregnancy-morning-sickness" ||
     itemIntent === "morning_sickness_consultation"
   ) {
-    if (!isMorningSicknessQuery(msg)) {
+    if (!isMorningSicknessQuery(msg) || isPregnancyWorkDocumentQuery(msg)) {
       return {
         score: 0,
         reasons: ["つわり相談:対象外質問のため除外"],

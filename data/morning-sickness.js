@@ -2,7 +2,10 @@
  * つわり（妊娠初期の吐き気・嘔吐等）相談の確定データと回答生成
  *
  * 診断名の断定・処方指示はしない。緊急性・受診優先は medicalSafety に従う。
+ * 勤務調整・書類（母健連絡カード等）は pregnancy-work-document.js へ分離。
  */
+
+import { isPregnancyWorkDocumentQuery } from "./pregnancy-work-document.js";
 
 export const MORNING_SICKNESS_SELF_CARE = [
   {
@@ -95,6 +98,8 @@ const MORNING_SICKNESS_SYMPTOM_ALONE_RE =
 export function isMorningSicknessQuery(userMessage, contextText = "") {
   const msg = String(userMessage || "").trim();
   if (!msg) return false;
+  // 勤務・書類相談はつわりセルフケアに流さない
+  if (isPregnancyWorkDocumentQuery(msg)) return false;
   if (mentionsMorningSicknessTopic(msg)) return true;
   if (MORNING_SICKNESS_SYMPTOM_ALONE_RE.test(msg)) return true;
   const ctx = String(contextText || "");

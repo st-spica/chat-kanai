@@ -81,6 +81,11 @@ import {
   isMorningSicknessQuery,
 } from "../data/morning-sickness.js";
 import {
+  buildPregnancyWorkDocumentAnswer,
+  isPregnancyWorkDocumentQuery,
+  WORK_DOCUMENT_REF_PAGE,
+} from "../data/pregnancy-work-document.js";
+import {
   buildBreastfeedingMedicationAnswer,
   buildPregnancyFolicAcidAnswer,
   buildPregnancyMedicationAnswer,
@@ -1040,6 +1045,7 @@ const SYSTEM = `
 ・【ニューボーン＆マタニティフォト】外部サービスの紹介。提携・専属・院内運営と案内しない。指定の固定文を言い換えない。料金相場を推測しない。問い合わせ先のLINE URLを勝手に生成しない。4Dエコー写真・分娩中撮影・院内撮影ルールと混同しない。
 ・【出産費用割引】きょうだい割引＝過去に当院で出産された方（15,000円）。パパママ割引＝ご夫婦のどちらかが当院で生まれた方（10,000円）。名称から条件を推測しない。「パートナー同伴で割引」「夫婦受診で割引」「二人目なら必ず割引」「同じ家庭の二人目なら割引」は禁止。
 ・【つわり】セルフケアは相談内容に合わせて1〜3点だけ。9項目の列挙禁止。水分がとれない・反復嘔吐・体重減少などは受診案内を優先。妊娠悪阻などの診断名を断定しない。「必ず治る」「食べられなくても大丈夫」は禁止。緊急症状は救急誘導を優先。
+・【母健連絡カード・勤務書類】つわり＋仕事／書類／会社／休職などの質問は、つわりセルフケアだけで終わらせない。母性健康管理指導事項連絡カード（母健連絡カード）を案内し、記入には受診・医師判断が必要であること、記入を保証しないことを伝える。診断書・傷病手当金申請書と混同しない。未確認の発行可否・費用は推測しない。通常回答で電話番号を出さない。重い症状がある場合は医療安全を優先する。
 ・【妊娠中の服薬】個別の薬の安全性・胎児影響・服用の継続／中止をAIが判断しない。「安全です」「絶対ダメ」「すぐに中止」「すべて避ける」は禁止。医師相談を案内する。授乳中の服薬・葉酸・小児予防接種と混同しない。葉酸はサプリ案内可（当院販売あり）。
 ・【一般不妊相談】不妊治療・妊活の質問では診療時間表を出さない。対応は一般不妊相談に限り、妊娠を急がない方向けのタイミング療法・排卵誘発法（内服薬処方）のみ。担当医・曜日は推測せず診療体制表を案内する。体外受精・人工授精・顕微授精を一般不妊相談の根拠だけで対応可能としない。
 
@@ -4504,6 +4510,103 @@ export default async function handler(req, res) {
         payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(payload);
+    }
+
+    // 妊娠中の勤務調整・書類（母健連絡カード）。つわりセルフケアより先
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      allowStructuredIntent("pregnancy_work_accommodation_document") &&
+      isPregnancyWorkDocumentQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "pregnancy-work-accommodation-document" ||
+          h.item?.intent === "pregnancy_work_accommodation_document"
+      );
+      const built = buildPregnancyWorkDocumentAnswer(userMessage);
+      let answer = String(built?.answer || ckHit?.item?.answer || "").trim();
+      // 書類案内に食事アドバイスが混入していたら確定文へ戻す
+      if (
+        /食べられるときに|水分をこまめに|無理に食べようとせず/.test(answer) &&
+        !/母健連絡カード|母性健康管理指導事項連絡カード/.test(answer)
+      ) {
+        answer = String(built?.answer || "").trim();
+      }
+      answer = preparePatientFacingAnswer(answer, { allowPhone: false });
+      const referencedPages = (built?.referencedPages?.length
+        ? built.referencedPages
+        : [WORK_DOCUMENT_REF_PAGE]
+      ).map((p) => ({
+        url: String(p.url || WORK_DOCUMENT_REF_PAGE.url),
+        title: String(p.title || WORK_DOCUMENT_REF_PAGE.title),
+      }));
+      const safety = built?.medicalSafetyLevel || "information";
+      const isUrgent = safety === "urgent";
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "pregnancy_work_accommodation_document",
+          detectedService: "maternity_health_guidance_card",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "pregnancy-work-accommodation-document",
+                  intent: "pregnancy_work_accommodation_document",
+                  service: "maternity_health_guidance_card",
+                  score: 100,
+                },
+              ],
+          matchedSiteUrl: WORK_DOCUMENT_REF_PAGE.url,
+          referenceChips: referencedPages,
+          focus: built?.focus || "basic",
+          medicalSafetyLevel: safety,
+          responseMode: "fixed",
+          rejectedKnowledge: clinicRejected,
+          note: "母健連絡カード案内。受診必須・医師判断・保証しない。診断書と分離。電話番号非表示",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "pregnancy_work_accommodation_document",
+          service: "maternity_health_guidance_card",
+          workDocument: true,
+          matchedSiteUrl: WORK_DOCUMENT_REF_PAGE.url,
+          focus: built?.focus || "basic",
+          medicalSafetyLevel: safety,
+          emergency: isUrgent,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: isUrgent,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "pregnancy_work_accommodation_document";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = WORK_DOCUMENT_REF_PAGE.url;
+        payload.referenceChips = referencedPages;
+        payload.medicalSafetyLevel = safety;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res
+        .status(200)
+        .json(
+          attachTopicDebug(payload, "pregnancy_work_accommodation_document")
+        );
     }
 
     // つわり相談（症状に合わせたセルフケア／受診優先。診断断定なし）
