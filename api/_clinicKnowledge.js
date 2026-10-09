@@ -81,6 +81,11 @@ import {
   isPhoneNumberQuery,
   isUrgentContactQuery,
 } from "../data/appointment-guidance.js";
+import { isHpvVaccineQuery } from "../data/hpv-vaccine.js";
+import {
+  isCervicalCancerScreeningQuery,
+  isHpvVaccineVsScreeningQuery,
+} from "../data/cervical-cancer-screening.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -196,6 +201,8 @@ export const STRICT_MATCH_INTENTS = new Set([
   "milkcare_overview",
   "clinic_facilities",
   "prenatal_classes",
+  "hpv_vaccination",
+  "cervical_cancer_screening",
   "birth_reservation_deposit",
   "birth_advance_payment",
   "birth_hospitalization_cost",
@@ -619,6 +626,11 @@ export function detectClinicIntent(userMessage) {
   if (isPrenatalClassesQuery(msg)) {
     return "prenatal_classes";
   }
+
+  // 子宮頸がんワクチン／検診（共通語「子宮頸がん」だけではまとめない）
+  if (isHpvVaccineVsScreeningQuery(msg)) return "cervical_cancer_screening";
+  if (isHpvVaccineQuery(msg)) return "hpv_vaccination";
+  if (isCervicalCancerScreeningQuery(msg)) return "cervical_cancer_screening";
 
   // 緊急連絡・予約方法一般・電話番号（サービス別予約より先に曖昧な電話予約断定を防ぐ）
   if (isUrgentContactQuery(msg)) return "urgent_clinic_contact";
@@ -1139,6 +1151,34 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["予約案内:対象外質問のため除外"],
         rejected: true,
         rejectReason: "appointment-guidanceは予約方法・電話番号関連のみ",
+      };
+    }
+  }
+  // HPVワクチンは検診・他ワクチンに流用しない
+  if (
+    item.id === "cervical-cancer-hpv-vaccine" ||
+    itemIntent === "hpv_vaccination"
+  ) {
+    if (!isHpvVaccineQuery(msg) || isHpvVaccineVsScreeningQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["HPVワクチン:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "hpv_vaccinationは子宮頸がんワクチン関連のみ",
+      };
+    }
+  }
+  // 子宮がん検診はワクチンに流用しない
+  if (
+    item.id === "cervical-cancer-screening" ||
+    itemIntent === "cervical_cancer_screening"
+  ) {
+    if (!isCervicalCancerScreeningQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["子宮がん検診:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "cervical_cancer_screeningは検診関連のみ",
       };
     }
   }

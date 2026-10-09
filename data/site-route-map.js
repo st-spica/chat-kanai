@@ -1096,11 +1096,26 @@ export const SITE_ROUTE_MAP = [
     boost: 200,
   },
   {
+    id: "hpv_vaccination",
+    label: "子宮頸がんワクチン",
+    patterns: [
+      /HPV\s*ワクチン|ヒトパピローマウイルス|シルガード|ガーダシル|サーバリックス/,
+      /子宮頸がん(?:の)?(?:ワクチン|予防接種)|子宮頚がん(?:の)?(?:ワクチン|予防接種)/,
+      /子宮頸がん.{0,8}(?:打て|接種)|(?:打て|接種).{0,8}子宮頸がん/,
+    ],
+    // 公式アンカー。#gyne_cancer（検診）に置換しない
+    urls: ["https://kanai.or.jp/gynecology/#cervical_cancer"],
+    boost: 300,
+  },
+  {
     id: "cervical_screening",
-    label: "子宮頸がん検診",
-    patterns: [/子宮頸がん|子宮がん検診|婦人科検診/],
-    urls: ["https://kanai.or.jp/gynecology/#gyne_cancer", "https://kanai.or.jp/gynecology/"],
-    boost: 220,
+    label: "子宮がん検診",
+    patterns: [
+      /子宮がん検診|子宮頸がん検診|子宮体がん検診|婦人科検診/,
+      /子宮頸がん.{0,8}(?:検診|細胞診|検査)|(?:検診|細胞診).{0,8}子宮頸がん/,
+    ],
+    urls: ["https://kanai.or.jp/gynecology/#gyne_cancer"],
+    boost: 280,
   },
   {
     id: "gynecology",
@@ -1382,6 +1397,30 @@ export function matchSiteRoutes(userMessage) {
       )
     ) {
       if (rule.id === "photo_recording") continue;
+    }
+    // 子宮頸がんワクチンは #cervical_cancer 専用。検診・妊婦ワクチンページに寄せない
+    if (
+      /HPV\s*ワクチン|子宮頸がん(?:の)?(?:ワクチン|予防接種)|シルガード|ガーダシル/.test(
+        msg
+      ) ||
+      (/子宮頸がん/.test(msg) && /ワクチン|予防接種|接種|打て/.test(msg))
+    ) {
+      if (
+        rule.id === "cervical_screening" ||
+        rule.id === "vaccine" ||
+        rule.id === "gynecology"
+      ) {
+        continue;
+      }
+    }
+    // 子宮がん検診は #gyne_cancer 専用。ワクチンアンカーに寄せない
+    if (
+      /子宮がん検診|子宮頸がん検診|子宮体がん検診/.test(msg) ||
+      (/子宮頸がん/.test(msg) &&
+        /検診|細胞診/.test(msg) &&
+        !/ワクチン|予防接種|接種|打て/.test(msg))
+    ) {
+      if (rule.id === "hpv_vaccination" || rule.id === "vaccine") continue;
     }
     if (rule.id === "hospital_bag" && isNonChildbirthBelongingsQuery(msg)) {
       continue;

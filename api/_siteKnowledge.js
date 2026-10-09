@@ -21,6 +21,8 @@ import {
   matchSiteRoutes,
   preferredUrlsForMessage,
 } from "../data/site-route-map.js";
+import { isHpvVaccineQuery } from "../data/hpv-vaccine.js";
+import { isCervicalCancerScreeningQuery } from "../data/cervical-cancer-screening.js";
 
 const RSV_BONUS_PAGE_URL = "https://kanai.or.jp/obstetrics/rsv_bonus/";
 export const HOSPITAL_BAG_PAGE_URL =
@@ -1415,10 +1417,19 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
     [(m) => /里帰り/.test(m), /里帰り|#homecoming/],
     [
       (m) =>
-        /インフルエンザ|ワクチン|予防接種/.test(m) && !isChildVaccinationQuery(m),
+        /インフルエンザ|ワクチン|予防接種/.test(m) &&
+        !isChildVaccinationQuery(m) &&
+        !isHpvVaccineQuery(m),
       /ワクチン|インフルエンザ|\/vaccine/,
     ],
-    [(m) => /子宮頸がん|子宮がん検診/.test(m), /子宮頸がん|子宮がん検診|\/gynecology/],
+    [
+      (m) => isHpvVaccineQuery(m),
+      /子宮頸がんワクチン|HPV|#cervical_cancer/,
+    ],
+    [
+      (m) => isCervicalCancerScreeningQuery(m) && !isHpvVaccineQuery(m),
+      /子宮がん検診|子宮頸がん検診|#gyne_cancer/,
+    ],
     [
       (m) => /母乳ケア|母乳相談|母乳外来|おっぱいケア|授乳相談/.test(m),
       /母乳ケア|#milkcare|\/aftersupport/,
@@ -1796,7 +1807,11 @@ async function loadFreshKnowledgeForQuery(
             ? "母乳ケアについて"
             : hash === "aftercare"
               ? "産後ケアについて"
-              : undefined;
+              : hash === "cervical_cancer"
+                ? "子宮頸がんワクチンについて"
+                : hash === "gyne_cancer"
+                  ? "子宮がん検診について"
+                  : undefined;
         return fetchPageChunk(displayUrl, maxChars, {
           lastmod: entry.lastmod,
           pageType: entry.pageType,
@@ -2089,6 +2104,12 @@ export function labelForKnowledgeChunk(c) {
   }
   if (/#milkcare/i.test(url)) {
     return "母乳ケアについて";
+  }
+  if (/#cervical_cancer/i.test(url)) {
+    return "子宮頸がんワクチンについて";
+  }
+  if (/#gyne_cancer/i.test(url)) {
+    return "子宮がん検診について";
   }
   if (/\/photographer\/?/i.test(url)) {
     return "ニューボーン＆マタニティフォトについて";

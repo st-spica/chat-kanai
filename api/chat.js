@@ -149,6 +149,17 @@ import {
   APPOINTMENT_GUIDANCE_REF_PAGE,
 } from "../data/appointment-guidance.js";
 import {
+  buildHpvVaccineAnswer,
+  HPV_VACCINE_REF_PAGE,
+  isHpvVaccineQuery,
+} from "../data/hpv-vaccine.js";
+import {
+  buildCervicalCancerScreeningAnswer,
+  CERVICAL_SCREENING_REF_PAGE,
+  isCervicalCancerScreeningQuery,
+  isHpvVaccineVsScreeningQuery,
+} from "../data/cervical-cancer-screening.js";
+import {
   buildFemaleDoctorAnswer,
   DOCTOR_SCHEDULE_REF_PAGE,
   isFemaleDoctorQuery,
@@ -1015,6 +1026,7 @@ const SYSTEM = `
 ・【院内施設・入院部屋】施設案内は公式ページ（facilities）を優先案内する。共用の授乳スペース・休憩スペースは設置していない（院内確定）。カフェスペース・ラウンジ・売店・託児室など、抜粋／院内知識に無い設備を一般的な産婦人科の設備として推測・追加しない。授乳スペースがないことと入院中に授乳できないことは別。母乳ケア・キッズルーム・面会・個室料金と混同しない。
 ・【産前産後教室】lessonページ掲載の教室のみ案内。質問された教室を優先し、聞いていない教室を毎回並べない。未掲載・休止中の教室を実施中と推測しない。開催日時・料金・予約はページ根拠がある範囲のみ。「断定できません」を安易に使わず公式ページへ自然に案内。一般的な有無の質問で毎回医師確認を付けない。出血・張り・切迫早産・安静指示や参加可否判断を求められた場合は医療安全優先（AIは参加可否を断定しない）。体重管理・マタニティフォトと混同しない。
 ・【予約方法・電話番号】診療内容が不明なまま「電話で予約できる」と断定しない。予約方法はサービスにより異なる。通常の回答では当院の電話番号（06-6931-2391等）を出力しない。電話番号を聞かれたら公式サイト（beginner等）へ案内する。母乳ケアは電話予約のみ、夜診は予約不可・受付順。緊急の医療相談では直ちに当院へ連絡・必要時は119番を案内する（緊急時は電話番号表示可）。
+・【子宮頸がんワクチンと検診】別サービス。ワクチン質問に #gyne_cancer（検診）を使わない。ワクチンは gynecology/#cervical_cancer。検診は #gyne_cancer。インフル・RS・小児ワクチンと混同しない。通常回答で電話番号を出さない。
 ・【分娩料金】予約金（10,000円）と予納金（100,000円／300,000円）を混同しない。予約金のうち5,000円は入院費への精算であり「5,000円のみ返金不可」と誤解釈しない。金額は確定データ以外から推測しない。産後ケア料金に分娩料金を流用しない。きょうだい割引・パパママ割引は分娩料金ページの制度であり、分娩予約特典ページと混同しない。
 ・【初診料】確定は1,080円のみ。3,300円（文書料など）やその他金額を初診料としない。初回受診の合計は初診料＋検査料で、検査料・合計は断定しない。再診料・妊婦健診・分娩予約金・中絶・ワクチン料金と混同しない。電話問い合わせを原則付け足さない。
 ・【4D超音波撮影】当院で実施している。未実施と答えない。通常の健診エコー・性別確認・動画ダウンロードと混同しない。詳細は公式の #ultraimaging を案内する。
@@ -3712,6 +3724,174 @@ export default async function handler(req, res) {
         payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(payload);
+    }
+
+    // 子宮頸がんワクチン（検診 #gyne_cancer と混同しない。#cervical_cancer）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      !isHpvVaccineVsScreeningQuery(userMessage) &&
+      allowStructuredIntent("hpv_vaccination") &&
+      isHpvVaccineQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "cervical-cancer-hpv-vaccine" ||
+          h.item?.intent === "hpv_vaccination"
+      );
+      const built = buildHpvVaccineAnswer(userMessage);
+      let answer = String(built?.answer || ckHit?.item?.answer || "").trim();
+      answer = preparePatientFacingAnswer(answer, { allowPhone: false });
+      const referencedPages = (built?.referencedPages?.length
+        ? built.referencedPages
+        : [HPV_VACCINE_REF_PAGE]
+      ).map((p) => ({
+        url: String(p.url || HPV_VACCINE_REF_PAGE.url),
+        title: String(p.title || HPV_VACCINE_REF_PAGE.title),
+      }));
+      for (const p of referencedPages) {
+        if (/gynecology/i.test(p.url) && /#gyne_cancer/i.test(p.url)) {
+          p.url = HPV_VACCINE_REF_PAGE.url;
+          p.title = HPV_VACCINE_REF_PAGE.title;
+        }
+        if (/gynecology/i.test(p.url) && !/#cervical_cancer/i.test(p.url)) {
+          p.url = HPV_VACCINE_REF_PAGE.url;
+          p.title = HPV_VACCINE_REF_PAGE.title;
+        }
+      }
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "hpv_vaccination",
+          detectedService: "hpv_vaccination",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "cervical-cancer-hpv-vaccine",
+                  intent: "hpv_vaccination",
+                  service: "hpv_vaccination",
+                  score: 100,
+                },
+              ],
+          matchedSiteUrl: HPV_VACCINE_REF_PAGE.url,
+          referenceChips: referencedPages,
+          focus: built?.focus || "availability",
+          rejectedKnowledge: clinicRejected,
+          note: "HPVワクチンは #cervical_cancer。検診 #gyne_cancer 禁止",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "hpv_vaccination",
+          service: "hpv_vaccination",
+          matchedSiteUrl: HPV_VACCINE_REF_PAGE.url,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "hpv_vaccination";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = HPV_VACCINE_REF_PAGE.url;
+        payload.referenceChips = referencedPages;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(attachTopicDebug(payload, "hpv_vaccination"));
+    }
+
+    // 子宮がん検診（ワクチンと分離。#gyne_cancer）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      (allowStructuredIntent("cervical_cancer_screening") ||
+        isHpvVaccineVsScreeningQuery(userMessage)) &&
+      isCervicalCancerScreeningQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "cervical-cancer-screening" ||
+          h.item?.intent === "cervical_cancer_screening"
+      );
+      const built = buildCervicalCancerScreeningAnswer(userMessage);
+      let answer = String(built?.answer || ckHit?.item?.answer || "").trim();
+      answer = preparePatientFacingAnswer(answer, { allowPhone: false });
+      const referencedPages = (built?.referencedPages?.length
+        ? built.referencedPages
+        : [CERVICAL_SCREENING_REF_PAGE]
+      ).map((p) => ({
+        url: String(p.url || CERVICAL_SCREENING_REF_PAGE.url),
+        title: String(p.title || CERVICAL_SCREENING_REF_PAGE.title),
+      }));
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "cervical_cancer_screening",
+          detectedService: "cervical_cancer_screening",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "cervical-cancer-screening",
+                  intent: "cervical_cancer_screening",
+                  service: "cervical_cancer_screening",
+                  score: 100,
+                },
+              ],
+          matchedSiteUrl: CERVICAL_SCREENING_REF_PAGE.url,
+          referenceChips: referencedPages,
+          focus: built?.focus || "availability",
+          rejectedKnowledge: clinicRejected,
+          note: "子宮がん検診は #gyne_cancer。ワクチンと混同しない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "cervical_cancer_screening",
+          service: "cervical_cancer_screening",
+          matchedSiteUrl: CERVICAL_SCREENING_REF_PAGE.url,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "cervical_cancer_screening";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = CERVICAL_SCREENING_REF_PAGE.url;
+        payload.referenceChips = referencedPages;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res
+        .status(200)
+        .json(attachTopicDebug(payload, "cervical_cancer_screening"));
     }
 
     // 予約方法一般・電話番号案内（診療内容不明時に電話予約可と断定しない。通常は番号非表示）

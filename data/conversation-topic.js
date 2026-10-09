@@ -47,6 +47,11 @@ import {
   isPhoneNumberQuery,
   isUrgentContactQuery,
 } from "./appointment-guidance.js";
+import { isHpvVaccineQuery } from "./hpv-vaccine.js";
+import {
+  isCervicalCancerScreeningQuery,
+  isHpvVaccineVsScreeningQuery,
+} from "./cervical-cancer-screening.js";
 import {
   isKidsRoomQuery,
   isEveningConsultationReservationQuery,
@@ -139,6 +144,11 @@ export function detectStandaloneIntent(userMessage) {
 
   // 診療時間・休診日
   if (isClinicHoursQuery(msg)) return "clinic_hours";
+
+  // 子宮頸がんワクチン／検診（共通語だけでまとめない）
+  if (isHpvVaccineVsScreeningQuery(msg)) return "cervical_cancer_screening";
+  if (isHpvVaccineQuery(msg)) return "hpv_vaccination";
+  if (isCervicalCancerScreeningQuery(msg)) return "cervical_cancer_screening";
 
   // 緊急の病院連絡（電話番号案内可）
   if (isUrgentContactQuery(msg)) return "urgent_clinic_contact";
@@ -474,6 +484,8 @@ export function clinicKnowledgeIdForIntent(intent) {
     clinic_facilities: "clinic-facilities",
     prenatal_classes: "prenatal-classes",
     clinic_hours: "clinic-consultation-hours",
+    hpv_vaccination: "cervical-cancer-hpv-vaccine",
+    cervical_cancer_screening: "cervical-cancer-screening",
     reservation_method_guidance: "appointment-guidance",
     first_visit_reservation: "appointment-guidance",
     clinic_phone_number: "appointment-guidance",
