@@ -454,6 +454,14 @@ export function isGynecologicExamConsultQuery(userMessage) {
 export function isGynecologicMedicationQuery(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg || isAbortionQuery(msg) || isGynecologicSurgeryQuery(msg)) return false;
+  // アフターピル・緊急避妊は専用モジュールへ
+  if (
+    /アフターピル|緊急避妊|モーニングアフター|ノルレボ|プラノバール|避妊に失敗/.test(
+      msg
+    )
+  ) {
+    return false;
+  }
   return (
     /子宮筋腫|卵巣嚢|卵巣のう|卵巣嚢腫|内膜症|子宮内膜症|婦人科/.test(msg) &&
     /薬|処方|内服|ホルモン/.test(msg)
@@ -1390,6 +1398,16 @@ export const SITE_ROUTE_MAP = [
     // 書類相談は初診案内ではなく公式トップを優先
     urls: ["https://kanai.or.jp/"],
     boost: 280,
+  },
+  {
+    id: "emergency_contraception",
+    label: "アフターピル・緊急避妊",
+    patterns: [
+      /アフターピル|緊急避妊薬|緊急避妊ピル|緊急避妊|モーニングアフター|ノルレボ|プラノバール/,
+      /避妊に失敗|コンドームが破|ゴムが破|避妊せずに性交/,
+    ],
+    urls: ["https://kanai.or.jp/gynecology/"],
+    boost: 270,
   },
   {
     id: "emergency_maternal_neonatal_transfer",

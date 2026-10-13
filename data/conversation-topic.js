@@ -59,6 +59,7 @@ import { isHomecomingDeliveryQuery } from "./homecoming-delivery.js";
 import { isFirstVisitFeeQuery } from "./first-visit-fee.js";
 import { isFirstVisitWhatToBringQuery } from "./first-visit-what-to-bring.js";
 import { isEmergencyMaternalNeonatalTransferQuery } from "./emergency-maternal-neonatal-transfer.js";
+import { isEmergencyContraceptionQuery } from "./emergency-contraception.js";
 import { isFourDUltrasoundQuery } from "./four-d-ultrasound.js";
 import {
   isFemaleDoctorQuery,
@@ -174,6 +175,11 @@ export function detectStandaloneIntent(userMessage) {
   // 母体・新生児の救急搬送（OGCS/NMCS）
   if (isEmergencyMaternalNeonatalTransferQuery(msg)) {
     return "emergency_maternal_neonatal_transfer";
+  }
+
+  // アフターピル・緊急避妊（妊娠中の服薬より先）
+  if (isEmergencyContraceptionQuery(msg)) {
+    return "emergency_contraception_prescription";
   }
 
   // 初診料（他料金より先。「必要」単独で持ち物に誤らないよう fee 側で除外済み）
@@ -365,6 +371,16 @@ export function isFollowUpForIntent(msg, previousIntent) {
       /説明(?:が|も)?なかった|案内(?:が|も)?なかった|教えてもらえなかった|なかったし$/.test(
         m
       )
+    );
+  }
+
+  if (previousIntent === "emergency_contraception_prescription") {
+    return (
+      isEmergencyContraceptionQuery(m) ||
+      (/(?:今日|すぐ|本日).{0,12}処方|処方(?:して|できる|もらえ)|何時間|いつまで/.test(
+        m
+      ) &&
+        m.length <= 40)
     );
   }
 
@@ -636,6 +652,7 @@ export function clinicKnowledgeIdForIntent(intent) {
     first_visit_fee: "clinic-first-visit-fee",
     first_visit_what_to_bring: "first-visit-what-to-bring",
     emergency_maternal_neonatal_transfer: "emergency-maternal-neonatal-transfer",
+    emergency_contraception_prescription: "emergency-contraception-prescription",
     four_d_ultrasound: "obstetrics-4d-ultrasound",
     female_doctor: "clinic-female-doctor",
     newborn_maternity_photo: "newborn-maternity-photo",

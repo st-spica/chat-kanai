@@ -49,6 +49,15 @@ export function isPregnancyFolicAcidQuery(userMessage) {
 export function isPregnancyMedicationQuery(userMessage, contextText = "") {
   const msg = String(userMessage || "").trim();
   if (!msg) return false;
+  // アフターピル・緊急避妊は妊娠中の服薬相談に流さない
+  if (
+    /アフターピル|緊急避妊薬|緊急避妊ピル|緊急避妊|モーニングアフター|ノルレボ|プラノバール/.test(
+      msg
+    ) ||
+    /避妊に失敗|コンドームが破|ゴムが破|避妊せずに性交/.test(msg)
+  ) {
+    return false;
+  }
   if (isPregnancyFolicAcidQuery(msg)) return false;
   if (isPregnancyCaffeineQuery(msg)) return false;
   if (isPregnancyFoodSafetyQuery(msg)) return false;

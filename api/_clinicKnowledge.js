@@ -88,6 +88,7 @@ import { isHomecomingDeliveryQuery } from "../data/homecoming-delivery.js";
 import { isFirstVisitFeeQuery } from "../data/first-visit-fee.js";
 import { isFirstVisitWhatToBringQuery } from "../data/first-visit-what-to-bring.js";
 import { isEmergencyMaternalNeonatalTransferQuery } from "../data/emergency-maternal-neonatal-transfer.js";
+import { isEmergencyContraceptionQuery } from "../data/emergency-contraception.js";
 import { isFourDUltrasoundQuery } from "../data/four-d-ultrasound.js";
 import {
   isFemaleDoctorQuery,
@@ -234,6 +235,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "first_visit_fee",
   "first_visit_what_to_bring",
   "emergency_maternal_neonatal_transfer",
+  "emergency_contraception_prescription",
   "four_d_ultrasound",
   "female_doctor",
   "newborn_maternity_photo",
@@ -743,6 +745,11 @@ export function detectClinicIntent(userMessage) {
   // 母体・新生児の救急搬送（OGCS/NMCS。一般論の搬送推測を防ぐ）
   if (isEmergencyMaternalNeonatalTransferQuery(msg)) {
     return "emergency_maternal_neonatal_transfer";
+  }
+
+  // アフターピル・緊急避妊（妊娠中の服薬・一般婦人科処方より先）
+  if (isEmergencyContraceptionQuery(msg)) {
+    return "emergency_contraception_prescription";
   }
 
   // 初診料（文書料3,300円・他料金と混同しない）
@@ -1309,6 +1316,45 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         rejected: true,
         rejectReason:
           "emergency_maternal_neonatal_transferは母体・新生児搬送のみ",
+      };
+    }
+  }
+  // アフターピルは緊急避妊質問以外・妊娠中服薬知識に流用しない
+  if (
+    item.id === "emergency-contraception-prescription" ||
+    itemIntent === "emergency_contraception_prescription"
+  ) {
+    if (!isEmergencyContraceptionQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["緊急避妊:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "emergency_contraception_prescriptionはアフターピルのみ",
+      };
+    }
+  }
+  // 一般婦人科処方案内はアフターピルに流用しない
+  if (item.id === "gynecologic-medication-consult") {
+    if (isEmergencyContraceptionQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["婦人科一般処方:アフターピルのため除外"],
+        rejected: true,
+        rejectReason: "アフターピルはemergency-contraception-prescriptionへ",
+      };
+    }
+  }
+  // 妊娠中服薬知識はアフターピルに流用しない
+  if (
+    item.id === "pregnancy-medication-consultation" ||
+    itemIntent === "pregnancy_medication_consultation"
+  ) {
+    if (isEmergencyContraceptionQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["妊娠中服薬:アフターピルのため除外"],
+        rejected: true,
+        rejectReason: "アフターピルは緊急避妊へ",
       };
     }
   }

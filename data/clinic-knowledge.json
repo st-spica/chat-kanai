@@ -1052,6 +1052,62 @@
       "relatedSiteUrl": "https://kanai.or.jp/gynecology/"
     },
     {
+      "id": "emergency-contraception-prescription",
+      "category": "婦人科/緊急避妊",
+      "intent": "emergency_contraception_prescription",
+      "service": "gynecology",
+      "availability": "available",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "アフターピルがほしいです",
+        "アフターピルがほしいです。すぐに処方してもらえますか？",
+        "今日中に処方してもらえますか？",
+        "緊急避妊薬はありますか？",
+        "緊急避妊薬を処方してほしい",
+        "避妊に失敗しました",
+        "コンドームが破れた",
+        "避妊せずに性交した",
+        "モーニングアフターピルが必要",
+        "アフターピルは何時間以内に飲むものですか？",
+        "ノルレボは処方できますか"
+      ],
+      "keywords": [
+        "アフターピル",
+        "緊急避妊薬",
+        "緊急避妊ピル",
+        "緊急避妊",
+        "モーニングアフター",
+        "ノルレボ",
+        "プラノバール",
+        "避妊に失敗"
+      ],
+      "summary": "当院ではアフターピル（緊急避妊薬）の処方に対応。医師の診察が必要。即時処方は保証しない。できるだけ早く受診を案内。妊娠中の服薬相談と分離。",
+      "answer": "はい、当院ではアフターピル（緊急避妊薬）の処方に対応しています。アフターピルは、避妊に失敗した場合などに使用するお薬で、できるだけ早く服用することが大切です。処方には医師の診察が必要ですので、お早めに当院へご連絡いただき、受診についてご相談ください。なお、すぐに処方できるかどうかは、診療状況によって異なります。",
+      "careSource": "data/emergency-contraception.js",
+      "clinicInformation": {
+        "accessPage": "https://kanai.or.jp/gynecology/",
+        "section": "ピル／緊急避妊ピル（アフターピル）",
+        "available": true,
+        "requiresDoctorExam": true,
+        "sameDayNotGuaranteed": true,
+        "informationPolicy": "処方対応あり・診察必須。即時処方・診察なし処方は断定しない。妊娠中の服薬案内に流用しない。"
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/gynecology/",
+      "relatedSiteLabel": "婦人科のご案内",
+      "responseRules": {
+        "useExactAnswer": true,
+        "alwaysShowRelatedLink": true,
+        "emphasizeUrgency": true,
+        "avoidGuaranteedSameDay": true,
+        "requireDoctorExam": true,
+        "distinguishFromPregnancyMedication": true,
+        "avoidUnnecessaryPhoneReferral": false
+      },
+      "priority": 230,
+      "updatedAt": "2026-10-13",
+      "enabled": true
+    },
+    {
       "id": "gender-selection-not-offered",
       "category": "婦人科/診療内容",
       "intent": "service_availability",
