@@ -2289,11 +2289,10 @@ function shouldAddComplaintPrompt(userMessage, safeHistory) {
   const text = recentUserText(userMessage, safeHistory);
   const current = String(userMessage || "").trim();
 
-  // 専用モジュールのクレーム判定を優先（待ち時間・順番・接遇など。継続合図は履歴必須）
-  if (
-    isPatientComplaintQuery(current, safeHistory) ||
-    isPatientComplaintQuery(text, safeHistory)
-  ) {
+  // 専用モジュールのクレーム判定（現メッセージ＋履歴フォロー）。
+  // ※ 結合した履歴全文を isPatientComplaintQuery に渡さない
+  //   （長文結合でクレーム検出が相互再帰し RangeError になるため）
+  if (isPatientComplaintQuery(current, safeHistory)) {
     return true;
   }
 

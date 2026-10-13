@@ -73,7 +73,9 @@ export function complaintHasMedicalConcern(msg) {
 export function isComplaintFollowUpCue(msg) {
   const m = String(msg || "").trim();
   if (!m) return false;
-  if (m.length > 80 && isPatientComplaintContent(m)) return false;
+  // 長い発話はフォロー合図ではない。
+  // ※ isPatientComplaintContent をここで呼ぶと相互再帰で RangeError になるため禁止
+  if (m.length > 80) return false;
   return (
     /謝ってほしいわけじゃ|謝ってほしくない|謝らなくて|謝罪はいい|謝罪はいらない|お詫びはいい/.test(
       m
@@ -99,7 +101,8 @@ export function isPatientComplaintContent(msg) {
   if (!t) return false;
   if (isOtherHospitalPastExperience(t)) return false;
   if (isSymptomSeverityOnly(t)) return false;
-  if (isComplaintFollowUpCue(t) && t.length <= 40) return false;
+  // 短文のフォロー合図のみ除外（長さを先に見て isComplaintFollowUpCue の不要呼び出しを避ける）
+  if (t.length <= 40 && isComplaintFollowUpCue(t)) return false;
 
   if (/クレーム|苦情|改善して|改善してほしい|改善を求め|文句|許せない|ありえない/.test(t)) {
     return true;
