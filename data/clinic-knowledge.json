@@ -1255,6 +1255,51 @@
       "enabled": true
     },
     {
+      "id": "pregnancy-smell-sensitivity",
+      "category": "妊娠期/日常生活の注意",
+      "intent": "pregnancy_smell_sensitivity",
+      "service": "pregnancy_health_support",
+      "target": "pregnant_patient",
+      "availability": "information",
+      "questionPatterns": [
+        "においづわりの対策は",
+        "つわりで匂いがダメになりました",
+        "いろんな匂いで気持ち悪くなります",
+        "料理の匂いがつらいです",
+        "ご飯を炊く匂いが苦手です",
+        "柔軟剤の匂いで吐きそうになります",
+        "香水の匂いがダメになりました",
+        "妊娠してから匂いに敏感です",
+        "においづわりを楽にする方法は",
+        "妊娠中、職場の匂いがつらいです"
+      ],
+      "keywords": [
+        "においづわり",
+        "匂いづわり",
+        "におい",
+        "匂い",
+        "臭い",
+        "換気",
+        "無香料",
+        "柔軟剤",
+        "香水",
+        "マスク"
+      ],
+      "summary": "妊娠中はにおいに敏感になることがある。換気、料理を冷ます、無香料製品、家事分担、マスクなどが対策。表記ゆれ（におい/匂い/臭い）に対応。",
+      "answer": "においに敏感になると普段の生活でもつらいですよね。こまめな換気、温かい料理を冷ましてから食べる、柔軟剤や芳香剤を無香料に変える、においがつらい家事は家族に頼む、外出時のマスクなどが対策の一例です。症状が強い場合は受診をご検討ください。",
+      "selfCareSource": "data/morning-sickness.js",
+      "responseRules": {
+        "tone": "empathetic",
+        "preferOverGenericMorningSickness": true,
+        "avoidGenericHydrationOnlyAdvice": true,
+        "suppressUnrelatedReferenceChips": true,
+        "avoidDiagnosis": true
+      },
+      "priority": 110,
+      "updatedAt": "2026-10-13",
+      "enabled": true
+    },
+    {
       "id": "pregnancy-eating-nausea",
       "category": "妊娠期/日常生活の注意",
       "intent": "pregnancy_eating_nausea",

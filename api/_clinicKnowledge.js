@@ -56,6 +56,7 @@ import {
 import {
   isMorningSicknessQuery,
   isEatingNauseaQuery,
+  isSmellSensitivityQuery,
 } from "../data/morning-sickness.js";
 import { isPregnancyWorkDocumentQuery } from "../data/pregnancy-work-document.js";
 import { isPatientComplaintQuery } from "../data/patient-complaint.js";
@@ -206,6 +207,8 @@ export const STRICT_MATCH_INTENTS = new Set([
   "infertility_consultation",
   "morning_sickness_consultation",
   "pregnancy_eating_nausea",
+  "pregnancy_smell_sensitivity",
+  "pregnancy_vomiting_nausea",
   "pregnancy_work_accommodation_document",
   "patient_complaint",
   "postpartum_care",
@@ -662,9 +665,12 @@ export function detectClinicIntent(userMessage) {
     return "pregnancy_work_accommodation_document";
   }
 
-  // 食べずわり（一般つわりより先）
+  // 食べずわり・においづわり（一般つわりより先）
   if (isEatingNauseaQuery(msg)) {
     return "pregnancy_eating_nausea";
+  }
+  if (isSmellSensitivityQuery(msg)) {
+    return "pregnancy_smell_sensitivity";
   }
   // つわり相談（診断断定なし・セルフケア／受診案内）
   if (isMorningSicknessQuery(msg)) {
@@ -1140,7 +1146,21 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
       };
     }
   }
-  // つわり相談は対象質問以外に流用しない（勤務書類・食べずわりは除外）
+  // においづわりは一般つわり知識より優先
+  if (
+    item.id === "pregnancy-smell-sensitivity" ||
+    itemIntent === "pregnancy_smell_sensitivity"
+  ) {
+    if (!isSmellSensitivityQuery(msg) || isPregnancyWorkDocumentQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["においづわり:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "pregnancy_smell_sensitivityはにおいづわり関連のみ",
+      };
+    }
+  }
+  // つわり相談は対象質問以外に流用しない（勤務書類・食べずわり・においづわりは除外）
   if (
     item.id === "pregnancy-morning-sickness" ||
     itemIntent === "morning_sickness_consultation"
@@ -1148,14 +1168,15 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
     if (
       !isMorningSicknessQuery(msg) ||
       isPregnancyWorkDocumentQuery(msg) ||
-      isEatingNauseaQuery(msg)
+      isEatingNauseaQuery(msg) ||
+      isSmellSensitivityQuery(msg)
     ) {
       return {
         score: 0,
         reasons: ["つわり相談:対象外質問のため除外"],
         rejected: true,
         rejectReason:
-          "morning_sickness_consultationはつわり関連のみ（食べずわりは別）",
+          "morning_sickness_consultationはつわり関連のみ（食べずわり・においづわりは別）",
       };
     }
   }

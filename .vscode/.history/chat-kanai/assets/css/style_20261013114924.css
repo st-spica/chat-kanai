@@ -1,0 +1,373 @@
+@import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700;900&display=swap');
+
+/* WPヘッダー／フッターに影響しないよう、チャット領域にスコープ */
+.consul-ai {
+  font-family: "Zen Maru Gothic", sans-serif;
+}
+.consul-ai ::marker {
+  color: #ff7b8e;
+}
+.consul-ai strong {
+  font-weight: 500;
+}
+
+.consul-ai .title h1 {
+  font-size: 40px;
+  color: #ffa2b0;
+  max-width: 880px;
+  margin: 0 auto;
+  font-weight: 500;
+}
+.consul-ai #chatUI {
+  max-width: 880px;
+  padding: 60px 0 80px;
+  margin: 0 auto;
+}
+.consul-ai .box {
+  position: relative;
+  font-size: 16px;
+  line-height: 1.75;
+  margin-bottom: 20px;
+}
+.consul-ai .attention {
+  margin: 25px 0 30px;
+  letter-spacing: -0.01em;
+}
+.consul-ai .attention li{
+  font-size:14px;
+}
+.consul-ai .attention li:before{
+  content: "※";
+}
+.consul-ai .msgs {
+  display: none;
+  min-height: 360px;
+  max-height: 520px;
+  overflow-y: auto;
+  border: 1px solid #ff7b8e;
+  border-radius: 10px;
+  padding: 20px 30px;
+}
+.consul-ai .msgs.is-visible {
+  display: block;
+}
+.consul-ai pre {
+  white-space: pre-wrap;
+  margin: 0;
+  line-height: 1.6;
+  font-family: inherit;
+}
+.consul-ai input {
+  font-family: "Zen Maru Gothic", sans-serif;
+  width: 100%;
+  padding: 14px 18px;
+  border-radius: 10px;
+  border: 1px solid #ff7b8e;
+  font-size: 16px;
+  box-sizing: border-box;
+}
+.consul-ai input:focus-visible {
+  outline: #999 auto 1px;
+}
+.consul-ai button {
+  font-family: "Zen Maru Gothic", sans-serif;
+  width: 100px;
+  border: none;
+  background: #ff95a5;
+  border-radius: 10px;
+  padding: 14px 15px;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+}
+.consul-ai button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.consul-ai .row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.consul-ai .muted {
+  font-size: 16px;
+}
+.consul-ai .msg-row-assistant {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  gap: 12px;
+  width: 100%;
+}
+.consul-ai .assistant-avatar {
+  flex: 0 0 70px !important;
+  width: 70px !important;
+  height: 70px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 50%;
+}
+.consul-ai .assistant-avatar img,
+.consul-ai .msg-row-assistant .assistant-avatar img {
+  display: block !important;
+  width: 70px !important;
+  height: 70px !important;
+  max-width: 70px !important;
+  max-height: 70px !important;
+  border-radius: 50% !important;
+  object-fit: cover !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.consul-ai .msg-row-assistant .assistant {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  width: auto !important;
+  max-width: none;
+}
+.consul-ai .assistant,
+.consul-ai .user {
+  padding: 15px;
+  border-radius: 8px;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.consul-ai .assistant {
+  background: #fff2f3;
+}
+.consul-ai .user {
+  background: #f5f5f5;
+}
+.consul-ai .bubble-show {
+  opacity: 1;
+  transform: translateY(0);
+}
+.consul-ai .typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+.consul-ai .typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #777;
+  animation: typingBounce 1s infinite ease-in-out;
+}
+.consul-ai .typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.consul-ai .typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes typingBounce {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.3;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+.consul-ai .error {
+  color: #b00020;
+  font-weight: bold;
+}
+
+/* [[[RICH_HTML]]] 用（アシスタント吹き出し内のカード） */
+.consul-ai .assistant .chat-card {
+  max-width: 100%;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  padding: 14px 16px;
+  line-height: 1.55;
+  color: #222;
+}
+.consul-ai .assistant .chat-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.consul-ai .assistant h3.chat-card-head {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 1.15em;
+}
+.consul-ai .assistant .chat-card-icon {
+  font-size: 1.25em;
+  line-height: 1;
+}
+.consul-ai .assistant .chat-card-title {
+  margin: 0;
+  font-size: 1.15em;
+  font-weight: 700;
+}
+.consul-ai .assistant .chat-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin: 10px 0;
+}
+.consul-ai .assistant .chat-table th,
+.consul-ai .assistant .chat-table td {
+  border: 1px solid #ddd;
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.consul-ai .assistant .chat-table thead th {
+  background: #e8eaee;
+  font-weight: 700;
+}
+.consul-ai .assistant .chat-table tbody tr:nth-child(even) {
+  background: #fafafa;
+}
+.consul-ai .assistant .chat-note {
+  font-size: 13px;
+  color: #444;
+  margin: 6px 0 0;
+}
+.consul-ai .assistant .chat-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0 4px;
+}
+.consul-ai .assistant a.chat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid #ff7b8e;
+  background: rgba(255, 255, 255, 0.7);
+  color: #ff7b8e;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+}
+.consul-ai .assistant a.chat-pill:hover {
+  background: #dbeafe;
+}
+.consul-ai .assistant .assistant-ref-chips {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+}
+.consul-ai .assistant .assistant-ref-chips a.chat-pill {
+  border-radius: 999px;
+}
+.consul-ai .assistant .chat-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 6px;
+  font-weight: 700;
+}
+.consul-ai .assistant .chat-list {
+  margin: 0;
+  padding-left: 1.25em;
+}
+.consul-ai .assistant .chat-list li {
+  margin: 4px 0;
+}
+.consul-ai .assistant-stream-raw {
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  font-family: inherit;
+  color: #555;
+  line-height: 1.5;
+}
+.consul-ai .assistant-stream-building .assistant-stream-raw {
+  border-left: 1px solid #f5f5f5;
+  padding-left: 10px;
+}
+
+.home_btn a{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 210px;
+  border: 1px solid #793800;
+  color: #793800;
+  border-radius: 50px;
+  padding: 8px 0;
+  margin: 75px auto 0;
+}
+.home_btn a img{
+  width: 20px;
+}
+
+@media screen and (max-width:599px){
+  .consul-ai #chatUI {
+    padding: 20px 5% 45px;
+  }
+  .consul-ai .row {
+    display: block;
+    gap: 8px;
+    margin-top: 12px;
+    text-align: center;
+  }
+  .consul-ai input{
+    font-size: 14px;
+    padding: 15px 12px;
+    border-radius: 7px;
+  }
+  .consul-ai button{
+    padding: 10px 12px;
+    width: 120px;
+    font-size: 14px;
+    line-height: 1.35;
+    border-radius: 7px;
+    margin-top: 15px;
+  }
+  .consul-ai .attention{
+    margin: 20px 0 25px;
+  }
+  .consul-ai .attention li{
+    font-size: 13px;
+    line-height:1.5;
+    margin-bottom:5px;
+  }
+  .consul-ai .msgs{
+    padding: 15px 10px;
+    border-radius: 7px;
+  }
+  .consul-ai .assistant-avatar {
+    flex: 0 0 55px !important;
+    width: 55px !important;
+    height: 55px !important;
+  }
+  .consul-ai .msg-row-assistant{
+    gap: 8px !important;
+  }
+  .consul-ai .assistant-avatar img,
+  .consul-ai .msg-row-assistant .assistant-avatar img {
+    width: 55px !important;
+    height: 55px !important;
+  }
+  .consul-ai .assistant,
+  .consul-ai .user {
+    padding: 10px 13px;
+    font-size: 14px;
+  }
+  .consul-ai .assistant .assistant-ref-chips{
+    gap: 5px;
+  }
+  .consul-ai .assistant a.chat-pill{
+    padding: 5px 13px;
+    font-size: 12px;
+  }
+}

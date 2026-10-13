@@ -314,17 +314,24 @@
   .consul-ai #chatUI {
     padding: 20px 5% 45px;
   }
+  .consul-ai .row {
+    display: block;
+    gap: 8px;
+    margin-top: 12px;
+    text-align: center;
+  }
   .consul-ai input{
-    font-size: 14px;
-    padding: 5px 12px;
+    font-size: 16px;
+    padding: 13px 0 13px 13px;
     border-radius: 7px;
   }
   .consul-ai button{
-    padding: 5px 12px;
-    width: 40px;
-    font-size: 14px;
+    padding: 10px 0;
+    width: 120px;
+    font-size: 16px;
     line-height: 1.35;
     border-radius: 7px;
+    margin-top: 15px;
   }
   .consul-ai .attention{
     margin: 20px 0 25px;

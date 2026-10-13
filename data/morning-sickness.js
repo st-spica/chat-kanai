@@ -9,6 +9,11 @@
 import { isPregnancyWorkDocumentQuery } from "./pregnancy-work-document.js";
 
 export const PREGNANCY_EATING_NAUSEA_INTENT = "pregnancy_eating_nausea";
+export const PREGNANCY_SMELL_SENSITIVITY_INTENT = "pregnancy_smell_sensitivity";
+export const PREGNANCY_VOMITING_NAUSEA_INTENT = "pregnancy_vomiting_nausea";
+
+/** におい・匂い・臭い・ニオイ の表記ゆれ */
+export const SMELL_WORD_RE = /におい|匂い|臭い|ニオイ/;
 
 /** 食べずわり向けの軽食例（個人差あり・強制しない） */
 export const EATING_NAUSEA_FOOD_EXAMPLES = [
@@ -98,13 +103,13 @@ const MAX_TIPS = 3;
  * @param {string} text
  */
 export function mentionsMorningSicknessTopic(text) {
-  return /つわり|悪阻|食べずわり|吐きづわり|においづわり|妊娠.{0,10}(?:気持|むかつ|吐|吐き|吐き気|におい|食欲)/.test(
+  return /つわり|悪阻|食べずわり|吐きづわり|においづわり|匂いづわり|臭いづわり|妊娠.{0,10}(?:気持|むかつ|吐|吐き|吐き気|におい|匂い|臭い|食欲)/.test(
     String(text || "")
   );
 }
 
 const MORNING_SICKNESS_SYMPTOM_ALONE_RE =
-  /食べ物を受け付け|吐き気が続|毎日吐|何度も吐|繰り返し吐|においが[つ辛]ら|食べ物のにおい|妊娠中で気持|妊娠中に食欲|水も飲め|水分がとれ|水分が取れ|水分もとれ|つわり|食べずわり|吐きづわり|においづわり|食べないと気持|空腹になると(?:気持|吐)|何か食べていないと/;
+  /食べ物を受け付け|吐き気が続|毎日吐|何度も吐|繰り返し吐|何を食べても吐|食べても吐|においが[つ辛]ら|匂いが[つ辛]ら|食べ物の(?:におい|匂い)|妊娠中で気持|妊娠中に食欲|水も飲め|水分がとれ|水分が取れ|水分もとれ|つわり|食べずわり|吐きづわり|においづわり|匂いづわり|食べないと気持|空腹になると(?:気持|吐)|何か食べていないと/;
 
 /**
  * 食べずわり（空腹で気持ち悪くなるタイプ）
@@ -147,25 +152,53 @@ export function isEatingNauseaQuery(userMessage) {
 export function isVomitingNauseaSubtype(msg) {
   const t = String(msg || "");
   if (/食べずわり|食べづわり/.test(t)) return false;
+  if (isSmellNauseaSubtype(t) && !/吐きづわり|吐きずわり|何を食べても吐/.test(t)) {
+    return false;
+  }
   return (
     /吐きづわり|吐きずわり/.test(t) ||
+    /何を食べても吐|食べても吐いて|食べると吐/.test(t) ||
     (/つわり/.test(t) && /(?:何度も|繰り返し|すぐ).{0,6}吐|吐いてしま/.test(t)) ||
-    (/吐/.test(t) && /食べると|食事をとると|食べられ/.test(t) && !isEatingNauseaQuery(t))
+    (/吐/.test(t) &&
+      /食べると|食事をとると|食べられ|何も食べられ/.test(t) &&
+      !isEatingNauseaQuery(t))
   );
 }
 
 /**
- * においづわり
+ * においづわり（匂い・臭い・ニオイの表記ゆれ対応）
  * @param {string} msg
  */
 export function isSmellNauseaSubtype(msg) {
   const t = String(msg || "");
-  if (/食べずわり|食べづわり/.test(t)) return false;
+  if (!t) return false;
+  if (/食べずわり|食べづわり/.test(t) && !SMELL_WORD_RE.test(t)) return false;
+  if (
+    /においづわり|匂いづわり|臭いづわり|においずわり|匂いつわり|臭いつわり/.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  if (!SMELL_WORD_RE.test(t)) return false;
+  // つわり・妊娠文脈、または敏感・ダメ・つらい等
   return (
-    /においづわり|臭いづわり|においずわり/.test(t) ||
-    (/におい|臭い/.test(t) &&
-      (/つわり|気持|むかつ|吐|つら|辛/.test(t) || /妊娠|妊婦/.test(t)))
+    /つわり|悪阻|妊娠|妊婦/.test(t) ||
+    /気持|むかつ|吐|つら|辛|ダメ|だめ|苦手|敏感|対策|楽に|避け/.test(t)
   );
+}
+
+/**
+ * 明示的なにおいづわり相談か（intent 用）
+ * @param {string} userMessage
+ */
+export function isSmellSensitivityQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  if (isPregnancyWorkDocumentQuery(msg) && !SMELL_WORD_RE.test(msg)) {
+    return false;
+  }
+  return isSmellNauseaSubtype(msg);
 }
 
 /**
@@ -190,14 +223,19 @@ export function isMorningSicknessQuery(userMessage, contextText = "") {
   // 勤務・書類相談はつわりセルフケアに流さない
   if (isPregnancyWorkDocumentQuery(msg)) return false;
   if (isEatingNauseaQuery(msg)) return true;
+  if (isSmellSensitivityQuery(msg)) return true;
+  if (isVomitingNauseaSubtype(msg)) return true;
   if (mentionsMorningSicknessTopic(msg)) return true;
   if (MORNING_SICKNESS_SYMPTOM_ALONE_RE.test(msg)) return true;
   const ctx = String(contextText || "");
-  if (!mentionsMorningSicknessTopic(ctx) && !/つわり|悪阻|食べずわり/.test(ctx)) {
+  if (
+    !mentionsMorningSicknessTopic(ctx) &&
+    !/つわり|悪阻|食べずわり|においづわり|匂い/.test(ctx)
+  ) {
     return false;
   }
   // 直前がつわり相談で、水分・食事・嘔吐などの続き
-  return /(?:水|水分|飲め|食べ|吐|におい|便秘|体重|気持|むかつ|だる|休め|いつまで|おすすめ|食べ物)/.test(
+  return /(?:水|水分|飲め|食べ|吐|におい|匂い|臭い|便秘|体重|気持|むかつ|だる|休め|いつまで|おすすめ|食べ物)/.test(
     msg
   );
 }
@@ -244,7 +282,7 @@ export function selectMorningSicknessTips(msg) {
   };
 
   if (/便秘/.test(msg)) add("constipation");
-  if (/におい|臭い|においが|臭いが/.test(msg)) {
+  if (SMELL_WORD_RE.test(msg)) {
     add("avoid_smells");
     add("food_temperature");
   }
@@ -259,7 +297,8 @@ export function selectMorningSicknessTips(msg) {
   }
   if (
     /吐|吐き|吐き気|むかつ|気持/.test(msg) &&
-    !/食べられ|受け付け|におい/.test(msg)
+    !/食べられ|受け付け/.test(msg) &&
+    !SMELL_WORD_RE.test(msg)
   ) {
     add("hydration");
     add("eat_when_possible");
@@ -267,7 +306,8 @@ export function selectMorningSicknessTips(msg) {
   // におい・便秘など具体症状があるときは一般の「休息」を足しすぎない
   if (
     /辛い|つらい|ひどい|しんどい|疲|だる/.test(msg) &&
-    !/におい|便秘|受け付け/.test(msg)
+    !SMELL_WORD_RE.test(msg) &&
+    !/便秘|受け付け/.test(msg)
   ) {
     add("rest");
     add("eat_when_possible");
@@ -393,26 +433,9 @@ export function buildMorningSicknessAnswer(userMessage, safeHistory = []) {
     return buildEatingNauseaAnswer(msg);
   }
 
-  // においづわり
+  // においづわり：状況別の対策
   if (subtype === "smell") {
-    return {
-      answer: [
-        "においがつらいのですね。",
-        "",
-        "苦手なにおいをできるだけ避けたり、換気したりすることも対策のひとつです。",
-        "温かい食べ物のにおいが気になる場合は、冷たいものや常温のものを試してみてください。",
-        "",
-        "においづわりも個人差があります。無理をせず、休めるときは体を休めてください。",
-      ].join("\n"),
-      intent: "morning_sickness_consultation",
-      subtype: "smell",
-      selectedSelfCareTips: [
-        { id: "avoid_smells", title: "苦手なにおいを避ける" },
-        { id: "food_temperature", title: "食べ物の温度を工夫する" },
-      ],
-      medicalSafetyLevel: "self_care",
-      askFollowUp: false,
-    };
+    return buildSmellSensitivityAnswer(msg);
   }
 
   // 吐きづわり（重度は needsClinicConsult 済み）
@@ -429,7 +452,7 @@ export function buildMorningSicknessAnswer(userMessage, safeHistory = []) {
         "繰り返し吐いてしまう、水分がほとんどとれない場合は、",
         "我慢せず当院へご相談ください。",
       ].join("\n"),
-      intent: "morning_sickness_consultation",
+      intent: PREGNANCY_VOMITING_NAUSEA_INTENT,
       subtype: "vomiting",
       selectedSelfCareTips: [
         { id: "hydration", title: "水分を少しずつとる" },
@@ -448,7 +471,7 @@ export function buildMorningSicknessAnswer(userMessage, safeHistory = []) {
     ) && tipIds.length <= 2;
 
   let empathy = "つわりがつらいのですね。";
-  if (/におい/.test(msg)) empathy = "においがつらいのですね。";
+  if (SMELL_WORD_RE.test(msg)) empathy = "においに敏感になると、つらいですよね。";
   else if (/食べられ|受け付け|食欲/.test(msg)) {
     empathy = "食事がとれないほどつらいのですね。";
   } else if (/吐|吐き/.test(msg)) empathy = "気持ち悪さが続いてつらいのですね。";
@@ -485,6 +508,146 @@ export function buildMorningSicknessAnswer(userMessage, safeHistory = []) {
     selectedSelfCareTips: tips.map((t) => ({ id: t.id, title: t.title })),
     medicalSafetyLevel: "self_care",
     askFollowUp,
+  };
+}
+
+/**
+ * においづわり専用回答（状況別）
+ * @param {string} msg
+ */
+function buildSmellSensitivityAnswer(msg) {
+  const cooking =
+    /料理|炊飯|ご飯を炊|炊く|調理|キッチン|台所|焼く|揚げる|煮物/.test(msg);
+  const fragrance =
+    /柔軟剤|香水|芳香剤|柔軟|コロン|アロマ|シャンプー|洗剤|香[りり]の強/.test(
+      msg
+    );
+  const workplace = /職場|会社|通勤|オフィス|勤務|仕事場|同僚/.test(msg);
+  const outdoor = /外出|外で|街|電車|バス|お店|レストラン|飲食店/.test(msg);
+
+  if (workplace) {
+    return {
+      answer: [
+        "職場のにおいがつらいのですね。",
+        "",
+        "換気や席の位置など、職場でできる調整を相談してみてください。",
+        "マスクを活用したり、においが強い場所を避けたりするのも一つの方法です。",
+        "",
+        "症状が強く勤務に支障がある場合は、",
+        "我慢せず当院で医師にご相談ください。",
+        "必要に応じて、母性健康管理指導事項連絡カード（母健連絡カード）など、",
+        "勤務調整の相談に使える書類のご案内もできます。",
+      ].join("\n"),
+      intent: PREGNANCY_SMELL_SENSITIVITY_INTENT,
+      subtype: "smell",
+      focus: "workplace",
+      selectedSelfCareTips: [{ id: "avoid_smells", title: "苦手なにおいを避ける" }],
+      medicalSafetyLevel: "consult",
+      askFollowUp: false,
+      suppressReferenceLinks: true,
+    };
+  }
+
+  if (cooking) {
+    return {
+      answer: [
+        "料理のにおいがつらいのですね。",
+        "",
+        "こんな工夫を試してみてください。",
+        "",
+        "・調理中は窓を開けてこまめに換気する",
+        "・温かい料理は冷ましてから食べてみる",
+        "・においがつらい家事や調理は、できるだけ家族にお願いする",
+        "・調理の手間が少ない食品を利用してみる",
+        "",
+        "無理に我慢せず、少しでも楽に過ごせる方法を見つけてくださいね。",
+      ].join("\n"),
+      intent: PREGNANCY_SMELL_SENSITIVITY_INTENT,
+      subtype: "smell",
+      focus: "cooking",
+      selectedSelfCareTips: [
+        { id: "avoid_smells", title: "苦手なにおいを避ける" },
+        { id: "food_temperature", title: "食べ物の温度を工夫する" },
+      ],
+      medicalSafetyLevel: "self_care",
+      askFollowUp: false,
+      suppressReferenceLinks: true,
+    };
+  }
+
+  if (fragrance) {
+    return {
+      answer: [
+        "柔軟剤や香水などのにおいでつらいのですね。",
+        "",
+        "こんな工夫を試してみてください。",
+        "",
+        "・柔軟剤や芳香剤を無香料のものに変えてみる",
+        "・香りの強い製品をできるだけ避ける",
+        "・室内をこまめに換気する",
+        "",
+        "無理に我慢せず、少しでも楽に過ごせる方法を見つけてくださいね。",
+      ].join("\n"),
+      intent: PREGNANCY_SMELL_SENSITIVITY_INTENT,
+      subtype: "smell",
+      focus: "fragrance",
+      selectedSelfCareTips: [{ id: "avoid_smells", title: "苦手なにおいを避ける" }],
+      medicalSafetyLevel: "self_care",
+      askFollowUp: false,
+      suppressReferenceLinks: true,
+    };
+  }
+
+  if (outdoor) {
+    return {
+      answer: [
+        "外出先のにおいがつらいのですね。",
+        "",
+        "外出時はマスクを試したり、においの強い場所を避けたりしてみてください。",
+        "無理せず、休憩できる場所を確保しておくと安心です。",
+        "",
+        "つらいときは無理をせず、休めるタイミングを大切にしてくださいね。",
+      ].join("\n"),
+      intent: PREGNANCY_SMELL_SENSITIVITY_INTENT,
+      subtype: "smell",
+      focus: "outdoor",
+      selectedSelfCareTips: [{ id: "avoid_smells", title: "苦手なにおいを避ける" }],
+      medicalSafetyLevel: "self_care",
+      askFollowUp: false,
+      suppressReferenceLinks: true,
+    };
+  }
+
+  // 一般のにおいづわり対策
+  return {
+    answer: [
+      "においに敏感になると、",
+      "普段の生活でもつらいですよね。",
+      "",
+      "においづわりには、",
+      "こんな工夫を試してみてください。",
+      "",
+      "・こまめに換気する",
+      "・温かい料理は冷ましてから食べてみる",
+      "・柔軟剤や芳香剤を無香料のものに変える",
+      "・料理など、においがつらい家事は",
+      "  できるだけ家族にお願いする",
+      "・外出時はマスクを活用してみる",
+      "",
+      "無理に我慢せず、",
+      "少しでも楽に過ごせる方法を",
+      "見つけてくださいね。",
+    ].join("\n"),
+    intent: PREGNANCY_SMELL_SENSITIVITY_INTENT,
+    subtype: "smell",
+    focus: "general_tips",
+    selectedSelfCareTips: [
+      { id: "avoid_smells", title: "苦手なにおいを避ける" },
+      { id: "food_temperature", title: "食べ物の温度を工夫する" },
+    ],
+    medicalSafetyLevel: "self_care",
+    askFollowUp: false,
+    suppressReferenceLinks: true,
   };
 }
 
