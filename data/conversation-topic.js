@@ -353,8 +353,12 @@ export function isFollowUpForIntent(msg, previousIntent) {
   if (previousIntent === "patient_complaint") {
     return (
       isComplaintFollowUpCue(m) ||
-      (isPatientComplaintContent(m) && m.length <= 120) ||
-      (/^(?:なんで|なぜ|どうして|改善して)/.test(m) && m.length <= 40)
+      isPatientComplaintContent(m) ||
+      (isPatientComplaintQuery(m) && m.length <= 120) ||
+      (/^(?:なんで|なぜ|どうして|改善して)/.test(m) && m.length <= 40) ||
+      /説明(?:が|も)?なかった|案内(?:が|も)?なかった|教えてもらえなかった|なかったし$/.test(
+        m
+      )
     );
   }
 

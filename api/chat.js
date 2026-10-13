@@ -443,7 +443,7 @@ const EVENING_RESERVATION_WALKIN_ANSWER = [
 
 function buildEveningReservationAnswer(userMessage, safeHistory = []) {
   const msg = String(userMessage || "").trim();
-  const ctx = celebrationDinnerContextText(safeHistory, userMessage);
+  const ctx = eveningConsultationUserContextText(safeHistory, userMessage);
   const followUpOnly =
     isEveningConsultationReservationQuery(msg, ctx) &&
     !/夜診|夜の診察|夕方の診察/.test(msg);
@@ -544,6 +544,20 @@ function celebrationDinnerContextText(safeHistory, userMessage = "") {
     chunks.push(String(h?.content || ""));
   }
   return chunks.join("\n").slice(-4000);
+}
+
+/**
+ * 夜診フォロー用：ユーザー発話のみ（AI回答の「夜診」「予約」汚染を防ぐ）
+ * @param {Array<{role?:string,content?:string}>} safeHistory
+ * @param {string} [userMessage]
+ */
+function eveningConsultationUserContextText(safeHistory, userMessage = "") {
+  const chunks = [String(userMessage || "")];
+  for (const h of safeHistory || []) {
+    if (h?.role && h.role !== "user") continue;
+    chunks.push(String(h?.content || ""));
+  }
+  return chunks.join("\n").slice(-2000);
 }
 
 /** 苦手な食材名をざっくり抽出（共感用） */
@@ -4562,12 +4576,17 @@ export default async function handler(req, res) {
     }
 
     // 予約方法一般・電話番号案内（診療内容不明時に電話予約可と断定しない。通常は番号非表示）
+    // クレーム（説明がなかった等）は patient_complaint 側。予約キーワードだけで拾わない
     if (
       !metaChatHit &&
       !casualGreetingOnly &&
+      !isPatientComplaintQuery(userMessage, safeHistory) &&
       isAppointmentGuidanceQuery(userMessage) &&
       !isMilkcareQuery(userMessage) &&
-      !isEveningConsultationReservationQuery(userMessage, dinnerContextText) &&
+      !isEveningConsultationReservationQuery(
+        userMessage,
+        eveningConsultationUserContextText(safeHistory, userMessage)
+      ) &&
       !isPrenatalClassesQuery(userMessage)
     ) {
       const ckHit = clinicKnowledgeHits.find(
@@ -4653,12 +4672,17 @@ export default async function handler(req, res) {
       return res.status(200).json(attachTopicDebug(payload, intentName));
     }
 
-    // 夜診の予約：予約不可・受付順（電話/事前予約可と案内しない。診療時間表は出さない）
+    // 夜診の予約：予約不可・受付順（電話/事前予約可と案内しない。診療時間表・チップは出さない）
+    // クレーム文脈の「予約」は patient_complaint 側へ（AI回答の夜診語で誤ヒットしない）
     if (
       !metaChatHit &&
       !casualGreetingOnly &&
+      !isPatientComplaintQuery(userMessage, safeHistory) &&
       !isEveningConsultationHoursQuery(userMessage) &&
-      isEveningConsultationReservationQuery(userMessage, dinnerContextText)
+      isEveningConsultationReservationQuery(
+        userMessage,
+        eveningConsultationUserContextText(safeHistory, userMessage)
+      )
     ) {
       const ckHit = clinicKnowledgeHits.find(
         (h) =>
@@ -4671,7 +4695,7 @@ export default async function handler(req, res) {
           String(ckHit?.item?.answer || "").trim() ||
           EVENING_RESERVATION_UNAVAILABLE_ANSWER
       );
-      const referencedPages = [CLINIC_HOURS_REF_PAGE];
+      const referencedPages = [];
       if (includeDebug) {
         siteKnowledgeDebug = {
           ...(siteKnowledgeDebug || {}),
@@ -4691,7 +4715,7 @@ export default async function handler(req, res) {
             : [],
           rejectedKnowledge: clinicRejected,
           referenceChips: referencedPages,
-          note: "夜診は予約不可・受付順。診療時間表は出さない",
+          note: "夜診は予約不可・受付順。診療時間表チップは出さない",
         };
       }
       await appendChatLog({

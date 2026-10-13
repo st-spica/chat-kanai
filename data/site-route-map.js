@@ -564,7 +564,7 @@ export function isEveningConsultationHoursQuery(userMessage) {
 /**
  * 夜診の予約可否・受付順か（他の診療予約・時間のみ質問と分離）
  * @param {string} userMessage
- * @param {string} [contextText] 直前会話（夜診文脈の補完）
+ * @param {string} [contextText] 直前会話（夜診文脈の補完）。AI回答の「夜診」語は使わないこと
  */
 export function isEveningConsultationReservationQuery(
   userMessage,
@@ -572,6 +572,14 @@ export function isEveningConsultationReservationQuery(
 ) {
   const msg = String(userMessage || "").trim();
   if (!msg) return false;
+  // クレーム・説明不足の不満は夜診予約ルールに流さない
+  if (
+    /説明(?:が|も)?(?:なかった|不足)|案内(?:が|も)?(?:なかった|されなかった)|教えてもらえなかった|何も言われなかった|待たされた|対応が悪|態度が悪/.test(
+      msg
+    )
+  ) {
+    return false;
+  }
   // 他サービスの予約には流用しない
   if (
     /妊婦健診|婦人科|初診|再診|産前産後教室|教室予約|WEB予約|ウェブ予約|ネット予約/.test(
@@ -583,16 +591,16 @@ export function isEveningConsultationReservationQuery(
   }
   if (isEveningConsultationHoursQuery(msg)) return false;
 
-  const ctx = `${msg}\n${String(contextText || "")}`;
   const eveningInMsg = mentionsEveningConsultation(msg);
+  // フォローアップ用コンテキストは「ユーザー発話側」の夜診言及のみ（AI回答の汚染防止）
   const eveningInCtx = mentionsEveningConsultation(contextText);
-  // 直前が夜診で、今回が「予約できますか？」だけ
+  // 直前ユーザーが夜診で、今回が「予約できますか？」だけ
   const followUpReserve =
     eveningInCtx &&
     !eveningInMsg &&
-    /予約/.test(msg) &&
+    /予約(?:できます|できる|はできます|可能|したい|取りたい|は取れ)/.test(msg) &&
     msg.length <= 40 &&
-    !/妊婦健診|婦人科|初診|WEB|ウェブ/.test(msg);
+    !/妊婦健診|婦人科|初診|WEB|ウェブ|説明|なかった|待た|不満|苦情/.test(msg);
 
   if (!eveningInMsg && !followUpReserve) return false;
 

@@ -118,6 +118,15 @@ export function isGenericReservationMethodQuery(userMessage) {
   if (isPhoneNumberQuery(msg)) return false;
   if (isUrgentContactQuery(msg)) return false;
 
+  // 説明がなかった等の不満は予約方法案内にしない
+  if (
+    /説明(?:が|も)?(?:なかった|不足)|案内(?:が|も)?(?:なかった|されなかった)|教えてもらえなかった|何も言われなかった|待たされた|対応が悪/.test(
+      msg
+    )
+  ) {
+    return false;
+  }
+
   // サービス別は他モジュールへ
   if (
     /母乳ケア|母乳相談|おっぱいケア|授乳相談|母乳外来/.test(msg) ||

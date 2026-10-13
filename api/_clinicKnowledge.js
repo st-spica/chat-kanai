@@ -1047,12 +1047,13 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
       };
     }
   }
-  // 夜診予約不可は夜診予約質問以外に流用しない（時間のみ・他診療予約と分離）
+  // 夜診予約不可は夜診予約質問以外に流用しない（時間のみ・他診療予約・クレームと分離）
   if (
     item.id === "evening-consultation-reservation" ||
     itemService === "evening_consultation"
   ) {
     if (
+      isPatientComplaintQuery(msg) ||
       isEveningConsultationHoursQuery(msg) ||
       isClinicHoursQuery(msg) ||
       !isEveningConsultationReservationQuery(msg)
@@ -1061,7 +1062,8 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         score: 0,
         reasons: ["夜診予約:対象外質問のため除外"],
         rejected: true,
-        rejectReason: "evening_consultationは夜診の予約可否のみ",
+        rejectReason:
+          "evening_consultationは夜診の予約可否のみ（クレーム・説明不足は除外）",
       };
     }
   }

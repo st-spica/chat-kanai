@@ -67,6 +67,53 @@ export function complaintHasMedicalConcern(msg) {
 }
 
 /**
+ * 説明・案内不足への不満（予約方法の質問ではない）
+ * 「次の予約の説明もなかったし」等
+ * @param {string} msg
+ */
+export function isComplaintLackOfGuidance(msg) {
+  const m = String(msg || "").trim();
+  if (!m) return false;
+  // 明示の方法質問は案内不足クレームにしない
+  if (
+    /(?:どうすれば|どうやって|方法を(?:教え|教えて)|予約できますか|予約はできますか|予約したい)/.test(
+      m
+    ) &&
+    !/(?:なかった|されなかった|もらえなかった|くれなかった|言われなかった)/.test(m)
+  ) {
+    return false;
+  }
+  return (
+    /説明(?:が|も)?(?:なかった|不足|不十分)|案内(?:が|も)?(?:なかった|されなかった|不足)|教えてもらえなかった|教えてくれなかった|何も言われなかった|説明してくれなかった|案内してくれなかった|説明もなし|案内もなし/.test(
+      m
+    ) ||
+    /(?:次の|次回の?)予約.{0,12}説明.{0,8}なかった|予約の説明(?:が|も)?なかった/.test(
+      m
+    )
+  );
+}
+
+/**
+ * クレーム文脈で追加される不満表現（単独でも苦情寄り）
+ * @param {string} msg
+ */
+export function isComplaintAdditionalDissatisfaction(msg) {
+  const m = String(msg || "").trim();
+  if (!m) return false;
+  if (isComplaintLackOfGuidance(m)) return true;
+  if (/対応が悪|態度が悪|不親切だった|嫌な思い|不快だった/.test(m)) return true;
+  if (
+    /予約(?:して|した|してた|していた).{0,12}(?:のに|にも).{0,16}(?:待|呼ば|長)/.test(
+      m
+    ) ||
+    /待たされた|待たせられた/.test(m)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * 謝罪拒否・説明要求など、クレーム継続の短い合図
  * @param {string} msg
  */
@@ -76,6 +123,7 @@ export function isComplaintFollowUpCue(msg) {
   // 長い発話はフォロー合図ではない。
   // ※ isPatientComplaintContent をここで呼ぶと相互再帰で RangeError になるため禁止
   if (m.length > 80) return false;
+  if (isComplaintLackOfGuidance(m) && m.length <= 80) return true;
   return (
     /謝ってほしいわけじゃ|謝ってほしくない|謝らなくて|謝罪はいい|謝罪はいらない|お詫びはいい/.test(
       m
@@ -88,7 +136,10 @@ export function isComplaintFollowUpCue(msg) {
     ) ||
     /^(?:なんで|なぜ|どうして)[？?！!。．\s]*$/.test(m) ||
     /^(?:説明して|理由を教えて|理由は)[？?！!。．\s]*$/.test(m) ||
-    (/改善して|改善してほしい|改善してください/.test(m) && m.length <= 40)
+    (/改善して|改善してほしい|改善してください/.test(m) && m.length <= 40) ||
+    // 「〜し」「〜だし」で追加不満を続ける短い発話
+    (/(?:なかったし|されなかったし|呼ばれたし|待たされたし)$/.test(m) &&
+      m.length <= 60)
   );
 }
 
@@ -101,6 +152,9 @@ export function isPatientComplaintContent(msg) {
   if (!t) return false;
   if (isOtherHospitalPastExperience(t)) return false;
   if (isSymptomSeverityOnly(t)) return false;
+  // 説明・案内不足は短文でも内容クレーム（フォロー合図除外より先）
+  if (isComplaintLackOfGuidance(t)) return true;
+  if (isComplaintAdditionalDissatisfaction(t) && t.length <= 100) return true;
   // 短文のフォロー合図のみ除外（長さを先に見て isComplaintFollowUpCue の不要呼び出しを避ける）
   if (t.length <= 40 && isComplaintFollowUpCue(t)) return false;
 
@@ -155,7 +209,14 @@ export function isPatientComplaintQuery(userMessage, safeHistory = []) {
   const msg = String(userMessage || "").trim();
   if (!msg) return false;
   if (isPatientComplaintContent(msg)) return true;
-  if (isComplaintFollowUpCue(msg) && findPriorComplaintMessage(safeHistory, msg)) {
+  const prior = findPriorComplaintMessage(safeHistory, msg);
+  if (!prior) return false;
+  // 直前がクレームなら、追加不満・案内不足もクレーム継続
+  if (
+    isComplaintFollowUpCue(msg) ||
+    isComplaintLackOfGuidance(msg) ||
+    isComplaintAdditionalDissatisfaction(msg)
+  ) {
     return true;
   }
   return false;
@@ -194,6 +255,7 @@ function findLastAssistantMessage(safeHistory) {
  */
 export function extractComplaintAspects(text) {
   const t = String(text || "");
+  const lackGuidance = isComplaintLackOfGuidance(t);
   return {
     waitTime: /待ち時間|待たされ|長く待|長すぎ|待っています|待たされ|お待たせ|混んで/.test(
       t
@@ -204,16 +266,23 @@ export function extractComplaintAspects(text) {
       ),
     reservationWhy:
       /予約/.test(t) &&
-      /(?:なんで|なぜ|どうして|混|待|おかしい)/.test(t),
-    reservation: /予約/.test(t),
+      /(?:なんで|なぜ|どうして|混|待|おかしい)/.test(t) &&
+      !lackGuidance,
+    reservation: /予約/.test(t) && !lackGuidance,
+    /** 次回予約などの説明・案内がなかったことへの不満 */
+    nextAppointmentExplain:
+      lackGuidance &&
+      /(?:次の|次回)?予約|受診|診察後|会計後|帰り/.test(t),
+    lackOfGuidance: lackGuidance,
     callOrder:
-      /(?:後に来|後から来).{0,20}(?:先に)|順番がおかしい|診察の順番|呼ばれる順番/.test(
+      /(?:後に来|後から来).{0,20}(?:先に)|順番がおかしい|診察の順番|呼ばれる順番|先に呼ばれた/.test(
         t
       ),
     reception: /受付.{0,10}(?:態度|対応|悪|ひど)/.test(t),
     nurse: /看護師|ナース/.test(t) && /態度|対応|冷た|悪|ひど|不親切/.test(t),
     doctorExplain:
-      /(?:先生|医師).{0,12}(?:説明|不十分)|説明が不十分|説明不足/.test(t),
+      /(?:先生|医師).{0,12}(?:説明|不十分)|説明が不十分|説明不足/.test(t) &&
+      !lackGuidance,
     neverReturn: /もう(?:二度と)?来たく|二度と来/.test(t),
     improvement: /改善して|改善してほしい|改善を求め/.test(t),
   };
@@ -293,6 +362,50 @@ function buildInitialCompoundAnswer(msg, aspects) {
       focus: "medical_with_complaint",
       useExactAnswer: true,
       medicalSafetyLevel: "consult",
+      referencedPages: emptyRefs,
+      suppressReferenceLinks: true,
+      phase: "initial",
+    };
+  }
+
+  // 次回予約などの説明不足（予約ルール案内に流さない）
+  if (aspects.nextAppointmentExplain || (aspects.lackOfGuidance && /予約/.test(msg))) {
+    return {
+      answer: [
+        "次回の予約についても、",
+        "説明がなかったのですね。",
+        "",
+        "診察後の案内が十分でなく、",
+        "ご不安やご不満を感じさせてしまい、",
+        "申し訳ございません。",
+        "",
+        "次回の受診について分からないことが",
+        "ございましたら、スタッフにお声がけください。",
+      ].join("\n"),
+      intent: PATIENT_COMPLAINT_INTENT,
+      focus: "next_appointment_explain_missing",
+      useExactAnswer: true,
+      medicalSafetyLevel: "information",
+      referencedPages: emptyRefs,
+      suppressReferenceLinks: true,
+      phase: "initial",
+    };
+  }
+
+  if (aspects.lackOfGuidance) {
+    return {
+      answer: [
+        "ご案内やご説明が足りず、",
+        "ご不安やご不満を感じさせてしまい、",
+        "申し訳ございません。",
+        "",
+        "分からないことがございましたら、",
+        "スタッフにお声がけください。",
+      ].join("\n"),
+      intent: PATIENT_COMPLAINT_INTENT,
+      focus: "lack_of_guidance",
+      useExactAnswer: true,
+      medicalSafetyLevel: "information",
       referencedPages: emptyRefs,
       suppressReferenceLinks: true,
       phase: "initial",
@@ -787,6 +900,25 @@ export function buildPatientComplaintAnswer(userMessage, safeHistory = []) {
   const prior = findPriorComplaintMessage(safeHistory, msg);
   const lastAssistant = findLastAssistantMessage(safeHistory);
 
+  // 継続中の新しい具体的不満（次回予約の説明不足など）は、その内容に応答
+  const currentAspects = extractComplaintAspects(msg);
+  if (
+    prior &&
+    (currentAspects.nextAppointmentExplain ||
+      currentAspects.lackOfGuidance ||
+      currentAspects.callOrder ||
+      (isPatientComplaintContent(msg) &&
+        !isComplaintFollowUpCue(msg)))
+  ) {
+    const built = buildInitialCompoundAnswer(msg, currentAspects);
+    if (built) {
+      return {
+        ...built,
+        phase: "followup_new_aspect",
+      };
+    }
+  }
+
   // 継続：謝罪拒否・説明要求・改善要求
   if (isComplaintFollowUpCue(msg) && prior) {
     return buildFollowUpAnswer(msg, prior, lastAssistant);
@@ -801,6 +933,5 @@ export function buildPatientComplaintAnswer(userMessage, safeHistory = []) {
     return buildFollowUpAnswer(msg, prior, lastAssistant);
   }
 
-  const aspects = extractComplaintAspects(msg);
-  return buildInitialCompoundAnswer(msg, aspects);
+  return buildInitialCompoundAnswer(msg, currentAspects);
 }
