@@ -7122,83 +7122,108 @@ export default async function handler(req, res) {
       const attendFocused = isAttendFocusedQuery(userMessage);
       const meetingFocused = isMeetingFocusedQuery(userMessage);
 
-      const {
-        snippet: webSnippet,
-        sourceChunks,
-        confidence,
-        debug,
-        evidenceUrls: siteEvidence = [],
-        chipUrls: siteChips = [],
-      } = await getSiteKnowledgeSnippetSupplement(userMessage, {
-        forceRefresh,
-        includeDebug,
-        clinicKnowledgeStrong,
-      });
-      fetchedSourceChunks = sourceChunks || [];
-      knowledgeConfidence = confidence || (webSnippet ? "low" : "none");
-      evidenceUrls = siteEvidence || [];
-      chipUrls = siteChips || [];
-      if (includeDebug && debug) {
-        siteKnowledgeDebug = { ...(siteKnowledgeDebug || {}), ...debug };
-      }
+      try {
+        const {
+          snippet: webSnippet,
+          sourceChunks,
+          confidence,
+          debug,
+          evidenceUrls: siteEvidence = [],
+          chipUrls: siteChips = [],
+        } = await getSiteKnowledgeSnippetSupplement(userMessage, {
+          forceRefresh,
+          includeDebug,
+          clinicKnowledgeStrong,
+        });
+        fetchedSourceChunks = sourceChunks || [];
+        knowledgeConfidence = confidence || (webSnippet ? "low" : "none");
+        evidenceUrls = siteEvidence || [];
+        chipUrls = siteChips || [];
+        if (includeDebug && debug) {
+          siteKnowledgeDebug = { ...(siteKnowledgeDebug || {}), ...debug };
+        }
 
-      // clinic強ヒット時: サイトは補助。根拠に足るURLが無ければ抜粋も渡さない
-      if (clinicKnowledgeStrong && !evidenceUrls.length) {
-        clinicSnippet = "";
-        knowledgeConfidence = "none";
-        chipUrls = [];
-      } else if (webSnippet && knowledgeConfidence !== "none") {
-        clinicSnippet = webSnippet;
-      }
+        // clinic強ヒット時: サイトは補助。根拠に足るURLが無ければ抜粋も渡さない
+        if (clinicKnowledgeStrong && !evidenceUrls.length) {
+          clinicSnippet = "";
+          knowledgeConfidence = "none";
+          chipUrls = [];
+        } else if (webSnippet && knowledgeConfidence !== "none") {
+          clinicSnippet = webSnippet;
+        }
 
-      // チップは evidence 由来のみ（検索候補の流用禁止）
-      if (attendFocused && clinicSnippet && !clinicKnowledgeStrong) {
-        referencedPages = [
-          { url: ATTEND_INFO_PAGE_URL, title: "立ち会い分娩について" },
-        ];
-        chipUrls = referencedPages.map((p) => ({
-          ...p,
-          score: 999,
-          reason: "立ち会い専用",
-        }));
-        evidenceUrls = chipUrls;
-      } else if (meetingFocused && clinicSnippet && !clinicKnowledgeStrong) {
-        referencedPages = [
-          { url: MEETING_INFO_PAGE_URL, title: "面会について" },
-        ];
-        chipUrls = referencedPages.map((p) => ({
-          ...p,
-          score: 999,
-          reason: "面会専用",
-        }));
-        evidenceUrls = chipUrls;
-      } else {
-        referencedPages = (chipUrls || []).map((c) => ({
-          url: c.url,
-          title: c.title,
-        }));
-      }
+        // チップは evidence 由来のみ（検索候補の流用禁止）
+        if (attendFocused && clinicSnippet && !clinicKnowledgeStrong) {
+          referencedPages = [
+            { url: ATTEND_INFO_PAGE_URL, title: "立ち会い分娩について" },
+          ];
+          chipUrls = referencedPages.map((p) => ({
+            ...p,
+            score: 999,
+            reason: "立ち会い専用",
+          }));
+          evidenceUrls = chipUrls;
+        } else if (meetingFocused && clinicSnippet && !clinicKnowledgeStrong) {
+          referencedPages = [
+            { url: MEETING_INFO_PAGE_URL, title: "面会について" },
+          ];
+          chipUrls = referencedPages.map((p) => ({
+            ...p,
+            score: 999,
+            reason: "面会専用",
+          }));
+          evidenceUrls = chipUrls;
+        } else {
+          referencedPages = (chipUrls || []).map((c) => ({
+            url: c.url,
+            title: c.title,
+          }));
+        }
 
-      // clinic-knowledge の relatedSiteUrl: 本文が回答を裏付ける場合のみチップ補完
-      if (!referencedPages.length && clinicKnowledgeHits.length) {
-        const relatedChip = relatedSiteUrlChipFromClinicHits(
-          clinicKnowledgeHits,
-          fetchedSourceChunks,
-          userMessage
-        );
-        if (relatedChip) {
-          referencedPages = [{ url: relatedChip.url, title: relatedChip.title }];
-          chipUrls = [relatedChip];
-          if (!evidenceUrls.some((e) => e.url === relatedChip.url)) {
-            evidenceUrls = [...evidenceUrls, relatedChip];
+        // clinic-knowledge の relatedSiteUrl: 本文が回答を裏付ける場合のみチップ補完
+        if (!referencedPages.length && clinicKnowledgeHits.length) {
+          const relatedChip = relatedSiteUrlChipFromClinicHits(
+            clinicKnowledgeHits,
+            fetchedSourceChunks,
+            userMessage
+          );
+          if (relatedChip) {
+            referencedPages = [
+              { url: relatedChip.url, title: relatedChip.title },
+            ];
+            chipUrls = [relatedChip];
+            if (!evidenceUrls.some((e) => e.url === relatedChip.url)) {
+              evidenceUrls = [...evidenceUrls, relatedChip];
+            }
           }
         }
-      }
 
-      if (clinicSnippet.length > SITE_SNIPPET_MAX_CHARS) {
-        clinicSnippet =
-          clinicSnippet.slice(0, SITE_SNIPPET_MAX_CHARS) +
-          "\n\n（以降、文字数制限のため省略しました）";
+        if (clinicSnippet.length > SITE_SNIPPET_MAX_CHARS) {
+          clinicSnippet =
+            clinicSnippet.slice(0, SITE_SNIPPET_MAX_CHARS) +
+            "\n\n（以降、文字数制限のため省略しました）";
+        }
+      } catch (siteErr) {
+        // サイト検索失敗で会話全体を500にしない（固定知識・GPT一般相談は継続）
+        console.error(
+          "site-knowledge search failed:",
+          siteErr?.message || siteErr
+        );
+        clinicSnippet = "";
+        fetchedSourceChunks = [];
+        knowledgeConfidence = "none";
+        evidenceUrls = [];
+        chipUrls = [];
+        referencedPages = [];
+        if (includeDebug) {
+          siteKnowledgeDebug = {
+            ...(siteKnowledgeDebug || {}),
+            siteKnowledgeError: String(siteErr?.message || siteErr).slice(
+              0,
+              300
+            ),
+          };
+        }
       }
     }
 
@@ -7734,7 +7759,8 @@ export default async function handler(req, res) {
       "chat handler error:",
       detail,
       status != null ? `http=${status}` : "",
-      code != null ? `code=${code}` : ""
+      code != null ? `code=${code}` : "",
+      e?.stack ? String(e.stack).slice(0, 800) : ""
     );
 
     if (e instanceof APIConnectionError) {
