@@ -116,6 +116,16 @@ import {
   isPregnancyFoodSafetyQuery,
 } from "../data/pregnancy-food-safety.js";
 import {
+  buildGeneralHealthConsultationAnswer,
+  isClinicSpecificHealthServiceQuery,
+  isGeneralHealthConsultationQuery,
+  isPregnancyStretchMarksGeneralQuery,
+} from "../data/general-health-consultation.js";
+import {
+  buildPregnancyColdAnswer,
+  isPregnancyColdQuery,
+} from "../data/pregnancy-cold.js";
+import {
   breechContextText,
   buildBreechPresentationAnswer,
   isBreechPresentationQuery,
@@ -726,6 +736,13 @@ const SERVICE_AVAILABILITY_TOPICS = [
 function isServiceAvailabilityQuestion(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg) return false;
+  // 一般的な健康相談（「妊娠線を防ぐ方法」等）はサービス可否とみなさない
+  if (
+    isGeneralHealthConsultationQuery(msg) &&
+    !isClinicSpecificHealthServiceQuery(msg)
+  ) {
+    return false;
+  }
   // 予約・変更など別処理の可否は除外
   if (
     /予約|キャンセル|WEB予約|ウェブ予約|変更したい|今日の予約|当日の予約/i.test(msg) &&
@@ -1091,8 +1108,9 @@ const SYSTEM = `
   - 情報の優先順位は次のとおり（上ほど強い）。**(1) 院内登録情報**（病院が明示登録した確定情報）→ **(2) 公式サイト抜粋** → **(3) GPT一般知識（当院固有の断定には使わない）**。
   - **院内登録情報**が渡されている場合は、公式サイト抜粋より優先して使う。矛盾時は院内登録情報を採用する。
   - **当院固有の情報**（診療時間・休診・予約方法・分娩予約・面会・立ち会い・入院・費用・医師・ワクチン・教室・設備・駐車場・持ち物・当院独自のサービス／ルール など）は、このターンで渡される**院内登録情報または公式サイト抜粋に根拠がある場合のみ**答える。
-  - どちらにも根拠がない当院固有の質問では、GPT自身の一般知識・推測・「一般的な産婦人科では」「通常は」などの補完は**禁止**。確認できない旨を伝え、当院への電話相談へ案内する。
-  - **一般的な妊娠・出産・症状の相談**（例：つわり、むくみ、不安の整理）は、診断・処方をせず、既存の安全ルールに従って案内してよい（当院固有の制度・時間・可否の断定はしない）。
+  - どちらにも根拠がない**当院固有の質問**（診療時間・予約・料金・当院の販売・治療の有無・入院サービス等）では、GPT自身の一般知識・推測・「一般的な産婦人科では」「通常は」などの補完は**禁止**。確認できない旨を伝え、当院への電話相談へ案内する。
+  - **一般的な妊娠・出産・育児・症状の相談**（例：つわりの対処、妊娠線のケア、睡眠姿勢、便秘、カフェイン、赤ちゃんの睡眠）は、公式サイトに記載がなくても、診断・処方・個別の治療判断をせず、一般的な医学・健康知識で直接答えてよい。当院独自の方針・販売・治療の有無は推測しない。
+  - 一般的な相談に対して「現在確認できる情報がありません」だけで回答を拒否しない。根拠のない当院固有の断定もしない。
   - 院内登録情報・公式サイト情報があっても、**緊急症状の判断・診断・処方指示には使わない**。危険サインは救急誘導を最優先。
 - ユーザーの質問は短い1文が多い。当院固有の話題で根拠が渡されているときは、その内容を最優先で使い、一般論で薄めない・上書きしない。
 - 抜粋に「更新:」やページ種別が付いている場合、**質問日と日付が一致する新しい関連情報**（臨時休診など）を、古い一般案内より優先して解釈する。日付が一致しない休診お知らせや、タイトルだけの「本日」表記は今日の根拠にしない。
@@ -1101,7 +1119,7 @@ const SYSTEM = `
 - 【診療日と当日予約は分離】「今日は診療しているか」と「今日の予約が取れるか」は別問題。通常診療日でも、当日予約可否の根拠が抜粋／院内登録情報に無い場合は予約可否を断定せず、電話等での確認を案内する。「予約情報が不明だから休診」と推測しない。
 - 【謝罪】未実施サービス案内では「お問い合わせありがとうございます。大変申し訳ございませんが、…」を使う。通常の制度案内では過失謝罪を前置きしない。一方、待ち時間・順番・接遇など当院へのクレーム・ご意見では、ご不便・ご不快へのお詫びを最初に述べる（未確認の「スタッフが間違えた」等の事実断定はしない）。
 - サイト抜粋で「実施していない／行っていない／休診」と分かる内容を聞かれたときだけ、冒頭をお礼→未実施／休診の案内にする。曖昧にしない。日付不一致の休診お知らせだけでは使わない。
-- 当院固有テーマで院内登録情報も公式サイト抜粋も根拠がない場合は、「正確な情報を確認できないため、お手数ですが当院へお電話でお問い合わせください。」と案内する（一般論で埋めない）。
+- 当院固有テーマで院内登録情報も公式サイト抜粋も根拠がない場合は、「正確な情報を確認できないため、お手数ですが当院へお電話でお問い合わせください。」と案内する（当院の制度・サービス可否を一般論で埋めない）。一般的な健康相談（B類）にはこの制約を当てはめない。
 - 回答内では「院内サイト抜粋」「院内登録情報」「KNOWLEDGE」などの内部用語は一切出さない。
 - 回答内で「チャットボット」「AI」などと自称しない。必要な場合も「相談窓口としてご案内します」と表現する。
 - 相手が感情・不満・悩みを示したときは、外側から評価せず、相手の言葉に寄せて短く受け止める。推測で感情を決めつけない。次の行動は患者主体で返す。
@@ -1338,10 +1356,20 @@ script, style, iframe, onclick、data-*、id は使わない。
 
 const PROMPT_NO_CLINIC_EVIDENCE = [
   "【このターン：当院固有情報の根拠なし（最優先）】",
-  "ユーザーの質問は当院の制度・時間・予約・サービス等の固有情報に関するものですが、今回は公式サイト抜粋から十分な根拠を取得できませんでした。",
-  "・一般知識や推測で診療時間・休診・予約可否・料金・面会・ワクチン等を答えない。",
+  "ユーザーの質問は当院の制度・時間・予約・サービス・販売・治療の有無等の固有情報（A類）に関するものですが、今回は院内登録情報・公式サイト抜粋から十分な根拠を取得できませんでした。",
+  "・一般知識や推測で診療時間・休診・予約可否・料金・面会・当院の販売・治療の有無等を答えない。",
   "・「一般的な産婦人科では」「通常は」などの補完も禁止。",
   "・丁寧に、正確な情報を確認できないため当院へお電話でお問い合わせほしい旨を案内する。",
+  "・妊娠線の予防・つわり・便秘・睡眠・カフェイン等の一般的な健康相談（B類）にはこのプロンプトを当てはめない。",
+].join("\n");
+
+/** 一般的な医学・健康相談（公式サイト未掲載でも回答可） */
+const PROMPT_GENERAL_HEALTH = [
+  "【このターン：一般的な医学・健康相談（B類）】",
+  "・公式サイトに記載がなくても、妊娠・出産・育児に関する一般的な知識で、質問に直接答える。",
+  "・診断の確定・処方・個別の治療判断はしない。効果や安全性を断定しない。",
+  "・当院の販売・治療・サービスの有無は推測しない（院内根拠が無い場合は触れないか、確認を案内）。",
+  "・過度な不安をあおらない。関連する公式ページが無ければリンクを無理に付けない。",
 ].join("\n");
 
 /** このターンだけリッチHTMLを強く指示（モデルがプレーン文に逃げるのを防ぐ） */
@@ -1846,6 +1874,13 @@ function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
 
 /** 当院固有事実が必要な質問か（根拠なし時は一般知識で埋めない） */
 function isClinicSpecificFactualQuery(userMessage, safeHistory) {
+  const msg = String(userMessage || "").trim();
+  if (
+    isGeneralHealthConsultationQuery(msg) &&
+    !isClinicSpecificHealthServiceQuery(msg)
+  ) {
+    return false;
+  }
   return shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory);
 }
 
@@ -4698,6 +4733,78 @@ export default async function handler(req, res) {
         .json(attachTopicDebug(payload, "pregnancy_food_safety"));
     }
 
+    // 妊娠中の風邪（受診先・薬・対処。服薬一般より先）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isPregnancyColdQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "pregnancy-cold-where-to-visit" ||
+          h.item?.intent === "pregnancy_cold_where_to_visit" ||
+          h.item?.intent === "pregnancy_cold_medication" ||
+          h.item?.intent === "pregnancy_cold_self_care"
+      );
+      const built = buildPregnancyColdAnswer(userMessage);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      const safety = built?.medicalSafetyLevel || "information";
+      const isUrgent = safety === "urgent";
+      const intentName = built?.intent || "pregnancy_cold_where_to_visit";
+      if (answer) {
+        if (includeDebug) {
+          siteKnowledgeDebug = {
+            ...(siteKnowledgeDebug || {}),
+            detectedIntent: intentName,
+            detectedService: "pregnancy_health_support",
+            focus: built?.focus || "general",
+            matchedClinicKnowledge: ckHit
+              ? [
+                  {
+                    id: ckHit.item.id,
+                    intent: ckHit.item.intent,
+                    service: ckHit.item.service,
+                    score: ckHit.score,
+                  },
+                ]
+              : [],
+            medicalSafetyLevel: safety,
+            referenceChips: [],
+            rejectedKnowledge: clinicRejected,
+            note: "風邪の受診先と風邪薬を分離。当院で風邪を診るかは根拠なく断定しない",
+          };
+        }
+        await appendChatLog({
+          message: userMessage,
+          answer,
+          clientId,
+          meta: {
+            intent: intentName,
+            service: "pregnancy_health_support",
+            pregnancyCold: true,
+            focus: built?.focus,
+            medicalSafetyLevel: safety,
+            emergency: isUrgent,
+          },
+        });
+        const payload = {
+          answer,
+          emergency: isUrgent,
+          referencedPages: [],
+        };
+        if (includeDebug) {
+          payload.debug = siteKnowledgeDebug;
+          payload.detectedIntent = intentName;
+          payload.medicalSafetyLevel = safety;
+          payload.rejectedKnowledge = clinicRejected;
+        }
+        return res.status(200).json(attachTopicDebug(payload, intentName));
+      }
+    }
+
     // 葉酸サプリ（服薬一般・授乳中と分離）
     if (
       !metaChatHit &&
@@ -4974,6 +5081,80 @@ export default async function handler(req, res) {
         .json(
           attachTopicDebug(payload, "pregnancy_work_accommodation_document")
         );
+    }
+
+    // 一般的な健康相談（妊娠線・便秘・睡眠姿勢等。公式サイト未掲載でも回答）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      (allowStructuredIntent("general_health_consultation") ||
+        allowStructuredIntent("pregnancy_stretch_marks") ||
+        isGeneralHealthConsultationQuery(userMessage)) &&
+      isGeneralHealthConsultationQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "pregnancy-stretch-marks" ||
+          h.item?.intent === "pregnancy_stretch_marks" ||
+          h.item?.intent === "general_health_consultation"
+      );
+      const built = buildGeneralHealthConsultationAnswer(userMessage);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      const intentName =
+        built?.intent === "pregnancy_stretch_marks"
+          ? "pregnancy_stretch_marks"
+          : "general_health_consultation";
+      if (answer) {
+        if (includeDebug) {
+          siteKnowledgeDebug = {
+            ...(siteKnowledgeDebug || {}),
+            detectedIntent: intentName,
+            detectedService: "pregnancy_health_support",
+            focus: built?.focus || "general",
+            matchedClinicKnowledge: ckHit
+              ? [
+                  {
+                    id: ckHit.item.id,
+                    intent: ckHit.item.intent,
+                    service: ckHit.item.service,
+                    score: ckHit.score,
+                  },
+                ]
+              : [],
+            medicalSafetyLevel: built?.medicalSafetyLevel || "information",
+            referenceChips: [],
+            rejectedKnowledge: clinicRejected,
+            note: "B類一般健康相談。サイト未掲載でも回答。当院販売・治療は推測しない",
+          };
+        }
+        await appendChatLog({
+          message: userMessage,
+          answer,
+          clientId,
+          meta: {
+            intent: intentName,
+            service: "pregnancy_health_support",
+            generalHealth: true,
+            focus: built?.focus,
+          },
+        });
+        const payload = {
+          answer,
+          emergency: false,
+          referencedPages: [],
+        };
+        if (includeDebug) {
+          payload.debug = siteKnowledgeDebug;
+          payload.detectedIntent = intentName;
+          payload.rejectedKnowledge = clinicRejected;
+        }
+        return res
+          .status(200)
+          .json(attachTopicDebug(payload, intentName));
+      }
     }
 
     // つわり相談（症状に合わせたセルフケア／受診優先。診断断定なし）
@@ -7240,12 +7421,17 @@ export default async function handler(req, res) {
       registeredClinicPrompt = "";
     }
 
+    const generalHealthTurn =
+      isGeneralHealthConsultationQuery(userMessage) &&
+      !isClinicSpecificHealthServiceQuery(userMessage);
+
     const needNoEvidencePrompt =
       !metaChatHit &&
       clinicFactual &&
       !clinicSnippet &&
       !registeredClinicPrompt &&
-      !notOfferedHit;
+      !notOfferedHit &&
+      !generalHealthTurn;
 
     const tokyoDatetimePrompt = buildTokyoDatetimeSystemPrompt(userMessage);
     const dinnerIntent =
@@ -7332,7 +7518,9 @@ export default async function handler(req, res) {
         : []),
       ...(metaChatHit
         ? [{ role: "system", content: PROMPT_META_CHAT }]
-        : isMotherDistressConsultMessage(userMessage)
+        : generalHealthTurn
+          ? [{ role: "system", content: PROMPT_GENERAL_HEALTH }]
+          : isMotherDistressConsultMessage(userMessage)
           ? [{ role: "system", content: PROMPT_MOTHER_DISTRESS }]
           : isBabyIllnessConsultMessage(userMessage)
             ? [{ role: "system", content: PROMPT_BABY_ILLNESS }]

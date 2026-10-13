@@ -8,6 +8,11 @@
 
 import { isPregnancyCaffeineQuery } from "./pregnancy-caffeine.js";
 import { isPregnancyFoodSafetyQuery } from "./pregnancy-food-safety.js";
+import {
+  isPregnancyColdWhereToVisitQuery,
+  isPregnancyColdSelfCareQuery,
+  isClinicColdServiceQuery,
+} from "./pregnancy-cold.js";
 
 /** @typedef {"urgent"|"consult"|"information"|"folic"} PregnancyMedSafetyLevel */
 
@@ -47,6 +52,14 @@ export function isPregnancyMedicationQuery(userMessage, contextText = "") {
   if (isPregnancyFolicAcidQuery(msg)) return false;
   if (isPregnancyCaffeineQuery(msg)) return false;
   if (isPregnancyFoodSafetyQuery(msg)) return false;
+  // 風邪の受診先・対処・当院可否は服薬相談にしない（風邪薬のみ服薬側でも可）
+  if (
+    isPregnancyColdWhereToVisitQuery(msg) ||
+    isPregnancyColdSelfCareQuery(msg) ||
+    isClinicColdServiceQuery(msg)
+  ) {
+    return false;
+  }
   if (isBreastfeedingMedicationQuery(msg)) return false;
   // 小児予防接種は別ルート
   if (
@@ -82,12 +95,16 @@ export function isPregnancyMedicationQuery(userMessage, contextText = "") {
     return true;
   }
   // 直前が妊娠中の服薬相談で、頭痛薬などだけ続く
+  // ※「風邪」単独や受診先質問は含めない（風邪薬以外）
   if (
-    /妊娠|妊婦|お薬|服薬|薬について/.test(ctx) &&
+    /お薬|服薬|薬について|頭痛薬|風邪薬|市販薬|処方薬/.test(ctx) &&
     (DRUG_WORD_RE.test(msg) ||
-      /頭痛|風邪|胃|市販|処方|やめた|続けて|飲み/.test(msg)) &&
+      /頭痛薬|風邪薬|胃薬|市販|処方|やめた|続けて|飲み/.test(msg) ||
+      (/頭痛/.test(msg) && /薬|飲/.test(msg))) &&
     msg.length <= 40 &&
-    !/授乳|葉酸|予防接種|ワクチン/.test(msg)
+    !/授乳|葉酸|予防接種|ワクチン|どこ|何科|内科|受診/.test(msg) &&
+    !isPregnancyColdWhereToVisitQuery(msg) &&
+    !isPregnancyColdSelfCareQuery(msg)
   ) {
     return true;
   }
@@ -238,27 +255,30 @@ export function buildPregnancyMedicationAnswer(userMessage, safeHistory = []) {
     };
   }
 
-  // 頭痛薬・風邪薬など具体的な種類（会話引き継ぎ含む）
+  // 頭痛薬・風邪薬など具体的な種類（「風邪」単独は風邪薬にしない）
   const drugFocus =
     msg.match(/頭痛薬|風邪薬|胃薬|市販薬|処方薬/)?.[0] ||
-    (/頭痛/.test(msg) ? "頭痛薬" : null) ||
-    (/風邪/.test(msg) ? "風邪薬" : null) ||
-    (/胃薬|胃が/.test(msg) ? "胃薬" : null) ||
-    (/市販/.test(msg) ? "市販薬" : null) ||
-    (/処方/.test(msg) ? "処方薬" : null);
+    (/頭痛/.test(msg) && /薬|飲/.test(msg) ? "頭痛薬" : null) ||
+    (/風邪薬/.test(msg) || (/風邪/.test(msg) && DRUG_WORD_RE.test(msg))
+      ? "風邪薬"
+      : null) ||
+    (/胃薬|胃が/.test(msg) && /薬|飲/.test(msg) ? "胃薬" : null) ||
+    (/市販/.test(msg) && /薬/.test(msg) ? "市販薬" : null) ||
+    (/処方/.test(msg) && /薬/.test(msg) ? "処方薬" : null);
 
   const priorMed =
     /お薬|服薬|薬について|妊娠中のお薬|どのようなお薬/.test(ctx) &&
     mentionsPregnancyMedicationTopic(ctx);
 
-  if (drugFocus || (priorMed && /頭痛|風邪|胃|市販|処方|薬です/.test(msg))) {
-    const label = drugFocus || (/頭痛/.test(msg) ? "頭痛薬" : "お薬");
+  if (
+    drugFocus ||
+    (priorMed && /頭痛薬|風邪薬|胃薬|市販|処方|薬です/.test(msg))
+  ) {
+    const label = drugFocus || (/頭痛薬/.test(msg) ? "頭痛薬" : "お薬");
     /** @type {string[]} */
     const lines = [];
-    if (/頭痛/.test(msg) && !/頭痛薬について/.test(msg)) {
+    if (/頭痛/.test(msg) && /薬|飲/.test(msg) && !/頭痛薬について/.test(msg)) {
       lines.push("頭痛があるのですね。", "");
-    } else if (/風邪/.test(msg)) {
-      lines.push("風邪の症状があるのですね。", "");
     }
     lines.push(`${label}についてですね。`);
     lines.push(

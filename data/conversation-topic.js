@@ -34,6 +34,19 @@ import {
 import { isPregnancyCaffeineQuery } from "./pregnancy-caffeine.js";
 import { isPregnancyFoodSafetyQuery } from "./pregnancy-food-safety.js";
 import {
+  isClinicSpecificHealthServiceQuery,
+  isGeneralHealthConsultationQuery,
+  isPregnancyStretchMarksGeneralQuery,
+} from "./general-health-consultation.js";
+import {
+  isPregnancyColdWhereToVisitQuery,
+  isPregnancyColdMedicationQuery,
+  isPregnancyColdSelfCareQuery,
+  isClinicColdServiceQuery,
+  isPregnancyColdQuery,
+  pregnancyColdHasUrgentSigns,
+} from "./pregnancy-cold.js";
+import {
   detectBirthPricingIntent,
   isBirthPricingQuery,
 } from "./birth-pricing.js";
@@ -222,8 +235,32 @@ export function detectStandaloneIntent(userMessage) {
   // つわり
   if (isMorningSicknessQuery(msg, "")) return "morning_sickness_consultation";
 
-  // 葉酸 / カフェイン・食事 / 服薬
+  // 一般的な健康相談（妊娠線・便秘・睡眠姿勢等）
+  if (isPregnancyStretchMarksGeneralQuery(msg)) {
+    return "pregnancy_stretch_marks";
+  }
+  if (
+    isGeneralHealthConsultationQuery(msg) &&
+    !isClinicSpecificHealthServiceQuery(msg)
+  ) {
+    return "general_health_consultation";
+  }
+
+  // 葉酸 / 風邪受診先 / カフェイン・食事 / 服薬
   if (isPregnancyFolicAcidQuery(msg)) return "pregnancy_folic_acid";
+  if (
+    isPregnancyColdWhereToVisitQuery(msg) ||
+    isClinicColdServiceQuery(msg) ||
+    (isPregnancyColdQuery(msg) && pregnancyColdHasUrgentSigns(msg))
+  ) {
+    return "pregnancy_cold_where_to_visit";
+  }
+  if (isPregnancyColdMedicationQuery(msg)) {
+    return "pregnancy_cold_medication";
+  }
+  if (isPregnancyColdSelfCareQuery(msg)) {
+    return "pregnancy_cold_self_care";
+  }
   if (isPregnancyCaffeineQuery(msg)) return "pregnancy_caffeine";
   if (isPregnancyFoodSafetyQuery(msg)) return "pregnancy_food_safety";
   if (isBreastfeedingMedicationQuery(msg)) {
@@ -538,6 +575,11 @@ export function clinicKnowledgeIdForIntent(intent) {
     pregnancy_medication_consultation: "pregnancy-medication-consultation",
     pregnancy_caffeine: "pregnancy-caffeine",
     pregnancy_food_safety: "pregnancy-food-safety",
+    pregnancy_stretch_marks: "pregnancy-stretch-marks",
+    general_health_consultation: "pregnancy-stretch-marks",
+    pregnancy_cold_where_to_visit: "pregnancy-cold-where-to-visit",
+    pregnancy_cold_medication: "pregnancy-cold-where-to-visit",
+    pregnancy_cold_self_care: "pregnancy-cold-where-to-visit",
     pregnancy_folic_acid: "pregnancy-folic-acid",
     homecoming_delivery: "obstetrics-homecoming-delivery",
     first_visit_fee: "clinic-first-visit-fee",

@@ -1311,6 +1311,77 @@
       "enabled": true
     },
     {
+      "id": "pregnancy-cold-where-to-visit",
+      "category": "妊娠期/風邪・体調",
+      "intent": "pregnancy_cold_where_to_visit",
+      "service": "pregnancy_health_support",
+      "target": "pregnant_patient",
+      "availability": "information",
+      "questionPatterns": [
+        "妊娠中に風邪をひいたらどこに受診したらいいですか",
+        "妊婦ですが内科に行ってもいいですか",
+        "妊娠中に熱が出たら何科に行けばいいですか",
+        "妊娠中に風邪をひいたらどこに行けばいい",
+        "妊婦は内科を受診してもいいですか"
+      ],
+      "keywords": [
+        "妊娠中",
+        "妊婦",
+        "風邪",
+        "受診",
+        "内科",
+        "何科",
+        "熱"
+      ],
+      "summary": "妊娠中の風邪症状は内科やかかりつけへ相談。受診時に妊娠中と週数を伝える。妊娠関連症状は産科へ。緊急症状は医療安全優先。",
+      "answer": "妊娠中に風邪をひいた場合は、まず内科やかかりつけの医療機関にご相談ください。受診する際は、妊娠中であることと現在の妊娠週数をお伝えください。発熱や咳がある場合は受診前に連絡し受診方法を確認すると安心です。強い腹痛や出血など妊娠に関する症状がある場合は当院へご相談ください。",
+      "careSource": "data/pregnancy-cold.js",
+      "responseRules": {
+        "tone": "empathetic",
+        "avoidDiagnosis": true,
+        "doNotConfuseWithColdMedication": true,
+        "doNotAssertClinicTreatsColdsWithoutEvidence": true,
+        "suppressUnrelatedReferenceChips": true
+      },
+      "priority": 100,
+      "updatedAt": "2026-10-13",
+      "enabled": true
+    },
+    {
+      "id": "pregnancy-stretch-marks",
+      "category": "妊娠期/身体の変化",
+      "intent": "pregnancy_stretch_marks",
+      "service": "pregnancy_health_support",
+      "target": "pregnant_patient",
+      "availability": "information",
+      "questionPatterns": [
+        "妊娠線はどうしたら回避できますか",
+        "妊娠線を防ぐ方法は",
+        "妊娠線が気になります",
+        "妊娠線のケア方法",
+        "ストライアを防ぎたい"
+      ],
+      "keywords": [
+        "妊娠線",
+        "ストライア",
+        "回避",
+        "防ぐ",
+        "保湿"
+      ],
+      "summary": "妊娠線を完全に防ぐ方法はない。保湿ケアと急激な体重増加を避ける一般的な注意。予防効果の断定はしない。",
+      "answer": "妊娠線を完全に防ぐ方法はありませんが、肌の乾燥を防ぐ保湿ケアや、無理な食事制限を避けつつ急激な体重増加を避けることが大切です。体質によりできやすさは異なります。",
+      "careSource": "data/general-health-consultation.js",
+      "responseRules": {
+        "tone": "empathetic",
+        "avoidDiagnosis": true,
+        "avoidAbsolutePreventionClaims": true,
+        "avoidProductEndorsement": true
+      },
+      "priority": 100,
+      "updatedAt": "2026-10-13",
+      "enabled": true
+    },
+    {
       "id": "pregnancy-caffeine",
       "category": "妊娠期/栄養・飲食",
       "intent": "pregnancy_caffeine",

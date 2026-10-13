@@ -65,6 +65,17 @@ import {
 } from "../data/pregnancy-medication.js";
 import { isPregnancyCaffeineQuery } from "../data/pregnancy-caffeine.js";
 import { isPregnancyFoodSafetyQuery } from "../data/pregnancy-food-safety.js";
+import {
+  isClinicSpecificHealthServiceQuery,
+  isGeneralHealthConsultationQuery,
+  isPregnancyStretchMarksGeneralQuery,
+} from "../data/general-health-consultation.js";
+import {
+  isPregnancyColdQuery,
+  isPregnancyColdWhereToVisitQuery,
+  isPregnancyColdMedicationQuery,
+  isPregnancyColdSelfCareQuery,
+} from "../data/pregnancy-cold.js";
 import { isBreechPresentationQuery } from "../data/pregnancy-breech.js";
 import { isPregnancyWeightQuery } from "../data/pregnancy-weight.js";
 import { isLaborHospitalContactQuery } from "../data/labor-contact.js";
@@ -198,6 +209,11 @@ export const STRICT_MATCH_INTENTS = new Set([
   "pregnancy_medication_consultation",
   "pregnancy_caffeine",
   "pregnancy_food_safety",
+  "pregnancy_stretch_marks",
+  "general_health_consultation",
+  "pregnancy_cold_where_to_visit",
+  "pregnancy_cold_medication",
+  "pregnancy_cold_self_care",
   "pregnancy_folic_acid",
   "breech_presentation_consultation",
   "pregnancy_weight_management",
@@ -729,6 +745,24 @@ export function detectClinicIntent(userMessage) {
   // 葉酸 / カフェイン・食事安全 / 妊娠中の服薬 / 授乳中の服薬（混同禁止）
   if (isPregnancyFolicAcidQuery(msg)) {
     return "pregnancy_folic_acid";
+  }
+  if (isPregnancyStretchMarksGeneralQuery(msg)) {
+    return "pregnancy_stretch_marks";
+  }
+  if (
+    isGeneralHealthConsultationQuery(msg) &&
+    !isClinicSpecificHealthServiceQuery(msg)
+  ) {
+    return "general_health_consultation";
+  }
+  if (isPregnancyColdWhereToVisitQuery(msg)) {
+    return "pregnancy_cold_where_to_visit";
+  }
+  if (isPregnancyColdMedicationQuery(msg)) {
+    return "pregnancy_cold_medication";
+  }
+  if (isPregnancyColdSelfCareQuery(msg)) {
+    return "pregnancy_cold_self_care";
   }
   if (isPregnancyCaffeineQuery(msg)) {
     return "pregnancy_caffeine";
@@ -1318,6 +1352,19 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
       };
     }
   }
+  if (
+    item.id === "pregnancy-stretch-marks" ||
+    itemIntent === "pregnancy_stretch_marks"
+  ) {
+    if (!isPregnancyStretchMarksGeneralQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["妊娠線:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "pregnancy_stretch_marksは一般的な妊娠線相談のみ",
+      };
+    }
+  }
   // 妊娠中のカフェインはカフェイン関連のみ
   if (
     item.id === "pregnancy-caffeine" ||
@@ -1346,7 +1393,33 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
       };
     }
   }
-  // 妊娠中の服薬は対象外（授乳・葉酸・カフェイン・食事・つわり）に流用しない
+  if (
+    item.id === "pregnancy-cold-where-to-visit" ||
+    itemIntent === "pregnancy_cold_where_to_visit"
+  ) {
+    if (!isPregnancyColdWhereToVisitQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["妊娠中風邪受診先:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "pregnancy_cold_where_to_visitは受診先質問のみ",
+      };
+    }
+  }
+  if (
+    item.id === "pregnancy-cold-medication" ||
+    itemIntent === "pregnancy_cold_medication"
+  ) {
+    if (!isPregnancyColdMedicationQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["妊娠中風邪薬:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "pregnancy_cold_medicationは風邪薬質問のみ",
+      };
+    }
+  }
+  // 妊娠中の服薬は対象外（授乳・葉酸・カフェイン・食事・風邪受診先・つわり）に流用しない
   if (
     item.id === "pregnancy-medication-consultation" ||
     itemIntent === "pregnancy_medication_consultation"
@@ -1356,6 +1429,7 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
       isPregnancyFolicAcidQuery(msg) ||
       isPregnancyCaffeineQuery(msg) ||
       isPregnancyFoodSafetyQuery(msg) ||
+      isPregnancyColdQuery(msg) ||
       isBreastfeedingMedicationQuery(msg)
     ) {
       return {
