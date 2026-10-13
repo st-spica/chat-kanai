@@ -13,6 +13,7 @@ import {
   isPregnancyWeightQuery,
   mentionsPregnancyWeightTopic,
 } from "./pregnancy-weight.js";
+import { isPostpartumWeightQuery } from "./postpartum-weight.js";
 import {
   isLaborHospitalContactQuery,
   mentionsLaborContactTopic,
@@ -216,6 +217,13 @@ export function detectStandaloneIntent(userMessage) {
 
   // 骨盤位キーワードが最新文にある
   if (mentionsBreechTopic(msg)) return "breech_presentation_consultation";
+
+  // 産後の体重（妊娠中の増加より先）
+  if (isPostpartumWeightQuery(msg)) {
+    return /戻|なかなか|1か月|1ヶ月|すぐ/.test(msg)
+      ? "postpartum_weight_recovery"
+      : "postpartum_weight_loss";
+  }
 
   // 体重（太り・何キロ等）。陣痛・破水が同居する場合は産科緊急優先
   if (
@@ -577,6 +585,8 @@ export function clinicKnowledgeIdForIntent(intent) {
   const map = {
     labor_hospital_contact: "labor-hospital-contact-timing",
     pregnancy_weight_management: "pregnancy-weight-gain",
+    postpartum_weight_loss: "postpartum-weight-loss",
+    postpartum_weight_recovery: "postpartum-weight-loss",
     breech_presentation_consultation: "pregnancy-breech-presentation",
     morning_sickness_consultation: "pregnancy-morning-sickness",
     pregnancy_eating_nausea: "pregnancy-eating-nausea",

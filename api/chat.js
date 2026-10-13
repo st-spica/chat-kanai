@@ -136,6 +136,10 @@ import {
   pregnancyWeightContextText,
 } from "../data/pregnancy-weight.js";
 import {
+  buildPostpartumWeightAnswer,
+  isPostpartumWeightQuery,
+} from "../data/postpartum-weight.js";
+import {
   buildLaborHospitalContactAnswer,
   isLaborHospitalContactQuery,
   laborContactContextText,
@@ -1084,6 +1088,7 @@ const SYSTEM = `
 ・【ニューボーン＆マタニティフォト】外部サービスの紹介。提携・専属・院内運営と案内しない。指定の固定文を言い換えない。料金相場を推測しない。問い合わせ先のLINE URLを勝手に生成しない。4Dエコー写真・分娩中撮影・院内撮影ルールと混同しない。
 ・【出産費用割引】きょうだい割引＝過去に当院で出産された方（15,000円）。パパママ割引＝ご夫婦のどちらかが当院で生まれた方（10,000円）。名称から条件を推測しない。「パートナー同伴で割引」「夫婦受診で割引」「二人目なら必ず割引」「同じ家庭の二人目なら割引」は禁止。
 ・【つわり】食べずわり・吐きづわり・においづわり（匂い・臭い表記含む）など種類と質問目的を区別する。食べずわりで食べ物を聞かれたら具体的な軽食例を提案する。においづわりでは換気・冷まして食べる・無香料・マスク等の対策を述べ、水分・食事の一般論だけで終わらない。水分がとれない・反復嘔吐・体重減少などは受診案内を優先。妊娠悪阻などの診断名を断定しない。緊急症状は救急誘導を優先。
+・【体重】妊娠中の体重増加（BMI別目安）と、分娩後・産後の体重減少（直後4〜6kg程度など）を混同しない。「分娩後にどれくらい落ちますか」に妊娠中の増加目安やBMI聞き返しで答えない。産後は無理なダイエットを勧めない。
 ・【母健連絡カード・勤務書類】つわり＋仕事／書類／会社／休職などの質問は、つわりセルフケアだけで終わらせない。母性健康管理指導事項連絡カード（母健連絡カード）を案内し、記入には受診・医師判断が必要であること、記入を保証しないことを伝える。診断書・傷病手当金申請書と混同しない。未確認の発行可否・費用は推測しない。通常回答で電話番号を出さない。重い症状がある場合は医療安全を優先する。
 ・【妊娠中の服薬】個別の薬の安全性・胎児影響・服用の継続／中止をAIが判断しない。「安全です」「絶対ダメ」「すぐに中止」「すべて避ける」は禁止。医師相談を案内する。授乳中の服薬・葉酸・小児予防接種と混同しない。葉酸はサプリ案内可（当院販売あり）。コーヒー・紅茶・カフェイン、生ハム等の食事は服薬相談として答えない（飲んだ＝薬と決めつけない）。
 ・【一般不妊相談】不妊治療・妊活の質問では診療時間表を出さない。対応は一般不妊相談に限り、妊娠を急がない方向けのタイミング療法・排卵誘発法（内服薬処方）のみ。担当医・曜日は推測せず診療体制表を案内する。体外受精・人工授精・顕微授精を一般不妊相談の根拠だけで対応可能としない。
@@ -3430,8 +3435,10 @@ export default async function handler(req, res) {
     }
 
     // 体重管理文脈の緊急症状（頭痛・視覚異常など）は生活アドバイスより受診優先
+    // 産後の体重減少質問はここに入れない
     if (
       allowStructuredIntent("pregnancy_weight_management") &&
+      !isPostpartumWeightQuery(userMessage) &&
       isPregnancyWeightQuery(
         userMessage,
         pregnancyWeightContextText(safeHistory, userMessage)
@@ -4519,6 +4526,76 @@ export default async function handler(req, res) {
       return res
         .status(200)
         .json(attachTopicDebug(payload, "labor_hospital_contact"));
+      }
+    }
+
+    // 産後の体重減少・戻り（妊娠中のBMI増加目安と分離）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      (allowStructuredIntent("postpartum_weight_loss") ||
+        allowStructuredIntent("postpartum_weight_recovery") ||
+        isPostpartumWeightQuery(userMessage)) &&
+      isPostpartumWeightQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "postpartum-weight-loss" ||
+          h.item?.intent === "postpartum_weight_loss" ||
+          h.item?.intent === "postpartum_weight_recovery"
+      );
+      const built = buildPostpartumWeightAnswer(userMessage);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      const intentName = built?.intent || "postpartum_weight_loss";
+      if (answer) {
+        if (includeDebug) {
+          siteKnowledgeDebug = {
+            ...(siteKnowledgeDebug || {}),
+            detectedIntent: intentName,
+            detectedService: "postpartum_health_support",
+            focus: built?.focus || null,
+            matchedClinicKnowledge: ckHit
+              ? [
+                  {
+                    id: ckHit.item.id,
+                    intent: ckHit.item.intent,
+                    service: ckHit.item.service,
+                    score: ckHit.score,
+                  },
+                ]
+              : [],
+            medicalSafetyLevel: built?.medicalSafetyLevel || "information",
+            referenceChips: [],
+            rejectedKnowledge: clinicRejected,
+            note: "産後の体重減少は4〜6kg目安。妊娠中BMI増加と混同しない。BMI聞き返し禁止",
+          };
+        }
+        await appendChatLog({
+          message: userMessage,
+          answer,
+          clientId,
+          meta: {
+            intent: intentName,
+            service: "postpartum_health_support",
+            postpartumWeight: true,
+            focus: built?.focus,
+            medicalSafetyLevel: built?.medicalSafetyLevel || "information",
+          },
+        });
+        const payload = {
+          answer,
+          emergency: false,
+          referencedPages: [],
+        };
+        if (includeDebug) {
+          payload.debug = siteKnowledgeDebug;
+          payload.detectedIntent = intentName;
+          payload.rejectedKnowledge = clinicRejected;
+        }
+        return res.status(200).json(attachTopicDebug(payload, intentName));
       }
     }
 

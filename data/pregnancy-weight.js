@@ -3,7 +3,10 @@
  *
  * BMI別の目安は院内資料に基づく。個別の適正体重・減量目標はAIが決定しない。
  * 責める表現・無理なダイエット推奨は禁止。
+ * 産後の体重減少・戻りは postpartum-weight.js へ分離する。
  */
+
+import { isPostpartumWeightQuery } from "./postpartum-weight.js";
 
 /** @typedef {"urgent"|"consult"|"information"} WeightSafetyLevel */
 
@@ -53,6 +56,9 @@ export function isPregnancyWeightQuery(userMessage, contextText = "") {
   const msg = String(userMessage || "").trim();
   if (!msg) return false;
 
+  // 産後の体重減少・戻りは別モジュールへ
+  if (isPostpartumWeightQuery(msg)) return false;
+
   // つわり主体は morning-sickness 側へ
   if (/つわり|悪阻/.test(msg) && !/ダイエット|BMI|何(?:kg|キロ)|増えすぎ|太りすぎ/.test(msg)) {
     return false;
@@ -93,13 +99,24 @@ export function isPregnancyWeightQuery(userMessage, contextText = "") {
     }
   }
 
-  const ctx = String(contextText || "");
-  if (!mentionsPregnancyWeightTopic(ctx)) return false;
+  // フォロー判定用の履歴は「現在メッセージ以外」の過去発話のみ
+  // （context に現在文が含まれる実装でも、現在文だけで体重相談に誤判定しない）
+  const ctxRaw = String(contextText || "");
+  const priorOnly = ctxRaw
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && l !== msg)
+    .join("\n");
+  if (!mentionsPregnancyWeightTopic(priorOnly)) return false;
+  if (isPostpartumWeightQuery(priorOnly) && !/BMI|増え|増加|太り/.test(msg)) {
+    return false;
+  }
 
   // 直前が体重相談で、BMI数値・身長体重だけ続く
   return (
-    (/BMI|ｂｍｉ|\d{1,2}(?:\.\d+)?|身長|体重|cm|ｋｇ|kg|キロ/.test(msg) ||
-      /普通体重|低体重|肥満|やせ|痩せ/.test(msg)) &&
+    (/BMI|ｂｍｉ|\d{1,2}(?:\.\d+)?|身長|cm|ｋｇ|kg|キロ/.test(msg) ||
+      /普通体重|低体重|肥満|やせ|痩せ/.test(msg) ||
+      (/^\s*(?:BMI\s*)?\d{1,2}(?:\.\d+)?\s*(?:です|でした)?\s*$/i.test(msg))) &&
     msg.length <= 40
   );
 }
@@ -506,8 +523,14 @@ export function buildPregnancyWeightAnswer(userMessage, safeHistory = []) {
     }
   }
 
-  // 何kgまで / 目安
-  if (/何(?:kg|キロ)|目安|どのくらい|どれくらい|増えていい|増えて良い/.test(msg)) {
+  // 何kgまで / 目安（増加の文脈。産後の「どれくらい落ちる」は除外済み）
+  if (
+    /何(?:kg|キロ).{0,8}増|増えていい|増えて良い|増加の目安|体重増加|どのくらい増|どれくらい増/.test(
+      msg
+    ) ||
+    (/何(?:kg|キロ)|目安|どのくらい|どれくらい/.test(msg) &&
+      /増え|増加|太|妊娠中|妊婦|BMI/.test(msg))
+  ) {
     if (bmi != null) {
       const guide = selectWeightGuideline(bmi);
       return {

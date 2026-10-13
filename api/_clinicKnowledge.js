@@ -82,6 +82,7 @@ import {
 } from "../data/pregnancy-cold.js";
 import { isBreechPresentationQuery } from "../data/pregnancy-breech.js";
 import { isPregnancyWeightQuery } from "../data/pregnancy-weight.js";
+import { isPostpartumWeightQuery } from "../data/postpartum-weight.js";
 import { isLaborHospitalContactQuery } from "../data/labor-contact.js";
 import { isHomecomingDeliveryQuery } from "../data/homecoming-delivery.js";
 import { isFirstVisitFeeQuery } from "../data/first-visit-fee.js";
@@ -224,6 +225,8 @@ export const STRICT_MATCH_INTENTS = new Set([
   "pregnancy_folic_acid",
   "breech_presentation_consultation",
   "pregnancy_weight_management",
+  "postpartum_weight_loss",
+  "postpartum_weight_recovery",
   "labor_hospital_contact",
   "homecoming_delivery",
   "first_visit_fee",
@@ -701,6 +704,11 @@ export function detectClinicIntent(userMessage) {
   }
 
   // 妊娠中の体重管理（つわり主体・一般ダイエットと混同しない）
+  if (isPostpartumWeightQuery(msg)) {
+    return /戻|なかなか|1か月|1ヶ月|すぐ/.test(msg)
+      ? "postpartum_weight_recovery"
+      : "postpartum_weight_loss";
+  }
   if (isPregnancyWeightQuery(msg)) {
     return "pregnancy_weight_management";
   }
@@ -1199,12 +1207,27 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
     item.id === "pregnancy-weight-gain" ||
     itemIntent === "pregnancy_weight_management"
   ) {
-    if (!isPregnancyWeightQuery(msg)) {
+    if (!isPregnancyWeightQuery(msg) || isPostpartumWeightQuery(msg)) {
       return {
         score: 0,
         reasons: ["体重管理:対象外質問のため除外"],
         rejected: true,
-        rejectReason: "pregnancy_weight_managementは妊娠中の体重関連のみ",
+        rejectReason:
+          "pregnancy_weight_managementは妊娠中の体重関連のみ（産後は別）",
+      };
+    }
+  }
+  if (
+    item.id === "postpartum-weight-loss" ||
+    itemIntent === "postpartum_weight_loss" ||
+    itemIntent === "postpartum_weight_recovery"
+  ) {
+    if (!isPostpartumWeightQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["産後体重:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "postpartum_weight_lossは産後の体重変化のみ",
       };
     }
   }

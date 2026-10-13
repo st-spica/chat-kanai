@@ -1733,6 +1733,47 @@
       "enabled": true
     },
     {
+      "id": "postpartum-weight-loss",
+      "category": "産後期/体重変化",
+      "intent": "postpartum_weight_loss",
+      "service": "postpartum_health_support",
+      "target": "postpartum_patient",
+      "availability": "information",
+      "questionPatterns": [
+        "分娩後はどれくらい体重が落ちますか",
+        "出産後は何kg減りますか",
+        "赤ちゃんを産んだら体重は減りますか",
+        "産後すぐは何キロくらい減りますか",
+        "出産したら体重はどれくらい変わりますか",
+        "産後すぐに妊娠前の体重に戻りますか",
+        "産後1か月ですが体重が戻りません"
+      ],
+      "keywords": [
+        "分娩後",
+        "出産後",
+        "産後",
+        "体重が落ち",
+        "体重が減",
+        "何kg減",
+        "体重の戻り",
+        "妊娠前の体重"
+      ],
+      "summary": "出産直後は赤ちゃん・胎盤・羊水などにより一般的に4〜6kg程度減ることがある。その後の水分排出でも減ることがある。戻り方には個人差があり、無理なダイエットは勧めない。",
+      "answer": "出産直後は、赤ちゃん・胎盤・羊水などの重さによって一般的に4〜6kg程度体重が減ることがあります。その後も水分の排出などで少しずつ減ることがあります。体重の戻り方には個人差があるので、焦らず産後の体を休めてください。",
+      "careSource": "data/postpartum-weight.js",
+      "responseRules": {
+        "tone": "empathetic",
+        "avoidCrashDietAdvice": true,
+        "doNotAskPrePregnancyBMIForLossAmount": true,
+        "doNotConfuseWithPregnancyWeightGain": true,
+        "suppressUnrelatedReferenceChips": true,
+        "avoidDiagnosis": true
+      },
+      "priority": 110,
+      "updatedAt": "2026-10-13",
+      "enabled": true
+    },
+    {
       "id": "pregnancy-weight-gain",
       "category": "妊娠期/体重管理",
       "intent": "pregnancy_weight_management",
@@ -1754,13 +1795,13 @@
         "妊娠中に体重が減っています"
       ],
       "keywords": [
+        "妊娠中",
         "体重増加",
         "体重管理",
         "BMI",
         "太った",
         "太りすぎ",
         "体重が増えない",
-        "体重が減った",
         "食事管理",
         "ダイエット"
       ],
