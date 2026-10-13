@@ -907,6 +907,13 @@ export function isDailyBabyCareConsultMessage(userMessage) {
 export function detectClinicService(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg) return null;
+  // 母子同室・入院スケジュール（面会より先）
+  if (
+    /母子同室|入院スケジュール|夜間の母子同室/.test(msg) ||
+    /(?:赤ちゃん|ベビー).{0,12}同室|同室になるのは/.test(msg)
+  ) {
+    return "obstetric_hospitalization";
+  }
   // 母体・新生児救急搬送（「金井産婦人科」名の婦人科誤ヒットより先）
   if (
     /母体搬送|新生児搬送|OGCS|NMCS|救急搬送|NICU|ＧＣＵ|GCU/.test(msg) ||
@@ -1285,6 +1292,18 @@ export const SITE_ROUTE_MAP = [
     patterns: [/入院|LDR|母子同室/],
     urls: ["https://kanai.or.jp/obstetrics/hospitalization/", "https://kanai.or.jp/facilities/"],
     boost: 180,
+  },
+  {
+    id: "mother_baby_rooming_in",
+    label: "母子同室・入院スケジュール",
+    patterns: [
+      /母子同室|同室になる|夜間の母子同室/,
+      /(?:赤ちゃん|ベビー).{0,12}(?:同室|一緒)/,
+      /入院スケジュール|出産後の(?:入院)?スケジュール/,
+      /帝王切開.{0,12}母子同室|母子同室.{0,12}帝王切開/,
+    ],
+    urls: ["https://kanai.or.jp/obstetrics/hospitalization/"],
+    boost: 270,
   },
   {
     id: "four_d_ultrasound",

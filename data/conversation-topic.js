@@ -60,6 +60,7 @@ import { isFirstVisitFeeQuery } from "./first-visit-fee.js";
 import { isFirstVisitWhatToBringQuery } from "./first-visit-what-to-bring.js";
 import { isEmergencyMaternalNeonatalTransferQuery } from "./emergency-maternal-neonatal-transfer.js";
 import { isEmergencyContraceptionQuery } from "./emergency-contraception.js";
+import { isMotherBabyRoomingInQuery } from "./mother-baby-rooming-in.js";
 import { isFourDUltrasoundQuery } from "./four-d-ultrasound.js";
 import {
   isFemaleDoctorQuery,
@@ -181,6 +182,9 @@ export function detectStandaloneIntent(userMessage) {
   if (isEmergencyContraceptionQuery(msg)) {
     return "emergency_contraception_prescription";
   }
+
+  // 母子同室・入院スケジュール
+  if (isMotherBabyRoomingInQuery(msg)) return "mother_baby_rooming_in";
 
   // 初診料（他料金より先。「必要」単独で持ち物に誤らないよう fee 側で除外済み）
   if (isFirstVisitFeeQuery(msg)) return "first_visit_fee";
@@ -653,6 +657,7 @@ export function clinicKnowledgeIdForIntent(intent) {
     first_visit_what_to_bring: "first-visit-what-to-bring",
     emergency_maternal_neonatal_transfer: "emergency-maternal-neonatal-transfer",
     emergency_contraception_prescription: "emergency-contraception-prescription",
+    mother_baby_rooming_in: "mother-baby-rooming-in-schedule",
     four_d_ultrasound: "obstetrics-4d-ultrasound",
     female_doctor: "clinic-female-doctor",
     newborn_maternity_photo: "newborn-maternity-photo",

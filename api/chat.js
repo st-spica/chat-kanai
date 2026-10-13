@@ -176,6 +176,11 @@ import {
   isEmergencyContraceptionQuery,
 } from "../data/emergency-contraception.js";
 import {
+  buildMotherBabyRoomingInAnswer,
+  MOTHER_BABY_ROOMING_IN_REF_PAGE,
+  isMotherBabyRoomingInQuery,
+} from "../data/mother-baby-rooming-in.js";
+import {
   buildFourDUltrasoundAnswer,
   FOUR_D_ULTRASOUND_REF_PAGE,
   isFourDUltrasoundQuery,
@@ -2780,6 +2785,20 @@ function relatedSiteUrlChipFromClinicHits(
         title: EMERGENCY_CONTRACEPTION_REF_PAGE.title,
         score: 100,
         reason: "clinic relatedSiteUrl（緊急避妊）",
+      };
+    }
+    // 母子同室・入院スケジュール：hospitalization
+    if (
+      (h.item?.id === "mother-baby-rooming-in-schedule" ||
+        h.item?.intent === "mother_baby_rooming_in" ||
+        /\/obstetrics\/hospitalization\/?/i.test(url)) &&
+      isMotherBabyRoomingInQuery(userMessage)
+    ) {
+      return {
+        url: MOTHER_BABY_ROOMING_IN_REF_PAGE.url,
+        title: MOTHER_BABY_ROOMING_IN_REF_PAGE.title,
+        score: 100,
+        reason: "clinic relatedSiteUrl（母子同室）",
       };
     }
     // 一般不妊相談：#doctor_schedule を保持
@@ -5509,6 +5528,96 @@ export default async function handler(req, res) {
       return res
         .status(200)
         .json(attachTopicDebug(payload, "emergency_contraception_prescription"));
+    }
+
+    // 母子同室・入院スケジュール（一般産院の直後同室推測禁止）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      allowStructuredIntent("mother_baby_rooming_in") &&
+      isMotherBabyRoomingInQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "mother-baby-rooming-in-schedule" ||
+          h.item?.intent === "mother_baby_rooming_in"
+      );
+      const built = buildMotherBabyRoomingInAnswer(userMessage);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      const referencedPages = (built?.referencedPages?.length
+        ? built.referencedPages
+        : [MOTHER_BABY_ROOMING_IN_REF_PAGE]
+      ).map((p) => ({
+        url: String(p.url || MOTHER_BABY_ROOMING_IN_REF_PAGE.url),
+        title: String(p.title || MOTHER_BABY_ROOMING_IN_REF_PAGE.title),
+      }));
+      for (const p of referencedPages) {
+        if (!/\/obstetrics\/hospitalization\/?/i.test(p.url)) {
+          p.url = MOTHER_BABY_ROOMING_IN_REF_PAGE.url;
+          p.title = MOTHER_BABY_ROOMING_IN_REF_PAGE.title;
+        }
+      }
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "mother_baby_rooming_in",
+          detectedService: "obstetric_hospitalization",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "mother-baby-rooming-in-schedule",
+                  intent: "mother_baby_rooming_in",
+                  service: "obstetric_hospitalization",
+                  score: 100,
+                },
+              ],
+          matchedSiteUrl: MOTHER_BABY_ROOMING_IN_REF_PAGE.url,
+          referenceChips: referencedPages,
+          focus: built?.focus || "start_day",
+          responseMode: "fixed",
+          rejectedKnowledge: clinicRejected,
+          note: "母子同室は産後1日目（帝切は3日目）。夜間は2〜4日目。直後同室は不可",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "mother_baby_rooming_in",
+          service: "obstetric_hospitalization",
+          motherBabyRoomingIn: true,
+          matchedSiteUrl: MOTHER_BABY_ROOMING_IN_REF_PAGE.url,
+          focus: built?.focus || "start_day",
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "mother_baby_rooming_in";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = MOTHER_BABY_ROOMING_IN_REF_PAGE.url;
+        payload.referenceChips = referencedPages;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res
+        .status(200)
+        .json(attachTopicDebug(payload, "mother_baby_rooming_in"));
     }
 
     // 妊娠中の服薬（安全性の断定禁止。医師相談を案内）

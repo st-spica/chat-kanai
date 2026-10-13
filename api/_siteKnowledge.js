@@ -26,6 +26,7 @@ import { isCervicalCancerScreeningQuery } from "../data/cervical-cancer-screenin
 import { isFirstVisitWhatToBringQuery } from "../data/first-visit-what-to-bring.js";
 import { isEmergencyMaternalNeonatalTransferQuery } from "../data/emergency-maternal-neonatal-transfer.js";
 import { isEmergencyContraceptionQuery } from "../data/emergency-contraception.js";
+import { isMotherBabyRoomingInQuery } from "../data/mother-baby-rooming-in.js";
 
 const RSV_BONUS_PAGE_URL = "https://kanai.or.jp/obstetrics/rsv_bonus/";
 export const HOSPITAL_BAG_PAGE_URL =
@@ -618,15 +619,19 @@ async function fetchPageChunk(url, maxChars, meta = {}) {
       focusAnchor: String(url).includes("#") ? String(url).split("#")[1] : "",
       focusHospitalBag,
     });
-    // 診療体制表・持ち物は表構造を保持。※医師名セルはJS描画のため静的HTMLでは空のことがある
+    // 診療体制表・持ち物・入院スケジュールは表構造を保持。
+    // ※医師名セルはJS描画のため静的HTMLでは空のことがある
+    const pageUrlForStructure = String(meta.displayUrl || url || "");
     const useStructured =
       focusHospitalBag ||
       /#hos_bring/i.test(url) ||
       /#doctor_schedule/i.test(url) ||
       /\/facilities\/?/i.test(url) ||
+      // 入院スケジュール（産後1日目↔母子同室 等の行対応を維持）
+      /\/obstetrics\/hospitalization\/?/i.test(pageUrlForStructure) ||
       // トップ／初めての方の診療時間表（曜日×枠の対応を維持）
       /^https?:\/\/(?:www\.)?kanai\.or\.jp\/?(?:beginner\/?)?(?:[?#]|$)/i.test(
-        String(meta.displayUrl || url || "")
+        pageUrlForStructure
       ) ||
       Boolean(meta.displayUrl && /#doctor_schedule/i.test(meta.displayUrl)) ||
       Boolean(meta.displayUrl && /\/facilities\/?/i.test(meta.displayUrl));
@@ -1477,6 +1482,10 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
     [
       isEmergencyContraceptionQuery,
       /アフターピル|緊急避妊|ノルレボ|プラノバール|\/gynecology/,
+    ],
+    [
+      isMotherBabyRoomingInQuery,
+      /母子同室|入院スケジュール|産後1日目|夜間の母子同室|\/hospitalization/,
     ],
   ];
   const hayAll = `${hayTitle}\n${hayBody}\n${bareUrl}`;

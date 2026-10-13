@@ -1052,6 +1052,59 @@
       "relatedSiteUrl": "https://kanai.or.jp/gynecology/"
     },
     {
+      "id": "mother-baby-rooming-in-schedule",
+      "category": "入院/母子同室",
+      "intent": "mother_baby_rooming_in",
+      "service": "obstetric_hospitalization",
+      "availability": "available",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "赤ちゃんと同室になるのは、出産してからどれくらいでですか？",
+        "赤ちゃんと同室になるのはいつですか？",
+        "母子同室はいつからですか？",
+        "出産した日から赤ちゃんと一緒ですか？",
+        "出産した日から母子同室ですか？",
+        "帝王切開の場合はいつから母子同室？",
+        "帝王切開でも翌日から母子同室ですか？",
+        "夜も赤ちゃんと一緒に過ごしますか？",
+        "夜間の母子同室はいつから？",
+        "出産後の入院スケジュールを教えてください。"
+      ],
+      "keywords": [
+        "母子同室",
+        "同室",
+        "入院スケジュール",
+        "産後1日目",
+        "夜間の母子同室",
+        "帝王切開"
+      ],
+      "summary": "母子同室は産後1日目から（帝王切開は3日目〜）。夜間の母子同室は産後2〜4日目。出産当日は休息。一般産院の直後同室は当院では当てはまらない。",
+      "answer": "当院では、通常、出産翌日（産後1日目）から、お母さんの体調に合わせて母子同室を開始します。帝王切開の場合は、産後3日目からとなります。また、夜間の母子同室は、産後2〜4日目を目安に体調に合わせて始めていきます。詳しいスケジュールは、下記のページでもご案内しています。",
+      "careSource": "data/mother-baby-rooming-in.js",
+      "clinicInformation": {
+        "accessPage": "https://kanai.or.jp/obstetrics/hospitalization/",
+        "section": "入院スケジュール",
+        "vaginalDeliveryStart": "産後1日目（体調に合わせて）",
+        "cesareanStart": "産後3日目から",
+        "nightRoomingIn": "産後2〜4日目を目安",
+        "birthDay": "ゆっくり休む（同室開始ではない）",
+        "informationPolicy": "公式入院スケジュール表のみ。一般産院の直後同室を推測しない。個人差あり。"
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/obstetrics/hospitalization/",
+      "relatedSiteLabel": "入院中の生活・入院スケジュール",
+      "responseRules": {
+        "useExactAnswer": true,
+        "alwaysShowRelatedLink": true,
+        "distinguishDayAndNightRoomingIn": true,
+        "distinguishCesareanSchedule": true,
+        "avoidGenericHospitalAssumptions": true,
+        "avoidUnnecessaryPhoneReferral": true
+      },
+      "priority": 220,
+      "updatedAt": "2026-10-13",
+      "enabled": true
+    },
+    {
       "id": "emergency-contraception-prescription",
       "category": "婦人科/緊急避妊",
       "intent": "emergency_contraception_prescription",

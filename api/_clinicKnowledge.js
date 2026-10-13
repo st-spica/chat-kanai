@@ -89,6 +89,7 @@ import { isFirstVisitFeeQuery } from "../data/first-visit-fee.js";
 import { isFirstVisitWhatToBringQuery } from "../data/first-visit-what-to-bring.js";
 import { isEmergencyMaternalNeonatalTransferQuery } from "../data/emergency-maternal-neonatal-transfer.js";
 import { isEmergencyContraceptionQuery } from "../data/emergency-contraception.js";
+import { isMotherBabyRoomingInQuery } from "../data/mother-baby-rooming-in.js";
 import { isFourDUltrasoundQuery } from "../data/four-d-ultrasound.js";
 import {
   isFemaleDoctorQuery,
@@ -236,6 +237,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "first_visit_what_to_bring",
   "emergency_maternal_neonatal_transfer",
   "emergency_contraception_prescription",
+  "mother_baby_rooming_in",
   "four_d_ultrasound",
   "female_doctor",
   "newborn_maternity_photo",
@@ -750,6 +752,11 @@ export function detectClinicIntent(userMessage) {
   // アフターピル・緊急避妊（妊娠中の服薬・一般婦人科処方より先）
   if (isEmergencyContraceptionQuery(msg)) {
     return "emergency_contraception_prescription";
+  }
+
+  // 母子同室・入院スケジュール（一般産院の直後同室推測を防ぐ）
+  if (isMotherBabyRoomingInQuery(msg)) {
+    return "mother_baby_rooming_in";
   }
 
   // 初診料（文書料3,300円・他料金と混同しない）
@@ -1341,6 +1348,20 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["婦人科一般処方:アフターピルのため除外"],
         rejected: true,
         rejectReason: "アフターピルはemergency-contraception-prescriptionへ",
+      };
+    }
+  }
+  // 母子同室スケジュールは対象外質問に流用しない
+  if (
+    item.id === "mother-baby-rooming-in-schedule" ||
+    itemIntent === "mother_baby_rooming_in"
+  ) {
+    if (!isMotherBabyRoomingInQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["母子同室:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "mother_baby_rooming_inは母子同室・入院スケジュールのみ",
       };
     }
   }
