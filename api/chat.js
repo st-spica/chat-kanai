@@ -3501,12 +3501,11 @@ export default async function handler(req, res) {
   let activeStage = "init";
 
   const fail = (stage, err, httpStatus = 500) => {
-    const classified =
+    const looksOpenAI =
       err instanceof APIConnectionError ||
       err instanceof APIError ||
-      Number(err?.status || err?.statusCode)
-        ? classifyOpenAIError(err)
-        : null;
+      Boolean(Number(err?.status || err?.statusCode));
+    const classified = looksOpenAI ? classifyOpenAIError(err) : null;
     const errorCode =
       classified?.errorCode ||
       err?.code ||
@@ -3516,6 +3515,9 @@ export default async function handler(req, res) {
       classified?.httpStatus ||
       Number(err?.status || err?.statusCode) ||
       500;
+    const safeDetail = String(err?.message || err || "")
+      .replace(/sk-[a-zA-Z0-9_-]+/g, "[redacted]")
+      .slice(0, 240);
     logChatError({
       requestId,
       stage,
@@ -3525,14 +3527,29 @@ export default async function handler(req, res) {
       historyCount,
       streamPhase,
       timings: timing.snapshot(),
-      message: err?.message || String(err),
+      message: safeDetail,
       stack: err?.stack,
     });
     if (!res.headersSent) {
+      try {
+        res.setHeader("X-Chat-Error-Code", String(errorCode).slice(0, 80));
+        res.setHeader("X-Chat-Error-Stage", String(stage || "unknown").slice(0, 64));
+        res.setHeader(
+          "X-Chat-Stream-Phase",
+          String(streamPhase || "pre_stream").slice(0, 32)
+        );
+      } catch {
+        /* ignore */
+      }
       return res.status(status >= 400 && status < 600 ? status : 500).json({
         answer: classified?.patientAnswer || PATIENT_TEMP_ERROR_ANSWER,
         emergency: false,
         requestId,
+        // 患者UIには出さない診断用（質問本文・キーは含めない）
+        errorCode: String(errorCode).slice(0, 80),
+        stage: String(stage || "unknown").slice(0, 64),
+        streamPhase,
+        detail: safeDetail,
       });
     }
     try {
@@ -3540,6 +3557,8 @@ export default async function handler(req, res) {
         type: "error",
         message: PATIENT_TEMP_ERROR_ANSWER,
         requestId,
+        errorCode: String(errorCode).slice(0, 80),
+        stage: String(stage || "unknown").slice(0, 64),
       });
     } catch {
       /* ignore */
@@ -8007,8 +8026,9 @@ export default async function handler(req, res) {
               : [];
 
     activeStage = "build_messages";
-    timing.mark("messages_ready");
-    const messages = [
+    let messages;
+    try {
+    messages = [
       { role: "system", content: SYSTEM },
       ...(tokyoDatetimePrompt
         ? [{ role: "system", content: tokyoDatetimePrompt }]
@@ -8076,6 +8096,10 @@ export default async function handler(req, res) {
         })),
       { role: "user", content: userMessage },
     ];
+    timing.mark("messages_ready");
+    } catch (buildErr) {
+      return fail("build_messages", buildErr);
+    }
 
     if (wantStream) {
       let stream;
@@ -8087,6 +8111,9 @@ export default async function handler(req, res) {
         timing.mark("openai_connected");
       } catch (createErr) {
         const classified = classifyOpenAIError(createErr);
+        const safeDetail = String(createErr?.message || createErr || "")
+          .replace(/sk-[a-zA-Z0-9_-]+/g, "[redacted]")
+          .slice(0, 240);
         logChatError({
           requestId,
           stage: "openai_create",
@@ -8096,13 +8123,24 @@ export default async function handler(req, res) {
           historyCount,
           streamPhase: "pre_stream",
           timings: timing.snapshot(),
-          message: createErr?.message || String(createErr),
+          message: safeDetail,
           stack: createErr?.stack,
         });
+        try {
+          res.setHeader("X-Chat-Error-Code", classified.errorCode);
+          res.setHeader("X-Chat-Error-Stage", "openai_create");
+          res.setHeader("X-Chat-Stream-Phase", "pre_stream");
+        } catch {
+          /* ignore */
+        }
         return res.status(classified.httpStatus).json({
           answer: classified.patientAnswer,
           emergency: false,
           requestId,
+          errorCode: classified.errorCode,
+          stage: "openai_create",
+          streamPhase: "pre_stream",
+          detail: safeDetail,
         });
       }
 
@@ -8195,6 +8233,9 @@ export default async function handler(req, res) {
       timing.mark("openai_first_byte");
     } catch (createErr) {
       const classified = classifyOpenAIError(createErr);
+      const safeDetail = String(createErr?.message || createErr || "")
+        .replace(/sk-[a-zA-Z0-9_-]+/g, "[redacted]")
+        .slice(0, 240);
       logChatError({
         requestId,
         stage: "openai_create",
@@ -8204,13 +8245,24 @@ export default async function handler(req, res) {
         historyCount,
         streamPhase: "pre_stream",
         timings: timing.snapshot(),
-        message: createErr?.message || String(createErr),
+        message: safeDetail,
         stack: createErr?.stack,
       });
+      try {
+        res.setHeader("X-Chat-Error-Code", classified.errorCode);
+        res.setHeader("X-Chat-Error-Stage", "openai_create");
+        res.setHeader("X-Chat-Stream-Phase", "pre_stream");
+      } catch {
+        /* ignore */
+      }
       return res.status(classified.httpStatus).json({
         answer: classified.patientAnswer,
         emergency: false,
         requestId,
+        errorCode: classified.errorCode,
+        stage: "openai_create",
+        streamPhase: "pre_stream",
+        detail: safeDetail,
       });
     }
 

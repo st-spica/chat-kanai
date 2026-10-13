@@ -119,6 +119,12 @@ $sendResponseHeaders = static function () use (&$headersSent, &$responseHeaders,
   if (isset($responseHeaders['x-accel-buffering'])) {
     header('X-Accel-Buffering: ' . $responseHeaders['x-accel-buffering']);
   }
+  // Vercel の診断ヘッダをブラウザまで透過（患者UIは使わない）
+  foreach (['x-chat-request-id', 'x-chat-error-code', 'x-chat-error-stage', 'x-chat-stream-phase'] as $hName) {
+    if (isset($responseHeaders[$hName]) && $responseHeaders[$hName] !== '') {
+      header($hName . ': ' . $responseHeaders[$hName]);
+    }
+  }
 };
 
 // Vercel maxDuration=60s より先に PHP が切れないよう、cURL は 55s に合わせる。
