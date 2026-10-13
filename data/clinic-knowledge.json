@@ -2277,6 +2277,63 @@
       "enabled": true
     },
     {
+      "id": "first-visit-what-to-bring",
+      "category": "診療案内/初診持ち物",
+      "intent": "first_visit_what_to_bring",
+      "service": "outpatient",
+      "target": "new_patient",
+      "availability": "available",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "初診に必要な持ち物は？",
+        "初診に必要な持ち物って何ですか",
+        "初めて行くとき何が必要？",
+        "初めて行くとき何を持っていけばいい？",
+        "初診で持っていくものを教えて",
+        "初診の持ち物を教えてください",
+        "保険証は必要ですか？",
+        "紹介状は必要ですか？",
+        "初診に保険証は必要ですか",
+        "初めて受診するとき何を持参すればいい"
+      ],
+      "keywords": [
+        "初診",
+        "持ち物",
+        "持参",
+        "保険証",
+        "マイナ保険証",
+        "資格確認書",
+        "医療証",
+        "紹介状",
+        "初めての方"
+      ],
+      "summary": "初診来院時の持ち物（健康保険証・医療証・紹介状等）。公式 beginner「来院される際の持ち物」。初診料・入院持ち物と分離。",
+      "answer": "初めて当院を受診される際は、以下のものをお持ちください。・健康保険証（マイナ保険証・資格確認書）・医療証（受給者証）（お持ちの方）・紹介状・検査結果・服用されているお薬の情報など（該当する方）初診の受付方法や診療の流れについては、下記のページでもご案内しています。",
+      "careSource": "data/first-visit-what-to-bring.js",
+      "clinicInformation": {
+        "accessPage": "https://kanai.or.jp/beginner/",
+        "section": "来院される際の持ち物",
+        "items": [
+          "健康保険証（マイナ保険証・資格確認書）",
+          "医療証（受給者証）",
+          "紹介状・検査結果・服用されている薬剤情報など"
+        ],
+        "informationPolicy": "公式 beginner の持ち物のみ案内。初診料の説明に流用しない。入院持ち物一覧と混同しない。"
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/beginner/",
+      "relatedSiteLabel": "初めての方へ",
+      "responseRules": {
+        "useExactAnswer": true,
+        "alwaysShowRelatedLink": true,
+        "distinguishFromFirstVisitFee": true,
+        "distinguishFromHospitalBag": true,
+        "avoidUnnecessaryPhoneReferral": true
+      },
+      "priority": 210,
+      "updatedAt": "2026-10-13",
+      "enabled": true
+    },
+    {
       "id": "clinic-access",
       "category": "アクセス/交通案内",
       "intent": "clinic_access",

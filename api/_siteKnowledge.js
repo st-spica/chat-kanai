@@ -23,6 +23,7 @@ import {
 } from "../data/site-route-map.js";
 import { isHpvVaccineQuery } from "../data/hpv-vaccine.js";
 import { isCervicalCancerScreeningQuery } from "../data/cervical-cancer-screening.js";
+import { isFirstVisitWhatToBringQuery } from "../data/first-visit-what-to-bring.js";
 
 const RSV_BONUS_PAGE_URL = "https://kanai.or.jp/obstetrics/rsv_bonus/";
 export const HOSPITAL_BAG_PAGE_URL =
@@ -1462,6 +1463,10 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
     [
       isHospitalBagQuery,
       /入院時の持ち物|#hos_bring|ご用意いただく物|当院でご用意|分娩セット|シャンプー|スリッパ/,
+    ],
+    [
+      isFirstVisitWhatToBringQuery,
+      /来院される際の持ち物|健康保険証|資格確認書|医療証|紹介状|\/beginner/,
     ],
   ];
   const hayAll = `${hayTitle}\n${hayBody}\n${bareUrl}`;

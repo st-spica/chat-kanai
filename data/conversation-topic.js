@@ -57,6 +57,7 @@ import {
 } from "./birth-pricing.js";
 import { isHomecomingDeliveryQuery } from "./homecoming-delivery.js";
 import { isFirstVisitFeeQuery } from "./first-visit-fee.js";
+import { isFirstVisitWhatToBringQuery } from "./first-visit-what-to-bring.js";
 import { isFourDUltrasoundQuery } from "./four-d-ultrasound.js";
 import {
   isFemaleDoctorQuery,
@@ -166,7 +167,10 @@ export function detectStandaloneIntent(userMessage) {
   // 里帰り出産（妊婦健診一般・分娩予約一般より先）
   if (isHomecomingDeliveryQuery(msg)) return "homecoming_delivery";
 
-  // 初診料（他料金より先）
+  // 初診の持ち物（初診料・入院持ち物より先）
+  if (isFirstVisitWhatToBringQuery(msg)) return "first_visit_what_to_bring";
+
+  // 初診料（他料金より先。「必要」単独で持ち物に誤らないよう fee 側で除外済み）
   if (isFirstVisitFeeQuery(msg)) return "first_visit_fee";
 
   // 4D超音波撮影（通常エコーより先）
@@ -620,6 +624,7 @@ export function clinicKnowledgeIdForIntent(intent) {
     pregnancy_folic_acid: "pregnancy-folic-acid",
     homecoming_delivery: "obstetrics-homecoming-delivery",
     first_visit_fee: "clinic-first-visit-fee",
+    first_visit_what_to_bring: "first-visit-what-to-bring",
     four_d_ultrasound: "obstetrics-4d-ultrasound",
     female_doctor: "clinic-female-doctor",
     newborn_maternity_photo: "newborn-maternity-photo",

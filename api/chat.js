@@ -161,6 +161,11 @@ import {
   isFirstVisitFeeQuery,
 } from "../data/first-visit-fee.js";
 import {
+  buildFirstVisitWhatToBringAnswer,
+  FIRST_VISIT_WHAT_TO_BRING_REF_PAGE,
+  isFirstVisitWhatToBringQuery,
+} from "../data/first-visit-what-to-bring.js";
+import {
   buildFourDUltrasoundAnswer,
   FOUR_D_ULTRASOUND_REF_PAGE,
   isFourDUltrasoundQuery,
@@ -2709,6 +2714,20 @@ function relatedSiteUrlChipFromClinicHits(
         title: POSTPARTUM_CARE_REF_PAGE.title,
         score: 100,
         reason: "clinic relatedSiteUrl（産後ケア）",
+      };
+    }
+    // 初診の持ち物：beginner
+    if (
+      (h.item?.id === "first-visit-what-to-bring" ||
+        h.item?.intent === "first_visit_what_to_bring" ||
+        /\/beginner\/?/i.test(url)) &&
+      isFirstVisitWhatToBringQuery(userMessage)
+    ) {
+      return {
+        url: FIRST_VISIT_WHAT_TO_BRING_REF_PAGE.url,
+        title: FIRST_VISIT_WHAT_TO_BRING_REF_PAGE.title,
+        score: 100,
+        reason: "clinic relatedSiteUrl（初診持ち物）",
       };
     }
     // 一般不妊相談：#doctor_schedule を保持
@@ -6624,6 +6643,96 @@ export default async function handler(req, res) {
         payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(attachTopicDebug(payload, "four_d_ultrasound"));
+    }
+
+    // 初診の持ち物（初めての方へ。初診料・入院持ち物と分離）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      allowStructuredIntent("first_visit_what_to_bring") &&
+      isFirstVisitWhatToBringQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "first-visit-what-to-bring" ||
+          h.item?.intent === "first_visit_what_to_bring"
+      );
+      const built = buildFirstVisitWhatToBringAnswer(userMessage);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      const referencedPages = (built?.referencedPages?.length
+        ? built.referencedPages
+        : [FIRST_VISIT_WHAT_TO_BRING_REF_PAGE]
+      ).map((p) => ({
+        url: String(p.url || FIRST_VISIT_WHAT_TO_BRING_REF_PAGE.url),
+        title: String(p.title || FIRST_VISIT_WHAT_TO_BRING_REF_PAGE.title),
+      }));
+      for (const p of referencedPages) {
+        if (!/\/beginner\/?/i.test(p.url)) {
+          p.url = FIRST_VISIT_WHAT_TO_BRING_REF_PAGE.url;
+          p.title = FIRST_VISIT_WHAT_TO_BRING_REF_PAGE.title;
+        }
+      }
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "first_visit_what_to_bring",
+          detectedService: "outpatient",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "first-visit-what-to-bring",
+                  intent: "first_visit_what_to_bring",
+                  service: "outpatient",
+                  score: 100,
+                },
+              ],
+          matchedSiteUrl: FIRST_VISIT_WHAT_TO_BRING_REF_PAGE.url,
+          referenceChips: referencedPages,
+          focus: built?.focus || "belongings",
+          responseMode: "fixed",
+          rejectedKnowledge: clinicRejected,
+          note: "初診持ち物は beginner 固定案内。初診料・入院持ち物と分離",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "first_visit_what_to_bring",
+          service: "outpatient",
+          firstVisitWhatToBring: true,
+          matchedSiteUrl: FIRST_VISIT_WHAT_TO_BRING_REF_PAGE.url,
+          focus: built?.focus || "belongings",
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "first_visit_what_to_bring";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = FIRST_VISIT_WHAT_TO_BRING_REF_PAGE.url;
+        payload.referenceChips = referencedPages;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res
+        .status(200)
+        .json(attachTopicDebug(payload, "first_visit_what_to_bring"));
     }
 
     // 初診料（確定1,080円。文書料3,300円等と混同しない。GPTに金額推測させない）

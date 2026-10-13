@@ -133,6 +133,14 @@ export function isGenericReservationMethodQuery(userMessage) {
   }
 
   if (/電話で予約|電話予約|予約は電話|電話で診察予約/.test(msg)) return true;
+  // 「初診は予約できますか」等（持ち物・料金と分離）
+  if (
+    /初診/.test(msg) &&
+    /予約/.test(msg) &&
+    !/(?:持ち物|持参|料金|費用|いくら|円)/.test(msg)
+  ) {
+    return true;
+  }
   if (/初診の?予約方法|初めて.{0,8}予約|初めて受診する場合は予約/.test(msg)) {
     return true;
   }

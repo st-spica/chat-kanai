@@ -86,6 +86,7 @@ import { isPostpartumWeightQuery } from "../data/postpartum-weight.js";
 import { isLaborHospitalContactQuery } from "../data/labor-contact.js";
 import { isHomecomingDeliveryQuery } from "../data/homecoming-delivery.js";
 import { isFirstVisitFeeQuery } from "../data/first-visit-fee.js";
+import { isFirstVisitWhatToBringQuery } from "../data/first-visit-what-to-bring.js";
 import { isFourDUltrasoundQuery } from "../data/four-d-ultrasound.js";
 import {
   isFemaleDoctorQuery,
@@ -230,6 +231,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "labor_hospital_contact",
   "homecoming_delivery",
   "first_visit_fee",
+  "first_visit_what_to_bring",
   "four_d_ultrasound",
   "female_doctor",
   "newborn_maternity_photo",
@@ -448,7 +450,15 @@ function inferItemIntent(id, category, patterns) {
   if (/ultrasound_frequency|エコー|超音波/.test(hay) && /毎回|胎嚢|妊婦健診/.test(hay)) {
     return "ultrasound_frequency";
   }
-  if (/hospital_bag|持ち物|入院バッグ|陣痛バッグ|hos_bring/.test(hay)) {
+  if (
+    /first.?visit.?what.?to.?bring|初診持ち物|初診の持ち物/.test(hay)
+  ) {
+    return "first_visit_what_to_bring";
+  }
+  if (
+    /hospital_bag|入院バッグ|陣痛バッグ|hos_bring|入院時の持ち物/.test(hay) ||
+    (/持ち物/.test(hay) && /入院|分娩|出産|childbirth/.test(hay))
+  ) {
     return "hospital_bag";
   }
   if (/childbirth_bonus_dinner|お祝いディナー|ディナーご招待/.test(hay)) {
@@ -721,6 +731,11 @@ export function detectClinicIntent(userMessage) {
   // 里帰り出産（妊婦健診一般と混同しない）
   if (isHomecomingDeliveryQuery(msg)) {
     return "homecoming_delivery";
+  }
+
+  // 初診の持ち物（初診料より先。「必要な持ち物」の誤ヒット防止）
+  if (isFirstVisitWhatToBringQuery(msg)) {
+    return "first_visit_what_to_bring";
   }
 
   // 初診料（文書料3,300円・他料金と混同しない）
@@ -1259,17 +1274,31 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
       };
     }
   }
-  // 初診料は対象外（再診・健診・分娩料金など）に流用しない
+  // 初診の持ち物は対象外（初診料・入院持ち物など）に流用しない
+  if (
+    item.id === "first-visit-what-to-bring" ||
+    itemIntent === "first_visit_what_to_bring"
+  ) {
+    if (!isFirstVisitWhatToBringQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["初診持ち物:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "first_visit_what_to_bringは初診来院の持ち物のみ",
+      };
+    }
+  }
+  // 初診料は対象外（再診・健診・分娩料金・初診持ち物など）に流用しない
   if (
     item.id === "clinic-first-visit-fee" ||
     itemIntent === "first_visit_fee"
   ) {
-    if (!isFirstVisitFeeQuery(msg)) {
+    if (!isFirstVisitFeeQuery(msg) || isFirstVisitWhatToBringQuery(msg)) {
       return {
         score: 0,
         reasons: ["初診料:対象外質問のため除外"],
         rejected: true,
-        rejectReason: "first_visit_feeは初診料関連のみ",
+        rejectReason: "first_visit_feeは初診料関連のみ（持ち物は別）",
       };
     }
   }

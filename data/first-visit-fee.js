@@ -40,20 +40,44 @@ function isOtherFeeTopic(msg) {
 }
 
 /**
+ * 初診の持ち物・持参物（費用ではない）
+ * 「初診に必要な持ち物」の「必要」が料金判定に誤ヒットしないよう除外する
+ * @param {string} msg
+ */
+function isFirstVisitBelongingsTopic(msg) {
+  return (
+    /持ち物|持参|持ってい|持っていく|何を持|必要なもの|必要な物/.test(msg) ||
+    /保険証|マイナ保険証|資格確認書|医療証|受給者証|紹介状/.test(msg)
+  );
+}
+
+/**
  * @param {string} userMessage
  */
 export function isFirstVisitFeeQuery(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg) return false;
   if (isOtherFeeTopic(msg) && !/初診料/.test(msg)) return false;
+  // 持ち物質問は費用に流さない（「必要な持ち物」の「必要」誤ヒット防止）
+  if (isFirstVisitBelongingsTopic(msg) && !/初診料|いくら|料金|費用|金額|円|かかる/.test(msg)) {
+    return false;
+  }
 
   // 明示の初診料
   if (/初診料/.test(msg)) return true;
 
-  // 初診＋料金系（初診時／初診診察／診察代／いくらくらい など）
+  // 初診＋料金系（「必要」単独は持ち物と衝突するため除外）
   if (
     /初診/.test(msg) &&
-    /(?:いくら|料金|費用|金額|代|円|かかる|必要|くらいかか)/.test(msg)
+    /(?:いくら|料金|費用|金額|代|円|かかる|くらいかか)/.test(msg)
+  ) {
+    return true;
+  }
+  // 「初診で必要な金額」など金額文脈の「必要」のみ許可
+  if (
+    /初診/.test(msg) &&
+    /必要/.test(msg) &&
+    /(?:金額|費用|料金|お金|円)/.test(msg)
   ) {
     return true;
   }
@@ -61,7 +85,8 @@ export function isFirstVisitFeeQuery(userMessage) {
   // 初めての受診／来院／診察
   if (
     /(?:初めて|はじめて|初回).{0,12}(?:受診|来院|診察|通院)/.test(msg) &&
-    /(?:いくら|料金|費用|金額|代|円|かかる|必要)/.test(msg)
+    /(?:いくら|料金|費用|金額|代|円|かかる)/.test(msg) &&
+    !isFirstVisitBelongingsTopic(msg)
   ) {
     return true;
   }

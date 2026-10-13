@@ -621,6 +621,16 @@ export function isHospitalBagQuery(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg || isNonChildbirthBelongingsQuery(msg)) return false;
 
+  // 初診・初めて来院の持ち物は first-visit-what-to-bring へ（入院バッグと分離）
+  if (
+    (/初診|初めて(?:の方|受診|来院|行く)|はじめて(?:受診|来院|行く)/.test(msg) ||
+      (/保険証|紹介状|医療証|資格確認書/.test(msg) &&
+        !/(?:入院|出産|分娩)/.test(msg))) &&
+    !/(?:入院|陣痛バッグ|入院バッグ|分娩入院)/.test(msg)
+  ) {
+    return false;
+  }
+
   if (
     /入院時の持ち物|入院の持ち物|入院するとき何が必要|出産の入院準備|入院バッグ|陣痛バッグ|入院準備を|持ち物を知りたい|持ち物を全部|必要な持ち物を全部|持ち物を教えて|何を持っていけば/.test(
       msg
@@ -1362,6 +1372,17 @@ export const SITE_ROUTE_MAP = [
     // 書類相談は初診案内ではなく公式トップを優先
     urls: ["https://kanai.or.jp/"],
     boost: 280,
+  },
+  {
+    id: "first_visit_belongings",
+    label: "初診の持ち物",
+    patterns: [
+      /初診.{0,12}(?:持ち物|持参|何を持|保険証|紹介状)/,
+      /(?:初めて|はじめて).{0,12}(?:何を持|持ち物|持参|保険証)/,
+      /来院される際の持ち物|初めての方.{0,8}持ち物/,
+    ],
+    urls: ["https://kanai.or.jp/beginner/"],
+    boost: 240,
   },
   {
     id: "first_visit",
