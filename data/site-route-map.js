@@ -899,6 +899,16 @@ export function isDailyBabyCareConsultMessage(userMessage) {
 export function detectClinicService(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg) return null;
+  // 母体・新生児救急搬送（「金井産婦人科」名の婦人科誤ヒットより先）
+  if (
+    /母体搬送|新生児搬送|OGCS|NMCS|救急搬送|NICU|ＧＣＵ|GCU/.test(msg) ||
+    (/(?:搬送|他の病院|他院)/.test(msg) &&
+      /(?:出産|分娩|お産|緊急|赤ちゃん|新生児|母体)/.test(msg)) ||
+    /(?:どこ|どの病院|搬送先).{0,12}搬送|搬送.{0,12}(?:どこ|どの病院)/.test(msg) ||
+    /(?:出産|分娩|お産)中?.{0,16}(?:何か|異常|緊急)/.test(msg)
+  ) {
+    return "childbirth_safety";
+  }
   // 母健連絡カード・勤務書類（つわり一般サポートより先）
   if (
     /母健連絡カード|母性健康管理指導事項連絡カード|母性健康管理カード|母健カード/.test(
@@ -1380,6 +1390,20 @@ export const SITE_ROUTE_MAP = [
     // 書類相談は初診案内ではなく公式トップを優先
     urls: ["https://kanai.or.jp/"],
     boost: 280,
+  },
+  {
+    id: "emergency_maternal_neonatal_transfer",
+    label: "母体・新生児の救急搬送",
+    patterns: [
+      /母体搬送|新生児搬送|救急搬送|OGCS|NMCS/,
+      /(?:出産|分娩|お産).{0,20}(?:搬送|他の病院|他院)/,
+      /(?:搬送|他の病院|他院).{0,16}(?:出産|分娩|緊急)/,
+      /(?:どこ|どの病院|搬送先).{0,12}搬送|搬送.{0,12}(?:どこ|どの病院|先)/,
+      /NICU|赤ちゃんに異常|連携している病院|関連病院/,
+      /高次医療が必要|もし出産時に何か/,
+    ],
+    urls: ["https://kanai.or.jp/about/feature/"],
+    boost: 260,
   },
   {
     id: "first_visit_belongings",

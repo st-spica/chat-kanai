@@ -166,6 +166,11 @@ import {
   isFirstVisitWhatToBringQuery,
 } from "../data/first-visit-what-to-bring.js";
 import {
+  buildEmergencyMaternalNeonatalTransferAnswer,
+  EMERGENCY_TRANSFER_REF_PAGE,
+  isEmergencyMaternalNeonatalTransferQuery,
+} from "../data/emergency-maternal-neonatal-transfer.js";
+import {
   buildFourDUltrasoundAnswer,
   FOUR_D_ULTRASOUND_REF_PAGE,
   isFourDUltrasoundQuery,
@@ -2742,6 +2747,20 @@ function relatedSiteUrlChipFromClinicHits(
         title: FIRST_VISIT_WHAT_TO_BRING_REF_PAGE.title,
         score: 100,
         reason: "clinic relatedSiteUrl（初診持ち物）",
+      };
+    }
+    // 母体・新生児搬送：about/feature
+    if (
+      (h.item?.id === "emergency-maternal-neonatal-transfer" ||
+        h.item?.intent === "emergency_maternal_neonatal_transfer" ||
+        /\/about\/feature\/?/i.test(url)) &&
+      isEmergencyMaternalNeonatalTransferQuery(userMessage)
+    ) {
+      return {
+        url: EMERGENCY_TRANSFER_REF_PAGE.url,
+        title: EMERGENCY_TRANSFER_REF_PAGE.title,
+        score: 100,
+        reason: "clinic relatedSiteUrl（救急搬送）",
       };
     }
     // 一般不妊相談：#doctor_schedule を保持
@@ -6667,6 +6686,96 @@ export default async function handler(req, res) {
         payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(attachTopicDebug(payload, "four_d_ultrasound"));
+    }
+
+    // 母体・新生児の救急搬送（OGCS/NMCS。一般論で終わらせない。搬送先は確約しない）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      allowStructuredIntent("emergency_maternal_neonatal_transfer") &&
+      isEmergencyMaternalNeonatalTransferQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "emergency-maternal-neonatal-transfer" ||
+          h.item?.intent === "emergency_maternal_neonatal_transfer"
+      );
+      const built = buildEmergencyMaternalNeonatalTransferAnswer(userMessage);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      const referencedPages = (built?.referencedPages?.length
+        ? built.referencedPages
+        : [EMERGENCY_TRANSFER_REF_PAGE]
+      ).map((p) => ({
+        url: String(p.url || EMERGENCY_TRANSFER_REF_PAGE.url),
+        title: String(p.title || EMERGENCY_TRANSFER_REF_PAGE.title),
+      }));
+      for (const p of referencedPages) {
+        if (!/\/about\/feature\/?/i.test(p.url)) {
+          p.url = EMERGENCY_TRANSFER_REF_PAGE.url;
+          p.title = EMERGENCY_TRANSFER_REF_PAGE.title;
+        }
+      }
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "emergency_maternal_neonatal_transfer",
+          detectedService: "childbirth_safety",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "emergency-maternal-neonatal-transfer",
+                  intent: "emergency_maternal_neonatal_transfer",
+                  service: "childbirth_safety",
+                  score: 100,
+                },
+              ],
+          matchedSiteUrl: EMERGENCY_TRANSFER_REF_PAGE.url,
+          referenceChips: referencedPages,
+          focus: built?.focus || "overview",
+          responseMode: "fixed",
+          rejectedKnowledge: clinicRejected,
+          note: "母体搬送OGCS・新生児搬送NMCS。搬送先確約なし。NICUと混同しない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "emergency_maternal_neonatal_transfer",
+          service: "childbirth_safety",
+          emergencyTransfer: true,
+          matchedSiteUrl: EMERGENCY_TRANSFER_REF_PAGE.url,
+          focus: built?.focus || "overview",
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "emergency_maternal_neonatal_transfer";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.matchedSiteUrl = EMERGENCY_TRANSFER_REF_PAGE.url;
+        payload.referenceChips = referencedPages;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res
+        .status(200)
+        .json(attachTopicDebug(payload, "emergency_maternal_neonatal_transfer"));
     }
 
     // 初診の持ち物（初めての方へ。初診料・入院持ち物と分離）

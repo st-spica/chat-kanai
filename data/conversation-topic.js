@@ -58,6 +58,7 @@ import {
 import { isHomecomingDeliveryQuery } from "./homecoming-delivery.js";
 import { isFirstVisitFeeQuery } from "./first-visit-fee.js";
 import { isFirstVisitWhatToBringQuery } from "./first-visit-what-to-bring.js";
+import { isEmergencyMaternalNeonatalTransferQuery } from "./emergency-maternal-neonatal-transfer.js";
 import { isFourDUltrasoundQuery } from "./four-d-ultrasound.js";
 import {
   isFemaleDoctorQuery,
@@ -169,6 +170,11 @@ export function detectStandaloneIntent(userMessage) {
 
   // 初診の持ち物（初診料・入院持ち物より先）
   if (isFirstVisitWhatToBringQuery(msg)) return "first_visit_what_to_bring";
+
+  // 母体・新生児の救急搬送（OGCS/NMCS）
+  if (isEmergencyMaternalNeonatalTransferQuery(msg)) {
+    return "emergency_maternal_neonatal_transfer";
+  }
 
   // 初診料（他料金より先。「必要」単独で持ち物に誤らないよう fee 側で除外済み）
   if (isFirstVisitFeeQuery(msg)) return "first_visit_fee";
@@ -629,6 +635,7 @@ export function clinicKnowledgeIdForIntent(intent) {
     homecoming_delivery: "obstetrics-homecoming-delivery",
     first_visit_fee: "clinic-first-visit-fee",
     first_visit_what_to_bring: "first-visit-what-to-bring",
+    emergency_maternal_neonatal_transfer: "emergency-maternal-neonatal-transfer",
     four_d_ultrasound: "obstetrics-4d-ultrasound",
     female_doctor: "clinic-female-doctor",
     newborn_maternity_photo: "newborn-maternity-photo",

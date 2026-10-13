@@ -87,6 +87,7 @@ import { isLaborHospitalContactQuery } from "../data/labor-contact.js";
 import { isHomecomingDeliveryQuery } from "../data/homecoming-delivery.js";
 import { isFirstVisitFeeQuery } from "../data/first-visit-fee.js";
 import { isFirstVisitWhatToBringQuery } from "../data/first-visit-what-to-bring.js";
+import { isEmergencyMaternalNeonatalTransferQuery } from "../data/emergency-maternal-neonatal-transfer.js";
 import { isFourDUltrasoundQuery } from "../data/four-d-ultrasound.js";
 import {
   isFemaleDoctorQuery,
@@ -232,6 +233,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "homecoming_delivery",
   "first_visit_fee",
   "first_visit_what_to_bring",
+  "emergency_maternal_neonatal_transfer",
   "four_d_ultrasound",
   "female_doctor",
   "newborn_maternity_photo",
@@ -736,6 +738,11 @@ export function detectClinicIntent(userMessage) {
   // 初診の持ち物（初診料より先。「必要な持ち物」の誤ヒット防止）
   if (isFirstVisitWhatToBringQuery(msg)) {
     return "first_visit_what_to_bring";
+  }
+
+  // 母体・新生児の救急搬送（OGCS/NMCS。一般論の搬送推測を防ぐ）
+  if (isEmergencyMaternalNeonatalTransferQuery(msg)) {
+    return "emergency_maternal_neonatal_transfer";
   }
 
   // 初診料（文書料3,300円・他料金と混同しない）
@@ -1287,6 +1294,21 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["初診持ち物:対象外質問のため除外"],
         rejected: true,
         rejectReason: "first_visit_what_to_bringは初診来院の持ち物のみ",
+      };
+    }
+  }
+  // 母体・新生児搬送は搬送・緊急対応質問以外に流用しない
+  if (
+    item.id === "emergency-maternal-neonatal-transfer" ||
+    itemIntent === "emergency_maternal_neonatal_transfer"
+  ) {
+    if (!isEmergencyMaternalNeonatalTransferQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["救急搬送:対象外質問のため除外"],
+        rejected: true,
+        rejectReason:
+          "emergency_maternal_neonatal_transferは母体・新生児搬送のみ",
       };
     }
   }
