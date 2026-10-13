@@ -1311,6 +1311,76 @@
       "enabled": true
     },
     {
+      "id": "pregnancy-caffeine",
+      "category": "妊娠期/栄養・飲食",
+      "intent": "pregnancy_caffeine",
+      "service": "pregnancy_health_support",
+      "target": "pregnant_patient",
+      "availability": "information",
+      "questionPatterns": [
+        "妊娠中にコーヒーを飲んでしまいました",
+        "妊婦ですがコーヒーを飲んでもいいですか",
+        "カフェインは赤ちゃんに影響しますか",
+        "妊娠中は紅茶を飲んでもいいですか",
+        "妊婦はカフェインを控えた方がいいですか",
+        "コーヒーを1杯飲んだけど大丈夫ですか",
+        "妊娠中にエナジードリンクを飲みました"
+      ],
+      "keywords": [
+        "コーヒー",
+        "カフェイン",
+        "紅茶",
+        "緑茶",
+        "エナジードリンク",
+        "妊娠中",
+        "妊婦"
+      ],
+      "summary": "妊娠中はカフェインの摂りすぎに注意。一般的な目安は1日200mg以下。少量の摂取で直ちに胎児へ影響が出ると決まっているわけではない。",
+      "answer": "妊娠中はカフェインの摂りすぎに注意が必要です。一般的な目安として1日200mg以下に抑える考え方があります。少量摂取で直ちに影響が出るわけではありません。量を控えめにする、カフェインレスを選ぶなどが選択肢です。",
+      "careSource": "data/pregnancy-caffeine.js",
+      "responseRules": {
+        "tone": "empathetic",
+        "avoidDiagnosis": true,
+        "avoidAbsoluteSafetyClaims": true,
+        "avoidExcessiveAlarm": true
+      },
+      "priority": 100,
+      "updatedAt": "2026-10-13",
+      "enabled": true
+    },
+    {
+      "id": "pregnancy-food-safety",
+      "category": "妊娠期/栄養・飲食",
+      "intent": "pregnancy_food_safety",
+      "service": "pregnancy_health_support",
+      "target": "pregnant_patient",
+      "availability": "information",
+      "questionPatterns": [
+        "妊娠中に生ハムを食べてしまいました",
+        "妊娠中に生ものを食べても大丈夫ですか",
+        "妊娠中に刺身を食べました",
+        "妊娠中にお酒を飲んでしまいました"
+      ],
+      "keywords": [
+        "生ハム",
+        "生もの",
+        "刺身",
+        "妊娠中",
+        "食べてしま"
+      ],
+      "summary": "妊娠中は加熱不十分な食品や生ものなどに注意。1回の摂取で必ず問題が起きるわけではない。今後の注意と相談を案内。",
+      "answer": "妊娠中は加熱が不十分な食品や生ものなど、食中毒や感染のリスクに注意が必要とされています。1回少量摂ったからといって必ず問題が起きるわけではありません。今後の注意と、気になる場合の当院への相談を案内します。",
+      "careSource": "data/pregnancy-food-safety.js",
+      "responseRules": {
+        "tone": "empathetic",
+        "avoidDiagnosis": true,
+        "avoidAbsoluteSafetyClaims": true
+      },
+      "priority": 100,
+      "updatedAt": "2026-10-13",
+      "enabled": true
+    },
+    {
       "id": "pregnancy-medication-consultation",
       "category": "妊娠期/薬の服用",
       "intent": "pregnancy_medication_consultation",

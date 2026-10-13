@@ -31,6 +31,8 @@ import {
   isPregnancyMedicationQuery,
   isBreastfeedingMedicationQuery,
 } from "./pregnancy-medication.js";
+import { isPregnancyCaffeineQuery } from "./pregnancy-caffeine.js";
+import { isPregnancyFoodSafetyQuery } from "./pregnancy-food-safety.js";
 import {
   detectBirthPricingIntent,
   isBirthPricingQuery,
@@ -220,8 +222,10 @@ export function detectStandaloneIntent(userMessage) {
   // つわり
   if (isMorningSicknessQuery(msg, "")) return "morning_sickness_consultation";
 
-  // 葉酸 / 服薬
+  // 葉酸 / カフェイン・食事 / 服薬
   if (isPregnancyFolicAcidQuery(msg)) return "pregnancy_folic_acid";
+  if (isPregnancyCaffeineQuery(msg)) return "pregnancy_caffeine";
+  if (isPregnancyFoodSafetyQuery(msg)) return "pregnancy_food_safety";
   if (isBreastfeedingMedicationQuery(msg)) {
     return "breastfeeding_medication_consultation";
   }
@@ -532,6 +536,8 @@ export function clinicKnowledgeIdForIntent(intent) {
     meal_customization: "celebration-dinner-food-request",
     meal_allergy: "celebration-dinner-allergy",
     pregnancy_medication_consultation: "pregnancy-medication-consultation",
+    pregnancy_caffeine: "pregnancy-caffeine",
+    pregnancy_food_safety: "pregnancy-food-safety",
     pregnancy_folic_acid: "pregnancy-folic-acid",
     homecoming_delivery: "obstetrics-homecoming-delivery",
     first_visit_fee: "clinic-first-visit-fee",

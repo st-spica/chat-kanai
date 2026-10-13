@@ -108,6 +108,14 @@ import {
   pregnancyMedContextText,
 } from "../data/pregnancy-medication.js";
 import {
+  buildPregnancyCaffeineAnswer,
+  isPregnancyCaffeineQuery,
+} from "../data/pregnancy-caffeine.js";
+import {
+  buildPregnancyFoodSafetyAnswer,
+  isPregnancyFoodSafetyQuery,
+} from "../data/pregnancy-food-safety.js";
+import {
   breechContextText,
   buildBreechPresentationAnswer,
   isBreechPresentationQuery,
@@ -1060,7 +1068,7 @@ const SYSTEM = `
 ・【出産費用割引】きょうだい割引＝過去に当院で出産された方（15,000円）。パパママ割引＝ご夫婦のどちらかが当院で生まれた方（10,000円）。名称から条件を推測しない。「パートナー同伴で割引」「夫婦受診で割引」「二人目なら必ず割引」「同じ家庭の二人目なら割引」は禁止。
 ・【つわり】セルフケアは相談内容に合わせて1〜3点だけ。9項目の列挙禁止。水分がとれない・反復嘔吐・体重減少などは受診案内を優先。妊娠悪阻などの診断名を断定しない。「必ず治る」「食べられなくても大丈夫」は禁止。緊急症状は救急誘導を優先。
 ・【母健連絡カード・勤務書類】つわり＋仕事／書類／会社／休職などの質問は、つわりセルフケアだけで終わらせない。母性健康管理指導事項連絡カード（母健連絡カード）を案内し、記入には受診・医師判断が必要であること、記入を保証しないことを伝える。診断書・傷病手当金申請書と混同しない。未確認の発行可否・費用は推測しない。通常回答で電話番号を出さない。重い症状がある場合は医療安全を優先する。
-・【妊娠中の服薬】個別の薬の安全性・胎児影響・服用の継続／中止をAIが判断しない。「安全です」「絶対ダメ」「すぐに中止」「すべて避ける」は禁止。医師相談を案内する。授乳中の服薬・葉酸・小児予防接種と混同しない。葉酸はサプリ案内可（当院販売あり）。
+・【妊娠中の服薬】個別の薬の安全性・胎児影響・服用の継続／中止をAIが判断しない。「安全です」「絶対ダメ」「すぐに中止」「すべて避ける」は禁止。医師相談を案内する。授乳中の服薬・葉酸・小児予防接種と混同しない。葉酸はサプリ案内可（当院販売あり）。コーヒー・紅茶・カフェイン、生ハム等の食事は服薬相談として答えない（飲んだ＝薬と決めつけない）。
 ・【一般不妊相談】不妊治療・妊活の質問では診療時間表を出さない。対応は一般不妊相談に限り、妊娠を急がない方向けのタイミング療法・排卵誘発法（内服薬処方）のみ。担当医・曜日は推測せず診療体制表を案内する。体外受精・人工授精・顕微授精を一般不妊相談の根拠だけで対応可能としない。
 
 【絶対に守る基本原則】
@@ -4570,6 +4578,124 @@ export default async function handler(req, res) {
         .status(200)
         .json(attachTopicDebug(payload, "pregnancy_weight_management"));
       }
+    }
+
+    // 妊娠中のカフェイン（服薬相談と分離）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isPregnancyCaffeineQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "pregnancy-caffeine" ||
+          h.item?.intent === "pregnancy_caffeine"
+      );
+      const built = buildPregnancyCaffeineAnswer(userMessage);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      const safety = built?.medicalSafetyLevel || "information";
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "pregnancy_caffeine",
+          detectedService: "pregnancy_health_support",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          medicalSafetyLevel: safety,
+          rejectedKnowledge: clinicRejected,
+          note: "カフェインは服薬と混同しない。200mg目安・過度な不安は避ける",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "pregnancy_caffeine",
+          service: "pregnancy_health_support",
+          pregnancyCaffeine: true,
+          medicalSafetyLevel: safety,
+        },
+      });
+      const payload = { answer, emergency: false, referencedPages: [] };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "pregnancy_caffeine";
+        payload.medicalSafetyLevel = safety;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(attachTopicDebug(payload, "pregnancy_caffeine"));
+    }
+
+    // 妊娠中の食事安全（服薬・カフェインと分離）
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isPregnancyFoodSafetyQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "pregnancy-food-safety" ||
+          h.item?.intent === "pregnancy_food_safety"
+      );
+      const built = buildPregnancyFoodSafetyAnswer(userMessage);
+      const answer = stripServiceGushPhrases(
+        String(built?.answer || "").trim() ||
+          String(ckHit?.item?.answer || "").trim()
+      );
+      const safety = built?.medicalSafetyLevel || "information";
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "pregnancy_food_safety",
+          detectedService: "pregnancy_health_support",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  service: ckHit.item.service,
+                  score: ckHit.score,
+                },
+              ]
+            : [],
+          medicalSafetyLevel: safety,
+          rejectedKnowledge: clinicRejected,
+          note: "生もの等は服薬と混同しない。絶対安全の断定はしない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "pregnancy_food_safety",
+          service: "pregnancy_health_support",
+          pregnancyFoodSafety: true,
+          medicalSafetyLevel: safety,
+        },
+      });
+      const payload = { answer, emergency: false, referencedPages: [] };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "pregnancy_food_safety";
+        payload.medicalSafetyLevel = safety;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res
+        .status(200)
+        .json(attachTopicDebug(payload, "pregnancy_food_safety"));
     }
 
     // 葉酸サプリ（服薬一般・授乳中と分離）

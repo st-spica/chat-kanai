@@ -63,6 +63,8 @@ import {
   isPregnancyFolicAcidQuery,
   isPregnancyMedicationQuery,
 } from "../data/pregnancy-medication.js";
+import { isPregnancyCaffeineQuery } from "../data/pregnancy-caffeine.js";
+import { isPregnancyFoodSafetyQuery } from "../data/pregnancy-food-safety.js";
 import { isBreechPresentationQuery } from "../data/pregnancy-breech.js";
 import { isPregnancyWeightQuery } from "../data/pregnancy-weight.js";
 import { isLaborHospitalContactQuery } from "../data/labor-contact.js";
@@ -194,6 +196,8 @@ export const STRICT_MATCH_INTENTS = new Set([
   "postpartum_care",
   "hospital_meals",
   "pregnancy_medication_consultation",
+  "pregnancy_caffeine",
+  "pregnancy_food_safety",
   "pregnancy_folic_acid",
   "breech_presentation_consultation",
   "pregnancy_weight_management",
@@ -722,9 +726,15 @@ export function detectClinicIntent(userMessage) {
     return "clinic_facilities";
   }
 
-  // 葉酸 / 妊娠中の服薬 / 授乳中の服薬（混同禁止）
+  // 葉酸 / カフェイン・食事安全 / 妊娠中の服薬 / 授乳中の服薬（混同禁止）
   if (isPregnancyFolicAcidQuery(msg)) {
     return "pregnancy_folic_acid";
+  }
+  if (isPregnancyCaffeineQuery(msg)) {
+    return "pregnancy_caffeine";
+  }
+  if (isPregnancyFoodSafetyQuery(msg)) {
+    return "pregnancy_food_safety";
   }
   if (isBreastfeedingMedicationQuery(msg)) {
     return "breastfeeding_medication_consultation";
@@ -1308,7 +1318,35 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
       };
     }
   }
-  // 妊娠中の服薬は対象外（授乳・葉酸・つわり）に流用しない
+  // 妊娠中のカフェインはカフェイン関連のみ
+  if (
+    item.id === "pregnancy-caffeine" ||
+    itemIntent === "pregnancy_caffeine"
+  ) {
+    if (!isPregnancyCaffeineQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["妊娠中カフェイン:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "pregnancy_caffeineはカフェイン関連のみ",
+      };
+    }
+  }
+  // 妊娠中の食事安全は食事関連のみ
+  if (
+    item.id === "pregnancy-food-safety" ||
+    itemIntent === "pregnancy_food_safety"
+  ) {
+    if (!isPregnancyFoodSafetyQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["妊娠中食事安全:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "pregnancy_food_safetyは妊娠中の食事安全のみ",
+      };
+    }
+  }
+  // 妊娠中の服薬は対象外（授乳・葉酸・カフェイン・食事・つわり）に流用しない
   if (
     item.id === "pregnancy-medication-consultation" ||
     itemIntent === "pregnancy_medication_consultation"
@@ -1316,6 +1354,8 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
     if (
       !isPregnancyMedicationQuery(msg) ||
       isPregnancyFolicAcidQuery(msg) ||
+      isPregnancyCaffeineQuery(msg) ||
+      isPregnancyFoodSafetyQuery(msg) ||
       isBreastfeedingMedicationQuery(msg)
     ) {
       return {

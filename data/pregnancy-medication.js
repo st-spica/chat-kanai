@@ -3,7 +3,11 @@
  *
  * AIが個別の薬の安全性・中止継続を判断しない。
  * 授乳中の服薬・小児予防接種とは分離する。
+ * コーヒー・紅茶等のカフェイン、生ハム等の食事安全とは分離する。
  */
+
+import { isPregnancyCaffeineQuery } from "./pregnancy-caffeine.js";
+import { isPregnancyFoodSafetyQuery } from "./pregnancy-food-safety.js";
 
 /** @typedef {"urgent"|"consult"|"information"|"folic"} PregnancyMedSafetyLevel */
 
@@ -41,6 +45,8 @@ export function isPregnancyMedicationQuery(userMessage, contextText = "") {
   const msg = String(userMessage || "").trim();
   if (!msg) return false;
   if (isPregnancyFolicAcidQuery(msg)) return false;
+  if (isPregnancyCaffeineQuery(msg)) return false;
+  if (isPregnancyFoodSafetyQuery(msg)) return false;
   if (isBreastfeedingMedicationQuery(msg)) return false;
   // 小児予防接種は別ルート
   if (
@@ -60,7 +66,11 @@ export function isPregnancyMedicationQuery(userMessage, contextText = "") {
     return true;
   }
   if (/妊娠|妊婦/.test(msg) && DRUG_WORD_RE.test(msg)) return true;
-  if (/妊娠|妊婦/.test(msg) && /飲んで|飲んでも|飲み続け|やめた方が/.test(msg)) {
+  if (
+    /妊娠|妊婦/.test(msg) &&
+    /飲んで|飲んでも|飲み続け|やめた方が/.test(msg) &&
+    (DRUG_WORD_RE.test(msg) || /薬を|お薬を/.test(msg))
+  ) {
     return true;
   }
   // 産婦人科チャットでの処方継続・中止相談（授乳・小児は除外済み）
@@ -130,7 +140,8 @@ function isUrgentHeadacheWithWarning(msg) {
 }
 
 function isUnawareTookMedication(msg) {
-  return /気づかず|知ら(?:ないで|ず).{0,8}(?:飲|服用)|妊娠初期に.{0,16}(?:飲|服用)|飲んでしま/.test(
+  if (!DRUG_WORD_RE.test(msg) && !/薬を|お薬を|薬を/.test(msg)) return false;
+  return /気づかず|知ら(?:ないで|ず).{0,8}(?:飲|服用)|妊娠初期に.{0,16}(?:飲|服用)|妊娠に気づ(?:く|か)前|飲んでしま/.test(
     msg
   );
 }
