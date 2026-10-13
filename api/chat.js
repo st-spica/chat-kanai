@@ -2695,10 +2695,11 @@ function relatedSiteUrlChipFromClinicHits(
         };
       }
     }
-    // 産後ケア全般：aftersupport トップ（本文チャンク無しでもチップ可）
+    // 産後ケア全般／他院出産利用可：aftersupport トップ（本文チャンク無しでもチップ可）
     if (
       (h.item?.intent === "postpartum_care" ||
         h.item?.id === "postpartum-care" ||
+        h.item?.id === "postpartum-care-other-hospital" ||
         /\/aftersupport\//i.test(url)) &&
       isPostpartumCareQuery(userMessage) &&
       !/#milkcare/i.test(url)
@@ -6341,10 +6342,12 @@ export default async function handler(req, res) {
     ) {
       const ckHit = clinicKnowledgeHits.find(
         (h) =>
+          h.item?.id === "postpartum-care-other-hospital" ||
           h.item?.id === "postpartum-care" ||
           h.item?.intent === "postpartum_care"
       );
       const built = buildPostpartumCareAnswer(userMessage);
+      // 利用可否質問はモジュール確定文を優先（一般概要で薄めない）
       let answer = String(built?.answer || ckHit?.item?.answer || "").trim();
       answer = preparePatientFacingAnswer(answer, { allowPhone: false });
       const referencedPages = (built?.referencedPages?.length
@@ -6379,7 +6382,10 @@ export default async function handler(req, res) {
               ]
             : [
                 {
-                  id: "postpartum-care",
+                  id:
+                    built?.focus === "other_hospital_eligibility"
+                      ? "postpartum-care-other-hospital"
+                      : "postpartum-care",
                   intent: "postpartum_care",
                   service: "postpartum_care",
                   score: 100,
@@ -6390,7 +6396,10 @@ export default async function handler(req, res) {
           focus: built?.focus || "overview",
           responseMode: "fixed",
           rejectedKnowledge: clinicRejected,
-          note: "産後ケアは aftersupport トップへチップ。母乳ケア #milkcare と分離",
+          note:
+            built?.focus === "other_hospital_eligibility"
+              ? "他院出産でも産後ケア利用可（公式記載）。可否を先に回答＋aftersupportチップ"
+              : "産後ケアは aftersupport トップへチップ。母乳ケア #milkcare と分離",
         };
       }
       await appendChatLog({

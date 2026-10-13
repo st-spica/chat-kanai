@@ -4,6 +4,7 @@
  * 公式: https://kanai.or.jp/aftersupport/
  * 母乳ケア（#milkcare）とは意図を分離する。
  * 未確認の料金・日帰り可否などを推測しない。
+ * 他院出産の利用可否は公式記載どおり「利用可能」と先に答える。
  */
 
 import { isMilkcareQuery } from "./milkcare.js";
@@ -19,6 +20,8 @@ export const POSTPARTUM_CARE = {
   supports: ["からだサポート", "こころサポート", "育児サポート"],
   hasOvernight: true,
   reservationRequired: true,
+  /** 公式 aftersupport に明記 */
+  otherHospitalBirthAllowed: true,
 };
 
 export const POSTPARTUM_CARE_OVERVIEW_ANSWER = [
@@ -34,6 +37,60 @@ export const POSTPARTUM_CARE_OVERVIEW_ANSWER = [
   "ぜひご覧ください。",
 ].join("\n");
 
+/** 他院出産でも利用可（公式記載） */
+export const POSTPARTUM_CARE_OTHER_HOSPITAL_ANSWER = [
+  "はい、他院でご出産された方も、",
+  "当院の産後ケアをご利用いただけます。",
+  "",
+  "産後のお身体のケアや授乳・育児に関する",
+  "ご相談など、お母さんと赤ちゃんを",
+  "サポートしています。",
+  "",
+  "ご利用条件やケアの内容については、",
+  "下記のページをご覧ください。",
+].join("\n");
+
+/**
+ * 他院・当院以外での出産でも産後ケアを使えるか、の質問か
+ * @param {string} userMessage
+ */
+export function isPostpartumCareOtherHospitalQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  // 駐車場・アクセス等の別話題は除外（産後ケア明示時のみ例外）
+  if (
+    /駐車|アクセス|行き方|診療時間|面会/.test(msg) &&
+    !/産後ケア|産後サポート/.test(msg)
+  ) {
+    return false;
+  }
+
+  const otherBirth =
+    /他院|別の病院|別病院|他の病院|里帰り先で出産|里帰り出産/.test(msg) ||
+    /(?:金井(?:産婦人科)?|当院|こちら)(?:産婦人科)?で(?:は)?(?:産んでい|出産してい|分娩してい)な/.test(
+      msg
+    ) ||
+    /(?:金井(?:産婦人科)?|当院|こちら)(?:産婦人科)?で(?:は)?産んでいなくても/.test(
+      msg
+    ) ||
+    /こちらで分娩してい/.test(msg) ||
+    /当院で出産していなくても|当院で産んでいなくても/.test(msg);
+
+  if (!otherBirth) return false;
+
+  // 産後ケア明示
+  if (/産後ケア|産後サポート/.test(msg)) return true;
+  // 「他院出産でも利用・大丈夫？」系（出産文脈＋可否）
+  if (
+    /利用でき|受けられ|大丈夫|可能|対象|お願いでき/.test(msg) &&
+    (/産後|ケア|サポート|出産|産ん|分娩/.test(msg) ||
+      /(?:産んでい|出産してい|分娩してい)なくても/.test(msg))
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * @param {string} userMessage
  */
@@ -43,6 +100,7 @@ export function isPostpartumCareQuery(userMessage) {
   // 母乳ケア専用は milkcare モジュールへ
   if (isMilkcareQuery(msg)) return false;
 
+  if (isPostpartumCareOtherHospitalQuery(msg)) return true;
   if (/産後ケア|産後サポート/.test(msg)) return true;
   if (
     /出産後.{0,16}(?:赤ちゃんと|母子で|ママと).{0,12}(?:利用|サービス|ケア)/.test(
@@ -73,6 +131,8 @@ function asksReservation(msg) {
  * @param {string} msg
  */
 function asksEligibility(msg) {
+  // 他院出産の可否は asksOtherHospital 側へ（期間・対象月齢の話と分離）
+  if (isPostpartumCareOtherHospitalQuery(msg)) return false;
   return /対象|何ヶ月|何か月|いつまで|何ヵ月|利用できる期間|対象者/.test(msg);
 }
 
@@ -105,6 +165,17 @@ export function buildPostpartumCareAnswer(userMessage) {
   if (!isPostpartumCareQuery(msg)) return null;
 
   const ref = [POSTPARTUM_CARE_REF_PAGE];
+
+  // 利用可否（他院出産）を最優先で明確に答える
+  if (isPostpartumCareOtherHospitalQuery(msg)) {
+    return {
+      answer: POSTPARTUM_CARE_OTHER_HOSPITAL_ANSWER,
+      intent: "postpartum_care",
+      focus: "other_hospital_eligibility",
+      useExactAnswer: true,
+      referencedPages: ref,
+    };
+  }
 
   if (asksFee(msg)) {
     return {

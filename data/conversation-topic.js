@@ -354,6 +354,16 @@ export function isFollowUpForIntent(msg, previousIntent) {
     );
   }
 
+  if (previousIntent === "postpartum_care") {
+    return (
+      (/他院|別の病院|産んでいなくても|出産していなくても|分娩してい|利用でき|受けられ|大丈夫|料金|予約|対象|何ヶ月|宿泊|日帰り/.test(
+        m
+      ) &&
+        m.length <= 60) ||
+      isPostpartumCareQuery(m)
+    );
+  }
+
   return false;
 }
 

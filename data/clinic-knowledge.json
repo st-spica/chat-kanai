@@ -58,6 +58,58 @@
       "enabled": true
     },
     {
+      "id": "postpartum-care-other-hospital",
+      "category": "産後ケア",
+      "intent": "postpartum_care",
+      "service": "postpartum_care",
+      "availability": "available",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "他院で出産しましたが産後ケアを利用できますか？",
+        "他院で出産しましたが、産後ケアを利用できますか？",
+        "別の病院で産んでも利用できますか？",
+        "別の病院で出産した人も利用できますか？",
+        "金井産婦人科で出産していなくても大丈夫？",
+        "金井産婦人科で産んでいなくても大丈夫ですか？",
+        "他院で産んだ人も産後ケアを受けられますか？",
+        "里帰り先で出産しましたが利用できますか？",
+        "こちらで分娩していませんが産後ケアは可能ですか？",
+        "当院で産んでいなくても産後ケアは利用できますか"
+      ],
+      "keywords": [
+        "産後ケア",
+        "他院",
+        "別の病院",
+        "他の病院",
+        "出産していなくても",
+        "産んでいなくても",
+        "分娩していません",
+        "里帰り"
+      ],
+      "summary": "他院でご出産された方も産後ケアをご利用可能（公式 aftersupport 記載）。利用可否を先に案内。",
+      "answer": "はい、他院でご出産された方も、当院の産後ケアをご利用いただけます。産後のお身体のケアや授乳・育児に関するご相談など、お母さんと赤ちゃんをサポートしています。ご利用条件やケアの内容については、下記のページをご覧ください。",
+      "careSource": "data/postpartum-care.js",
+      "clinicInformation": {
+        "accessPage": "https://kanai.or.jp/aftersupport/",
+        "otherHospitalBirthAllowed": true,
+        "sourcePhrase": "他院でご出産された方もご利用可能です。",
+        "informationPolicy": "公式記載の利用可否を先に回答。未確認の追加条件は推測しない。"
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/aftersupport/",
+      "relatedSiteLabel": "産後ケアのご案内",
+      "responseRules": {
+        "useExactAnswer": true,
+        "alwaysShowRelatedLink": true,
+        "answerAvailabilityFirst": true,
+        "preferAftersupportTopPage": true,
+        "distinguishMilkcare": true,
+        "avoidInventedConditions": true
+      },
+      "priority": 220,
+      "updatedAt": "2026-10-13",
+      "enabled": true
+    },
+    {
       "id": "postpartum-care-visitation",
       "category": "産後ケア",
       "intent": "visitation",
