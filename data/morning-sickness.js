@@ -3,9 +3,24 @@
  *
  * 診断名の断定・処方指示はしない。緊急性・受診優先は medicalSafety に従う。
  * 勤務調整・書類（母健連絡カード等）は pregnancy-work-document.js へ分離。
+ * 食べずわり / 吐きづわり / においづわり を区別し、質問目的に合わせて回答する。
  */
 
 import { isPregnancyWorkDocumentQuery } from "./pregnancy-work-document.js";
+
+export const PREGNANCY_EATING_NAUSEA_INTENT = "pregnancy_eating_nausea";
+
+/** 食べずわり向けの軽食例（個人差あり・強制しない） */
+export const EATING_NAUSEA_FOOD_EXAMPLES = [
+  "クラッカー",
+  "小さなおにぎり",
+  "バナナ",
+  "ヨーグルト",
+  "ゼリー",
+  "トースト",
+  "ビスケット",
+  "小分けにした果物",
+];
 
 export const MORNING_SICKNESS_SELF_CARE = [
   {
@@ -83,13 +98,87 @@ const MAX_TIPS = 3;
  * @param {string} text
  */
 export function mentionsMorningSicknessTopic(text) {
-  return /つわり|悪阻|妊娠.{0,10}(?:気持|むかつ|吐|吐き|吐き気|におい|食欲)/.test(
+  return /つわり|悪阻|食べずわり|吐きづわり|においづわり|妊娠.{0,10}(?:気持|むかつ|吐|吐き|吐き気|におい|食欲)/.test(
     String(text || "")
   );
 }
 
 const MORNING_SICKNESS_SYMPTOM_ALONE_RE =
-  /食べ物を受け付け|吐き気が続|毎日吐|何度も吐|繰り返し吐|においが[つ辛]ら|食べ物のにおい|妊娠中で気持|妊娠中に食欲|水も飲め|水分がとれ|水分が取れ|水分もとれ|つわり/;
+  /食べ物を受け付け|吐き気が続|毎日吐|何度も吐|繰り返し吐|においが[つ辛]ら|食べ物のにおい|妊娠中で気持|妊娠中に食欲|水も飲め|水分がとれ|水分が取れ|水分もとれ|つわり|食べずわり|吐きづわり|においづわり|食べないと気持|空腹になると(?:気持|吐)|何か食べていないと/;
+
+/**
+ * 食べずわり（空腹で気持ち悪くなるタイプ）
+ * @param {string} userMessage
+ */
+export function isEatingNauseaQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg) return false;
+  if (isPregnancyWorkDocumentQuery(msg)) return false;
+  if (/食べずわり|食べづわり/.test(msg)) return true;
+  if (
+    /(?:食べない|空腹|お腹が空|おなかが空).{0,12}(?:気持|むかつ|吐|悪く)/.test(
+      msg
+    ) ||
+    /(?:気持|むかつ|吐|悪く).{0,12}(?:食べない|空腹)/.test(msg)
+  ) {
+    return true;
+  }
+  if (
+    /何か食べて(?:いない|ないと|いないと).{0,10}(?:気持|吐|悪く)/.test(msg) ||
+    /食べていないと気持/.test(msg)
+  ) {
+    return true;
+  }
+  if (
+    /つわり/.test(msg) &&
+    /空腹|こまめに食|少しずつ食|軽食|おすすめの(?:食べ物|食事)|何を食べ/.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 吐きづわり
+ * @param {string} msg
+ */
+export function isVomitingNauseaSubtype(msg) {
+  const t = String(msg || "");
+  if (/食べずわり|食べづわり/.test(t)) return false;
+  return (
+    /吐きづわり|吐きずわり/.test(t) ||
+    (/つわり/.test(t) && /(?:何度も|繰り返し|すぐ).{0,6}吐|吐いてしま/.test(t)) ||
+    (/吐/.test(t) && /食べると|食事をとると|食べられ/.test(t) && !isEatingNauseaQuery(t))
+  );
+}
+
+/**
+ * においづわり
+ * @param {string} msg
+ */
+export function isSmellNauseaSubtype(msg) {
+  const t = String(msg || "");
+  if (/食べずわり|食べづわり/.test(t)) return false;
+  return (
+    /においづわり|臭いづわり|においずわり/.test(t) ||
+    (/におい|臭い/.test(t) &&
+      (/つわり|気持|むかつ|吐|つら|辛/.test(t) || /妊娠|妊婦/.test(t)))
+  );
+}
+
+/**
+ * @param {string} userMessage
+ * @returns {"eating"|"vomiting"|"smell"|"general"}
+ */
+export function detectMorningSicknessSubtype(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (isEatingNauseaQuery(msg)) return "eating";
+  if (isSmellNauseaSubtype(msg)) return "smell";
+  if (isVomitingNauseaSubtype(msg)) return "vomiting";
+  return "general";
+}
 
 /**
  * @param {string} userMessage
@@ -100,14 +189,15 @@ export function isMorningSicknessQuery(userMessage, contextText = "") {
   if (!msg) return false;
   // 勤務・書類相談はつわりセルフケアに流さない
   if (isPregnancyWorkDocumentQuery(msg)) return false;
+  if (isEatingNauseaQuery(msg)) return true;
   if (mentionsMorningSicknessTopic(msg)) return true;
   if (MORNING_SICKNESS_SYMPTOM_ALONE_RE.test(msg)) return true;
   const ctx = String(contextText || "");
-  if (!mentionsMorningSicknessTopic(ctx) && !/つわり|悪阻/.test(ctx)) {
+  if (!mentionsMorningSicknessTopic(ctx) && !/つわり|悪阻|食べずわり/.test(ctx)) {
     return false;
   }
   // 直前がつわり相談で、水分・食事・嘔吐などの続き
-  return /(?:水|水分|飲め|食べ|吐|におい|便秘|体重|気持|むかつ|だる|休め|いつまで)/.test(
+  return /(?:水|水分|飲め|食べ|吐|におい|便秘|体重|気持|むかつ|だる|休め|いつまで|おすすめ|食べ物)/.test(
     msg
   );
 }
@@ -271,17 +361,81 @@ export function buildMorningSicknessAnswer(userMessage, safeHistory = []) {
     };
   }
 
+  const subtype = detectMorningSicknessSubtype(msg);
+
   // 経過の質問
-  if (/いつまで|いつ頃|どのくらい続|いつおさま|いつ治/.test(msg)) {
+  if (/いつまで|いつ頃|どのくらい続|いつおさま|いつ治|いつ終わり/.test(msg)) {
+    const lead =
+      subtype === "eating"
+        ? "食べずわりがいつまで続くか、気になりますよね。"
+        : "つわりがいつまで続くか、気になりますよね。";
     return {
       answer: [
+        lead,
+        "",
         MORNING_SICKNESS_COURSE,
         "",
         "症状が強い場合や、水分がとれない状態が続く場合は、無理をせず当院にご相談ください。",
       ].join("\n"),
-      intent: "morning_sickness_consultation",
+      intent:
+        subtype === "eating"
+          ? PREGNANCY_EATING_NAUSEA_INTENT
+          : "morning_sickness_consultation",
+      subtype,
       selectedSelfCareTips: [],
       medicalSafetyLevel: "course_info",
+      askFollowUp: false,
+    };
+  }
+
+  // 食べずわり：質問目的別に回答
+  if (subtype === "eating") {
+    return buildEatingNauseaAnswer(msg);
+  }
+
+  // においづわり
+  if (subtype === "smell") {
+    return {
+      answer: [
+        "においがつらいのですね。",
+        "",
+        "苦手なにおいをできるだけ避けたり、換気したりすることも対策のひとつです。",
+        "温かい食べ物のにおいが気になる場合は、冷たいものや常温のものを試してみてください。",
+        "",
+        "においづわりも個人差があります。無理をせず、休めるときは体を休めてください。",
+      ].join("\n"),
+      intent: "morning_sickness_consultation",
+      subtype: "smell",
+      selectedSelfCareTips: [
+        { id: "avoid_smells", title: "苦手なにおいを避ける" },
+        { id: "food_temperature", title: "食べ物の温度を工夫する" },
+      ],
+      medicalSafetyLevel: "self_care",
+      askFollowUp: false,
+    };
+  }
+
+  // 吐きづわり（重度は needsClinicConsult 済み）
+  if (subtype === "vomiting") {
+    return {
+      answer: [
+        "吐きづわりでつらいのですね。",
+        "",
+        "吐き気が強いときは、無理に食べようとせず、",
+        "飲めるもので水分をこまめに少量ずつとってみてください。",
+        "食べられそうなときは、さっぱりしたものや冷たいものを",
+        "少しずつ試してみてください。",
+        "",
+        "繰り返し吐いてしまう、水分がほとんどとれない場合は、",
+        "我慢せず当院へご相談ください。",
+      ].join("\n"),
+      intent: "morning_sickness_consultation",
+      subtype: "vomiting",
+      selectedSelfCareTips: [
+        { id: "hydration", title: "水分を少しずつとる" },
+        { id: "eat_when_possible", title: "食べられるときに食べる" },
+      ],
+      medicalSafetyLevel: "self_care",
       askFollowUp: false,
     };
   }
@@ -322,10 +476,151 @@ export function buildMorningSicknessAnswer(userMessage, safeHistory = []) {
   }
 
   return {
-    answer: parts.filter((p, i, arr) => !(p === "" && arr[i - 1] === "")).join("\n").trim(),
+    answer: parts
+      .filter((p, i, arr) => !(p === "" && arr[i - 1] === ""))
+      .join("\n")
+      .trim(),
     intent: "morning_sickness_consultation",
+    subtype: "general",
     selectedSelfCareTips: tips.map((t) => ({ id: t.id, title: t.title })),
     medicalSafetyLevel: "self_care",
     askFollowUp,
+  };
+}
+
+/**
+ * 食べずわり専用回答（質問目的別）
+ * @param {string} msg
+ */
+function buildEatingNauseaAnswer(msg) {
+  const wantsFood =
+    /おすすめ|食べ物|何を食べ|何がいい|どんな(?:もの|食べ物)|軽食|クラッカー|食べやすい/.test(
+      msg
+    ) ||
+    (/食べずわり|食べづわり|食べないと|空腹/.test(msg) &&
+      /ある|教えて|どうした/.test(msg) &&
+      !/太|夜|いつ|仕事|会社/.test(msg));
+
+  const weightWorry = /太|体重が増|体重増加|太りそう/.test(msg);
+  const night = /夜中|夜間|夜も|寝る前|就寝|枕元/.test(msg);
+  const workHard =
+    /仕事|会社|出勤|働け|勤務/.test(msg) &&
+    /できな|つら|辛|ひど|しんど|限界/.test(msg);
+
+  if (workHard) {
+    return {
+      answer: [
+        "食べずわりがつらく、お仕事にも影響しているのですね。",
+        "",
+        "空腹の時間を短くできるよう、通勤中や休憩中に",
+        "軽く食べられるものを用意しておくと楽になることがあります。",
+        "",
+        "症状が強く日常生活や仕事に支障がある場合は、",
+        "我慢せず当院へご相談ください。",
+        "必要に応じて、勤務調整の相談に使える書類のご案内もできます。",
+      ].join("\n"),
+      intent: PREGNANCY_EATING_NAUSEA_INTENT,
+      subtype: "eating",
+      focus: "work",
+      selectedSelfCareTips: [],
+      medicalSafetyLevel: "consult",
+      askFollowUp: false,
+    };
+  }
+
+  if (weightWorry) {
+    return {
+      answer: [
+        "食べずわりで、食べることが続いて体重が気になるのですね。",
+        "",
+        "無理な食事制限はおすすめしません。",
+        "空腹時間が長くなると気持ち悪さが強まることもあるため、",
+        "一度にたくさん食べるより、食べやすいものを少量ずつにする工夫が大切です。",
+        "",
+        "例えば、油っぽいものや甘いものを控えつつ、",
+        "クラッカーや小さなおにぎり、ヨーグルト、果物など、",
+        "比較的あっさりした軽食をこまめに選んでみてください。",
+        "",
+        "体重の増え方が心配な場合は、健診の際に医師にご相談ください。",
+      ].join("\n"),
+      intent: PREGNANCY_EATING_NAUSEA_INTENT,
+      subtype: "eating",
+      focus: "weight",
+      selectedSelfCareTips: [],
+      medicalSafetyLevel: "self_care",
+      askFollowUp: false,
+    };
+  }
+
+  if (night) {
+    return {
+      answer: [
+        "夜中も気持ち悪くなるのですね。",
+        "",
+        "食べずわりのときは、就寝前に軽く食べられるものを少し口にしたり、",
+        "枕元にクラッカーやゼリー、小さなお菓子などを用意しておくと、",
+        "夜中に空腹でつらくなったときに助かることがあります。",
+        "",
+        "一度にたくさん食べず、少量ずつにしてみてください。",
+        "食べやすいものには個人差がありますので、ご自身が口にしやすいものを選んでくださいね。",
+      ].join("\n"),
+      intent: PREGNANCY_EATING_NAUSEA_INTENT,
+      subtype: "eating",
+      focus: "night",
+      selectedSelfCareTips: [],
+      medicalSafetyLevel: "self_care",
+      askFollowUp: false,
+    };
+  }
+
+  // おすすめ食べ物・一般の食べずわり対処（食べ物を具体提示）
+  if (wantsFood || /食べずわり|食べないと|空腹になると|何か食べていない/.test(msg)) {
+    const foodList = EATING_NAUSEA_FOOD_EXAMPLES.slice(0, 5).join("、");
+    return {
+      answer: [
+        "食べていないと気持ち悪くなるのですね。",
+        "食べずわりのときは、空腹の時間をなるべく作らず、",
+        "少量ずつ食べるのがおすすめです。",
+        "",
+        `例えば、${foodList}などはいかがでしょうか。`,
+        "",
+        "一度にたくさん食べるよりも、",
+        "食べやすいものを少しずつ、",
+        "こまめに口にしてみてください。",
+        "",
+        "枕元やバッグに軽く食べられるものを",
+        "用意しておくのもおすすめですよ。",
+        "",
+        "食べやすいものには個人差がありますので、",
+        "無理に決めつけず、ご自身が口にしやすいものを選んでくださいね。",
+      ].join("\n"),
+      intent: PREGNANCY_EATING_NAUSEA_INTENT,
+      subtype: "eating",
+      focus: "food_suggestions",
+      selectedSelfCareTips: [
+        { id: "small_meals", title: "少量ずつ食べる" },
+        { id: "food_preference", title: "食べやすいものを選ぶ" },
+      ],
+      medicalSafetyLevel: "self_care",
+      askFollowUp: false,
+    };
+  }
+
+  return {
+    answer: [
+      "食べずわりでつらいのですね。",
+      "",
+      "空腹の時間をなるべく作らず、食べやすいものを少量ずつ、",
+      "こまめに口にしてみてください。",
+      "クラッカーや小さなおにぎり、バナナ、ヨーグルト、ゼリーなども一例です。",
+      "",
+      "症状が強く水分がとれない場合は、当院へご相談ください。",
+    ].join("\n"),
+    intent: PREGNANCY_EATING_NAUSEA_INTENT,
+    subtype: "eating",
+    focus: "general",
+    selectedSelfCareTips: [],
+    medicalSafetyLevel: "self_care",
+    askFollowUp: false,
   };
 }

@@ -17,7 +17,10 @@ import {
   isLaborHospitalContactQuery,
   mentionsLaborContactTopic,
 } from "./labor-contact.js";
-import { isMorningSicknessQuery } from "./morning-sickness.js";
+import {
+  isMorningSicknessQuery,
+  isEatingNauseaQuery,
+} from "./morning-sickness.js";
 import { isPregnancyWorkDocumentQuery } from "./pregnancy-work-document.js";
 import {
   isPatientComplaintQuery,
@@ -232,6 +235,8 @@ export function detectStandaloneIntent(userMessage) {
     return "pregnancy_work_accommodation_document";
   }
 
+  // 食べずわり（一般つわりより先）
+  if (isEatingNauseaQuery(msg)) return "pregnancy_eating_nausea";
   // つわり
   if (isMorningSicknessQuery(msg, "")) return "morning_sickness_consultation";
 
@@ -316,9 +321,14 @@ export function isFollowUpForIntent(msg, previousIntent) {
     );
   }
 
-  if (previousIntent === "morning_sickness_consultation") {
+  if (
+    previousIntent === "morning_sickness_consultation" ||
+    previousIntent === "pregnancy_eating_nausea"
+  ) {
     return (
-      /(?:水|水分|飲め|食べ|吐|におい|便秘|休め|いつまで)/.test(m) &&
+      /(?:水|水分|飲め|食べ|吐|におい|便秘|休め|いつまで|おすすめ|食べ物|クラッカー)/.test(
+        m
+      ) &&
       m.length <= 50 &&
       !isBirthPricingQuery(m)
     );
@@ -565,6 +575,7 @@ export function clinicKnowledgeIdForIntent(intent) {
     pregnancy_weight_management: "pregnancy-weight-gain",
     breech_presentation_consultation: "pregnancy-breech-presentation",
     morning_sickness_consultation: "pregnancy-morning-sickness",
+    pregnancy_eating_nausea: "pregnancy-eating-nausea",
     pregnancy_work_accommodation_document:
       "pregnancy-work-accommodation-document",
     patient_complaint: "patient-complaint",

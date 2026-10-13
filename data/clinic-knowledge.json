@@ -1255,6 +1255,47 @@
       "enabled": true
     },
     {
+      "id": "pregnancy-eating-nausea",
+      "category": "妊娠期/日常生活の注意",
+      "intent": "pregnancy_eating_nausea",
+      "service": "pregnancy_health_support",
+      "target": "pregnant_patient",
+      "availability": "information",
+      "questionPatterns": [
+        "食べずわりにおすすめの食べ物は",
+        "食べないと気持ち悪いです",
+        "空腹になると吐き気がします",
+        "何か食べていないと気持ち悪い",
+        "食べずわりの対処法を教えて",
+        "食べずわりで夜中にお腹が空きます",
+        "食べずわりで太りそうです",
+        "食べずわりはいつ終わりますか"
+      ],
+      "keywords": [
+        "食べずわり",
+        "食べづわり",
+        "空腹",
+        "食べないと",
+        "軽食",
+        "おすすめの食べ物",
+        "クラッカー"
+      ],
+      "summary": "食べずわりでは空腹時間を長くせず、少量ずつ食べる。クラッカー・おにぎり・バナナ・ヨーグルト・ゼリー等を例示。個人差あり。無理な食事制限は勧めない。",
+      "answer": "食べていないと気持ち悪くなる場合は、空腹の時間をなるべく作らず少量ずつ食べるのがおすすめです。クラッカー、小さなおにぎり、バナナ、ヨーグルト、ゼリーなどは一例です。食べやすいものには個人差があります。症状が強い場合は受診をご検討ください。",
+      "selfCareSource": "data/morning-sickness.js",
+      "responseRules": {
+        "tone": "empathetic",
+        "suggestConcreteFoods": true,
+        "avoidForcedFoodRecommendations": true,
+        "avoidCrashDietAdvice": true,
+        "avoidDiagnosis": true,
+        "preferOverGenericMorningSickness": true
+      },
+      "priority": 110,
+      "updatedAt": "2026-10-13",
+      "enabled": true
+    },
+    {
       "id": "pregnancy-morning-sickness",
       "category": "妊娠期/日常生活の注意",
       "intent": "morning_sickness_consultation",
@@ -1274,6 +1315,8 @@
         "つわりを軽くする方法はありますか",
         "つわりはいつまで続きますか",
         "つわりでにおいがつらい",
+        "吐きづわりで何も食べられません",
+        "においづわりがつらいです",
         "食べ物を受け付けません",
         "水も飲めません",
         "毎日吐いています",
@@ -1283,6 +1326,8 @@
       "keywords": [
         "つわり",
         "悪阻",
+        "吐きづわり",
+        "においづわり",
         "妊娠初期",
         "吐き気",
         "嘔吐",
@@ -1291,7 +1336,7 @@
         "食べられない",
         "気持ち悪い"
       ],
-      "summary": "妊娠初期には、むかつきや嘔吐、食べ物の好みの変化などがみられることがあります。症状や程度には個人差があります。",
+      "summary": "妊娠初期には、むかつきや嘔吐、食べ物の好みの変化などがみられることがあります。症状や程度には個人差があります。食べずわりは pregnancy-eating-nausea を優先。",
       "typicalCourse": {
         "description": "妊娠16〜20週頃には落ち着くことが多いですが、個人差があります。",
         "caution": "症状が強い場合や長引く場合は、妊娠悪阻などの可能性があるため、自己判断せず受診を案内する。"
@@ -1304,10 +1349,11 @@
         "avoidLongLists": true,
         "avoidDiagnosis": true,
         "avoidUnsupportedReassurance": true,
-        "askFollowUpWhenNecessary": true
+        "askFollowUpWhenNecessary": true,
+        "deferToEatingNauseaWhenApplicable": true
       },
       "priority": 100,
-      "updatedAt": "2026-10-08",
+      "updatedAt": "2026-10-13",
       "enabled": true
     },
     {

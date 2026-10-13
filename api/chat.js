@@ -1083,7 +1083,7 @@ const SYSTEM = `
 ・【女性医師・指名】女性医師は在籍。医師の指名は不可。曜日・時間はハードコードせず診療体制表（#doctor_schedule）へ案内する。「確認できる情報がありません」だけで終わらせない。男性医師の質問と混同しない。
 ・【ニューボーン＆マタニティフォト】外部サービスの紹介。提携・専属・院内運営と案内しない。指定の固定文を言い換えない。料金相場を推測しない。問い合わせ先のLINE URLを勝手に生成しない。4Dエコー写真・分娩中撮影・院内撮影ルールと混同しない。
 ・【出産費用割引】きょうだい割引＝過去に当院で出産された方（15,000円）。パパママ割引＝ご夫婦のどちらかが当院で生まれた方（10,000円）。名称から条件を推測しない。「パートナー同伴で割引」「夫婦受診で割引」「二人目なら必ず割引」「同じ家庭の二人目なら割引」は禁止。
-・【つわり】セルフケアは相談内容に合わせて1〜3点だけ。9項目の列挙禁止。水分がとれない・反復嘔吐・体重減少などは受診案内を優先。妊娠悪阻などの診断名を断定しない。「必ず治る」「食べられなくても大丈夫」は禁止。緊急症状は救急誘導を優先。
+・【つわり】食べずわり・吐きづわり・においづわりなど種類と質問目的を区別する。食べずわりで食べ物を聞かれたら具体的な軽食例を提案する（個人差あり・強制しない）。セルフケアは相談内容に合わせて1〜3点だけ。水分がとれない・反復嘔吐・体重減少などは受診案内を優先。妊娠悪阻などの診断名を断定しない。「必ず治る」は禁止。緊急症状は救急誘導を優先。
 ・【母健連絡カード・勤務書類】つわり＋仕事／書類／会社／休職などの質問は、つわりセルフケアだけで終わらせない。母性健康管理指導事項連絡カード（母健連絡カード）を案内し、記入には受診・医師判断が必要であること、記入を保証しないことを伝える。診断書・傷病手当金申請書と混同しない。未確認の発行可否・費用は推測しない。通常回答で電話番号を出さない。重い症状がある場合は医療安全を優先する。
 ・【妊娠中の服薬】個別の薬の安全性・胎児影響・服用の継続／中止をAIが判断しない。「安全です」「絶対ダメ」「すぐに中止」「すべて避ける」は禁止。医師相談を案内する。授乳中の服薬・葉酸・小児予防接種と混同しない。葉酸はサプリ案内可（当院販売あり）。コーヒー・紅茶・カフェイン、生ハム等の食事は服薬相談として答えない（飲んだ＝薬と決めつけない）。
 ・【一般不妊相談】不妊治療・妊活の質問では診療時間表を出さない。対応は一般不妊相談に限り、妊娠を急がない方向けのタイミング療法・排卵誘発法（内服薬処方）のみ。担当医・曜日は推測せず診療体制表を案内する。体外受精・人工授精・顕微授精を一般不妊相談の根拠だけで対応可能としない。
@@ -5157,22 +5157,40 @@ export default async function handler(req, res) {
       }
     }
 
-    // つわり相談（症状に合わせたセルフケア／受診優先。診断断定なし）
+    // つわり相談（食べずわり等の種類・質問目的を区別。診断断定なし）
     if (
       !metaChatHit &&
       !casualGreetingOnly &&
-      allowStructuredIntent("morning_sickness_consultation") &&
+      (allowStructuredIntent("morning_sickness_consultation") ||
+        allowStructuredIntent("pregnancy_eating_nausea") ||
+        topicResolution?.detectedIntent === "pregnancy_eating_nausea") &&
       isMorningSicknessQuery(
         userMessage,
         celebrationDinnerContextText(safeHistory, userMessage)
       )
     ) {
-      const ckHit = clinicKnowledgeHits.find(
-        (h) =>
-          h.item?.id === "pregnancy-morning-sickness" ||
-          h.item?.intent === "morning_sickness_consultation"
-      );
       const built = buildMorningSicknessAnswer(userMessage, safeHistory);
+      const intentName =
+        built?.intent === "pregnancy_eating_nausea"
+          ? "pregnancy_eating_nausea"
+          : "morning_sickness_consultation";
+      const ckHit =
+        clinicKnowledgeHits.find(
+          (h) =>
+            (intentName === "pregnancy_eating_nausea" &&
+              (h.item?.id === "pregnancy-eating-nausea" ||
+                h.item?.intent === "pregnancy_eating_nausea")) ||
+            (intentName !== "pregnancy_eating_nausea" &&
+              (h.item?.id === "pregnancy-morning-sickness" ||
+                h.item?.intent === "morning_sickness_consultation"))
+        ) ||
+        clinicKnowledgeHits.find(
+          (h) =>
+            h.item?.id === "pregnancy-eating-nausea" ||
+            h.item?.id === "pregnancy-morning-sickness" ||
+            h.item?.intent === "pregnancy_eating_nausea" ||
+            h.item?.intent === "morning_sickness_consultation"
+        );
       const answer = stripServiceGushPhrases(
         String(built?.answer || "").trim() ||
           String(ckHit?.item?.answer || "").trim()
@@ -5182,8 +5200,10 @@ export default async function handler(req, res) {
       if (includeDebug) {
         siteKnowledgeDebug = {
           ...(siteKnowledgeDebug || {}),
-          detectedIntent: "morning_sickness_consultation",
+          detectedIntent: intentName,
           detectedService: "pregnancy_health_support",
+          subtype: built?.subtype || null,
+          focus: built?.focus || null,
           matchedClinicKnowledge: ckHit
             ? [
                 {
@@ -5199,7 +5219,10 @@ export default async function handler(req, res) {
           selectedSelfCareTips: built?.selectedSelfCareTips || [],
           medicalSafetyLevel: safety,
           referenceChips: [],
-          note: "つわりはセルフケアを最大3点。受診優先・緊急は安全ルール優先",
+          note:
+            intentName === "pregnancy_eating_nausea"
+              ? "食べずわり：具体的な軽食提案・質問目的別。一般つわり固定文に流さない"
+              : "つわりは種類・症状に合わせて案内。受診優先・緊急は安全ルール優先",
         };
       }
       await appendChatLog({
@@ -5207,9 +5230,11 @@ export default async function handler(req, res) {
         answer,
         clientId,
         meta: {
-          intent: "morning_sickness_consultation",
+          intent: intentName,
           service: "pregnancy_health_support",
           morningSickness: true,
+          subtype: built?.subtype || null,
+          focus: built?.focus || null,
           medicalSafetyLevel: safety,
           selectedSelfCareTips: built?.selectedSelfCareTips || [],
           emergency: isUrgent,
@@ -5222,14 +5247,14 @@ export default async function handler(req, res) {
       };
       if (includeDebug) {
         payload.debug = siteKnowledgeDebug;
-        payload.detectedIntent = "morning_sickness_consultation";
+        payload.detectedIntent = intentName;
         payload.detectedService = "pregnancy_health_support";
         payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
         payload.selectedSelfCareTips = built?.selectedSelfCareTips || [];
         payload.medicalSafetyLevel = safety;
         payload.rejectedKnowledge = clinicRejected;
       }
-      return res.status(200).json(payload);
+      return res.status(200).json(attachTopicDebug(payload, intentName));
     }
 
     // 一般不妊相談（診療時間表を出さない。高度生殖医療は範囲外）
