@@ -995,6 +995,211 @@ function sanitizeHistory(history) {
   return out.slice(-MAX_HISTORY_ITEMS);
 }
 
+/** 患者向け汎用案内（内部詳細・キー名は出さない） */
+const PATIENT_TEMP_ERROR_ANSWER =
+  "申し訳ありません。一時的に回答できませんでした。少し時間をおいて、もう一度お試しください。";
+
+/** 公式サイト検索の全体予算（Vercel maxDuration 60s 内で GPT 余白を残す） */
+const SITE_KNOWLEDGE_BUDGET_MS = Math.max(
+  3000,
+  parseInt(process.env.SITE_KNOWLEDGE_BUDGET_MS || "12000", 10) || 12000
+);
+const SITEMAP_FILTER_BUDGET_MS = Math.max(
+  1000,
+  parseInt(process.env.SITEMAP_FILTER_BUDGET_MS || "5000", 10) || 5000
+);
+const OPENAI_CREATE_MAX_ATTEMPTS = Math.max(
+  1,
+  Math.min(3, parseInt(process.env.OPENAI_CREATE_MAX_ATTEMPTS || "2", 10) || 2)
+);
+
+function createRequestId() {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+    }
+  } catch {
+    /* ignore */
+  }
+  return `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createTimingTracker() {
+  const t0 = Date.now();
+  /** @type {Record<string, number>} */
+  const marks = { request_received: 0 };
+  return {
+    mark(name) {
+      marks[name] = Date.now() - t0;
+    },
+    elapsedMs() {
+      return Date.now() - t0;
+    },
+    snapshot() {
+      return { ...marks };
+    },
+  };
+}
+
+/**
+ * @param {Promise<T>} promise
+ * @param {number} ms
+ * @param {string} code
+ * @returns {Promise<T>}
+ * @template T
+ */
+function withTimeout(promise, ms, code) {
+  let timer;
+  const p = Promise.resolve(promise);
+  // タイムアウト勝ち後の遅延 reject で UnhandledRejection にしない
+  p.catch(() => {});
+  return Promise.race([
+    p.finally(() => {
+      if (timer) clearTimeout(timer);
+    }),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const err = new Error(code);
+        err.code = code;
+        reject(err);
+      }, ms);
+    }),
+  ]);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * サーバログ用（質問本文・APIキー・個人情報は出さない）
+ * @param {object} fields
+ */
+function logChatError(fields) {
+  const payload = {
+    requestId: fields.requestId || null,
+    ts: new Date().toISOString(),
+    stage: fields.stage || "unknown",
+    status: fields.status ?? null,
+    errorCode: fields.errorCode || null,
+    elapsedMs: fields.elapsedMs ?? null,
+    historyCount: fields.historyCount ?? null,
+    streamPhase: fields.streamPhase || "pre_stream",
+    timings: fields.timings || null,
+    message: String(fields.message || "").slice(0, 300),
+    stack: fields.stack ? String(fields.stack).slice(0, 800) : null,
+  };
+  console.error("[chat-error]", JSON.stringify(payload));
+}
+
+function logChatTiming(fields) {
+  console.log(
+    "[chat-timing]",
+    JSON.stringify({
+      requestId: fields.requestId || null,
+      ts: new Date().toISOString(),
+      historyCount: fields.historyCount ?? null,
+      streamPhase: fields.streamPhase || null,
+      ok: fields.ok !== false,
+      timings: fields.timings || null,
+      elapsedMs: fields.elapsedMs ?? null,
+    })
+  );
+}
+
+/**
+ * @param {unknown} err
+ */
+function classifyOpenAIError(err) {
+  if (err instanceof APIConnectionError) {
+    return {
+      errorCode: "openai_connection",
+      httpStatus: 502,
+      retryable: true,
+      patientAnswer: PATIENT_TEMP_ERROR_ANSWER,
+    };
+  }
+  const status = Number(err?.status ?? err?.statusCode) || 0;
+  const code = String(err?.code || "");
+  const msg = String(err?.message || "");
+  if (status === 401 || /incorrect api key|invalid api key/i.test(msg)) {
+    return {
+      errorCode: "openai_auth",
+      httpStatus: 502,
+      retryable: false,
+      patientAnswer: PATIENT_TEMP_ERROR_ANSWER,
+    };
+  }
+  if (status === 429 || code === "insufficient_quota" || /rate.?limit/i.test(msg)) {
+    return {
+      errorCode: "openai_rate_limit",
+      httpStatus: 503,
+      retryable: true,
+      patientAnswer: PATIENT_TEMP_ERROR_ANSWER,
+    };
+  }
+  if (status === 404 || /model_not_found|does not exist/i.test(msg)) {
+    return {
+      errorCode: "openai_model",
+      httpStatus: 502,
+      retryable: false,
+      patientAnswer: PATIENT_TEMP_ERROR_ANSWER,
+    };
+  }
+  if (status === 400 || /max_tokens|max_completion_tokens|unsupported parameter/i.test(msg)) {
+    return {
+      errorCode: "openai_bad_request",
+      httpStatus: 500,
+      retryable: false,
+      patientAnswer: PATIENT_TEMP_ERROR_ANSWER,
+    };
+  }
+  if (status >= 500 && status < 600) {
+    return {
+      errorCode: "openai_upstream_5xx",
+      httpStatus: 502,
+      retryable: true,
+      patientAnswer: PATIENT_TEMP_ERROR_ANSWER,
+    };
+  }
+  if (/ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|timeout|aborted/i.test(`${code} ${msg}`)) {
+    return {
+      errorCode: "openai_timeout",
+      httpStatus: 504,
+      retryable: true,
+      patientAnswer: PATIENT_TEMP_ERROR_ANSWER,
+    };
+  }
+  return {
+    errorCode: "openai_unknown",
+    httpStatus: status >= 400 && status < 600 ? status : 500,
+    retryable: false,
+    patientAnswer: PATIENT_TEMP_ERROR_ANSWER,
+  };
+}
+
+function isRetryableOpenAIError(err) {
+  return Boolean(classifyOpenAIError(err).retryable);
+}
+
+/**
+ * ストリーム開始前のみリトライ（開始後の再試行は回答重複の原因になる）
+ */
+async function createOpenAIStreamWithRetry(openai, messages, opts = {}) {
+  const maxAttempts = opts.maxAttempts || OPENAI_CREATE_MAX_ATTEMPTS;
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await createOpenAIStream(openai, messages);
+    } catch (err) {
+      lastErr = err;
+      if (attempt >= maxAttempts || !isRetryableOpenAIError(err)) throw err;
+      await sleep(Math.min(1600, 250 * attempt));
+    }
+  }
+  throw lastErr;
+}
+
 // true のとき、サイト抜粋は「当院・手続きっぽい質問」のときだけ読む（未設定時は true）。
 // 毎ターン読む場合は SITE_KNOWLEDGE_GATED=false
 const SITE_KNOWLEDGE_GATED = !["false", "0", "no"].includes(
@@ -1836,20 +2041,14 @@ const PROMPT_META_CHAT = [
 /**
  * 公式サイトを読みにいくかどうか（現在の入力＋直近のユーザー発話をざっくり判定）
  */
-function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
-  // 現在の発話がメタ質問なら、履歴に院内語があってもサイト検索しない
-  if (detectMetaChatQuery(userMessage)) return false;
-
-  const chunks = [String(userMessage || "")];
-  if (Array.isArray(safeHistory)) {
-    for (const h of safeHistory) {
-      if (h && h.role === "user") {
-        chunks.push(String(h.content || ""));
-      }
-    }
-  }
-  const text = chunks.join("\n").slice(-4000);
-
+/**
+ * 現在の発話だけで公式サイト検索が必要か判定する。
+ * ※ 過去ターンの院内語が履歴に残っていても、毎ターン全件フェッチしない
+ *   （3〜4ターン目以降のタイムアウト・500の主因になっていた）
+ */
+function messageTriggersSiteKnowledge(text) {
+  const t = String(text || "");
+  if (!t.trim()) return false;
   const triggers = [
     /当院|本院|金井産婦人科|医療法人\s*金井/,
     /公式サイト|ホームページ|HP|ＨＰ|ウェブ|web\s*予約|ＷＥＢ予約/i,
@@ -1857,9 +2056,9 @@ function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
     /予約|初診|再診|キャンセル/,
     /料金|費用|支払い|クレジット|現金|予納金|予約金/,
     /駐車場|パーキング|アクセス|行き方|場所|住所|地図|最寄|蒲生|鴫野|今福/,
-    /教室|産前教室|産後|面会|立ち会い分娩|立ち会い|入院|個室|レストラン/i,
+    /教室|産前教室|(?<![出])産後|面会|立ち会い分娩|立ち会い|入院|個室|レストラン/i,
     /母乳ケア|妊婦健診|乳児健診|健診枠|検診|スケジュール|時間割|枠|空き状況/,
-    /里帰り|分娩|出産|産科|婦人科|産後ケア/,
+    /里帰り|分娩|産科|婦人科|産後ケア/,
     /ワクチン|インフルエンザ|予防接種|アブリスボ|RSウイルス/,
     /オンライン診療|オンライン|遠隔診療|テレビ電話/i,
     /電話|番号|06[-‐]?6931/i,
@@ -1868,14 +2067,68 @@ function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
     /料金|費用|いくらかか|入院費|自己負担|託児所|無痛分娩|乳がん検診/,
     /駐車|パーキング|持ち物|持参|何を持/,
   ];
-
   return (
-    triggers.some((re) => re.test(text)) ||
-    isMeetingFocusedQuery(text) ||
-    isAttendFocusedQuery(text) ||
-    isServiceAvailabilityQuestion(text)
+    triggers.some((re) => re.test(t)) ||
+    isMeetingFocusedQuery(t) ||
+    isAttendFocusedQuery(t) ||
+    isServiceAvailabilityQuestion(t)
   );
 }
+
+/**
+ * 「何時まで？」「もう少し詳しく」など、新トピックを含まない短い続き質問。
+ * 実体のある健康相談・院内質問を追質問扱いにしない（誤ってサイト検索しない）。
+ */
+function isLikelyShortFollowUp(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg || msg.length > 24) return false;
+  // 新しい話題の実体がある発話は追質問ではない
+  if (
+    /妊娠|出産|産後|つわり|風邪|むくみ|体重|コーヒー|食べ物|食事|妊娠線|書類|診断書|診療|面会|ケア|ワクチン|薬|痛み|出血|健診|分娩|入院|予約|料金|アクセス|駐車場|母乳|検診/.test(
+      msg
+    )
+  ) {
+    return false;
+  }
+  if (
+    /^(それで|じゃあ|では|あと|それから|もう一度|詳しく|何時|何曜日|いくら|どこ|何人)/.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+  if (msg.length <= 12 && /[？?]|ですか|ますか|なの|何時|何分|教えて/.test(msg)) {
+    return true;
+  }
+  return msg.length <= 8;
+}
+
+function shouldLoadSiteKnowledgeForMessage(userMessage, safeHistory) {
+  // 現在の発話がメタ質問なら、履歴に院内語があってもサイト検索しない
+  if (detectMetaChatQuery(userMessage)) return false;
+
+  if (messageTriggersSiteKnowledge(userMessage)) return true;
+
+  // 短い追質問のみ、直前のユーザー発話を参照（全履歴の結合はしない）
+  if (isLikelyShortFollowUp(userMessage) && Array.isArray(safeHistory)) {
+    const priorUsers = safeHistory.filter((h) => h && h.role === "user");
+    const last = priorUsers.length
+      ? String(priorUsers[priorUsers.length - 1].content || "")
+      : "";
+    return messageTriggersSiteKnowledge(last);
+  }
+
+  return false;
+}
+
+/** テスト・診断用に公開 */
+export {
+  shouldLoadSiteKnowledgeForMessage,
+  messageTriggersSiteKnowledge,
+  sanitizeHistory,
+  classifyOpenAIError,
+  PATIENT_TEMP_ERROR_ANSWER,
+};
 
 /** 当院固有事実が必要な質問か（根拠なし時は一般知識で埋めない） */
 function isClinicSpecificFactualQuery(userMessage, safeHistory) {
@@ -3240,9 +3493,69 @@ function emergencyMessage() {
 
 // できるだけログを残さない（Vercelの標準ログは最小限に）
 export default async function handler(req, res) {
+  const requestId = createRequestId();
+  const timing = createTimingTracker();
+  timing.mark("request_received");
+  let streamPhase = "pre_stream";
+  let historyCount = 0;
+  let activeStage = "init";
+
+  const fail = (stage, err, httpStatus = 500) => {
+    const classified =
+      err instanceof APIConnectionError ||
+      err instanceof APIError ||
+      Number(err?.status || err?.statusCode)
+        ? classifyOpenAIError(err)
+        : null;
+    const errorCode =
+      classified?.errorCode ||
+      err?.code ||
+      (err?.name ? String(err.name) : "handler_error");
+    const status =
+      httpStatus ||
+      classified?.httpStatus ||
+      Number(err?.status || err?.statusCode) ||
+      500;
+    logChatError({
+      requestId,
+      stage,
+      status,
+      errorCode: String(errorCode).slice(0, 80),
+      elapsedMs: timing.elapsedMs(),
+      historyCount,
+      streamPhase,
+      timings: timing.snapshot(),
+      message: err?.message || String(err),
+      stack: err?.stack,
+    });
+    if (!res.headersSent) {
+      return res.status(status >= 400 && status < 600 ? status : 500).json({
+        answer: classified?.patientAnswer || PATIENT_TEMP_ERROR_ANSWER,
+        emergency: false,
+        requestId,
+      });
+    }
+    try {
+      writeNdjsonLine(res, {
+        type: "error",
+        message: PATIENT_TEMP_ERROR_ANSWER,
+        requestId,
+      });
+    } catch {
+      /* ignore */
+    }
+    try {
+      res.end();
+    } catch {
+      /* ignore */
+    }
+    return undefined;
+  };
+
   try {
     const origin = req.headers.origin;
     setCors(res, origin);
+    res.setHeader("X-Chat-Request-Id", requestId);
 
     // Preflight（CORS事前確認用）
     if (req.method === "OPTIONS") {
@@ -3310,7 +3623,9 @@ export default async function handler(req, res) {
     // Origin はブラウザ直叩き対策だが、シークレット無しは上で 401 済みのためここでは見ない。
     // （プロキシ経由では Origin が無い／中継で想定外の値になることがある）
 
+    activeStage = "read_body";
     const body = await readJsonBody(req);
+    timing.mark("body_parsed");
     const userMessage = (body.message || "").trim();
     const wantStream = Boolean(body.stream);
     const history = body.history;
@@ -3326,7 +3641,10 @@ export default async function handler(req, res) {
       });
     }
 
+    activeStage = "sanitize_history";
     const safeHistory = sanitizeHistory(history);
+    historyCount = safeHistory.length;
+    timing.mark("history_ready");
     const includeDebugEarly = shouldIncludeSiteKnowledgeDebug(req);
     // 最新メッセージ優先で話題を解決（履歴で別意図を上書きしない）
     const topicResolution = resolveConversationTopic(
@@ -3683,6 +4001,7 @@ export default async function handler(req, res) {
     // 2) clinic-knowledge 検索（緊急判定の後・公式サイト検索の前）
     //    メタ質問では検索しない
     if (!casualGreetingOnly && !metaChatHit) {
+      activeStage = "clinic_knowledge";
       try {
         const ck = await searchClinicKnowledge(userMessage, { forceRefresh });
         clinicKnowledgeHits = ck.hits || [];
@@ -3725,8 +4044,22 @@ export default async function handler(req, res) {
           };
         }
       } catch (e) {
-        console.error("clinic-knowledge search failed:", e?.message || e);
+        logChatError({
+          requestId,
+          stage: "clinic_knowledge",
+          status: 200,
+          errorCode: e?.code || "clinic_knowledge_failed",
+          elapsedMs: timing.elapsedMs(),
+          historyCount,
+          streamPhase,
+          timings: timing.snapshot(),
+          message: e?.message || String(e),
+          stack: e?.stack,
+        });
       }
+      timing.mark("clinic_knowledge_done");
+    } else {
+      timing.mark("clinic_knowledge_skipped");
     }
 
     const dinnerContextText = celebrationDinnerContextText(safeHistory, userMessage);
@@ -7196,6 +7529,7 @@ export default async function handler(req, res) {
 
     if (shouldFetchWebKnowledge) {
       siteKnowledgeSearched = true;
+      activeStage = "site_knowledge";
       const attendFocused = isAttendFocusedQuery(userMessage);
       const meetingFocused = isMeetingFocusedQuery(userMessage);
 
@@ -7207,11 +7541,15 @@ export default async function handler(req, res) {
           debug,
           evidenceUrls: siteEvidence = [],
           chipUrls: siteChips = [],
-        } = await getSiteKnowledgeSnippetSupplement(userMessage, {
-          forceRefresh,
-          includeDebug,
-          clinicKnowledgeStrong,
-        });
+        } = await withTimeout(
+          getSiteKnowledgeSnippetSupplement(userMessage, {
+            forceRefresh,
+            includeDebug,
+            clinicKnowledgeStrong,
+          }),
+          SITE_KNOWLEDGE_BUDGET_MS,
+          "site_knowledge_budget_exceeded"
+        );
         fetchedSourceChunks = sourceChunks || [];
         knowledgeConfidence = confidence || (webSnippet ? "low" : "none");
         evidenceUrls = siteEvidence || [];
@@ -7282,10 +7620,19 @@ export default async function handler(req, res) {
         }
       } catch (siteErr) {
         // サイト検索失敗で会話全体を500にしない（固定知識・GPT一般相談は継続）
-        console.error(
-          "site-knowledge search failed:",
-          siteErr?.message || siteErr
-        );
+        // 院内固有情報の推測補完はしない（snippet空・confidence none）
+        logChatError({
+          requestId,
+          stage: "site_knowledge",
+          status: 200,
+          errorCode: siteErr?.code || "site_knowledge_failed",
+          elapsedMs: timing.elapsedMs(),
+          historyCount,
+          streamPhase,
+          timings: timing.snapshot(),
+          message: siteErr?.message || String(siteErr),
+          stack: siteErr?.stack,
+        });
         clinicSnippet = "";
         fetchedSourceChunks = [];
         knowledgeConfidence = "none";
@@ -7302,6 +7649,9 @@ export default async function handler(req, res) {
           };
         }
       }
+      timing.mark("site_knowledge_done");
+    } else {
+      timing.mark("site_knowledge_skipped");
     }
 
     // clinic-knowledgeのみ根拠 / メタ質問 → チップなし
@@ -7383,7 +7733,30 @@ export default async function handler(req, res) {
     } else {
       referencedPages = referencedPages.slice(0, MAX_REFERENCE_CHIPS);
     }
-    referencedPages = await filterPagesBySitemap(referencedPages);
+    activeStage = "sitemap_filter";
+    try {
+      referencedPages = await withTimeout(
+        filterPagesBySitemap(referencedPages),
+        SITEMAP_FILTER_BUDGET_MS,
+        "sitemap_filter_budget_exceeded"
+      );
+    } catch (sitemapErr) {
+      logChatError({
+        requestId,
+        stage: "sitemap_filter",
+        status: 200,
+        errorCode: sitemapErr?.code || "sitemap_filter_failed",
+        elapsedMs: timing.elapsedMs(),
+        historyCount,
+        streamPhase,
+        timings: timing.snapshot(),
+        message: sitemapErr?.message || String(sitemapErr),
+        stack: sitemapErr?.stack,
+      });
+      // チップ検証失敗時はチップ無しで継続（回答自体は止めない）
+      referencedPages = [];
+    }
+    timing.mark("sitemap_filter_done");
 
     // clinic強ヒットかつサイト根拠なし → 再確認してチップを消す
     if (metaChatHit || (clinicKnowledgeStrong && !clinicSnippet)) {
@@ -7633,6 +8006,8 @@ export default async function handler(req, res) {
                 ]
               : [];
 
+    activeStage = "build_messages";
+    timing.mark("messages_ready");
     const messages = [
       { role: "system", content: SYSTEM },
       ...(tokyoDatetimePrompt
@@ -7704,35 +8079,43 @@ export default async function handler(req, res) {
 
     if (wantStream) {
       let stream;
+      activeStage = "openai_create";
       try {
-        stream = await createOpenAIStream(openai, messages);
+        stream = await createOpenAIStreamWithRetry(openai, messages, {
+          maxAttempts: OPENAI_CREATE_MAX_ATTEMPTS,
+        });
+        timing.mark("openai_connected");
       } catch (createErr) {
-        console.error("openai stream create error:", createErr?.message || createErr);
-        const status = createErr?.status || createErr?.statusCode || 500;
-        const msg = String(createErr?.message || "");
-        let answer = "サーバ側でエラーが発生しました。時間をおいて再度お試しください。";
-        if (status === 401 || /incorrect api key|invalid api key/i.test(msg)) {
-          answer =
-            "AIサービスの認証に失敗しました。本番環境の OPENAI_API_KEY をダッシュボードで確認してください。";
-        } else if (status === 404 || /model_not_found|does not exist|model/i.test(msg)) {
-          answer = `AIモデル「${OPENAI_MODEL}」が利用できません。Vercel の OPENAI_MODEL を確認してください。`;
-        } else if (/max_tokens|max_completion_tokens|reasoning_effort|unsupported parameter/i.test(msg)) {
-          answer =
-            "AIへのリクエスト形式がモデルと合いません。管理者が OPENAI_MODEL 等を確認してください。";
-        }
-        return res.status(status >= 400 && status < 600 ? status : 500).json({
-          answer,
+        const classified = classifyOpenAIError(createErr);
+        logChatError({
+          requestId,
+          stage: "openai_create",
+          status: classified.httpStatus,
+          errorCode: classified.errorCode,
+          elapsedMs: timing.elapsedMs(),
+          historyCount,
+          streamPhase: "pre_stream",
+          timings: timing.snapshot(),
+          message: createErr?.message || String(createErr),
+          stack: createErr?.stack,
+        });
+        return res.status(classified.httpStatus).json({
+          answer: classified.patientAnswer,
           emergency: false,
-          error: msg.slice(0, 200),
+          requestId,
         });
       }
 
       try {
+        streamPhase = "streaming";
+        activeStage = "openai_stream";
         res.writeHead(200, {
           "Content-Type": "application/x-ndjson; charset=utf-8",
           "Cache-Control": "no-cache, no-transform",
           "X-Accel-Buffering": "no",
+          "X-Chat-Request-Id": requestId,
         });
+        timing.mark("openai_first_byte");
         await pipeOpenAIStreamNdjson(
           res,
           stream,
@@ -7742,19 +8125,43 @@ export default async function handler(req, res) {
           clientId,
           siteKnowledgeDebug
         );
+        timing.mark("stream_complete");
+        streamPhase = "done";
+        logChatTiming({
+          requestId,
+          historyCount,
+          streamPhase,
+          ok: true,
+          timings: timing.snapshot(),
+          elapsedMs: timing.elapsedMs(),
+        });
         res.end();
       } catch (streamErr) {
-        console.error("openai stream error:", streamErr?.message || streamErr);
+        const classified = classifyOpenAIError(streamErr);
+        logChatError({
+          requestId,
+          stage: "openai_stream",
+          status: classified.httpStatus || 500,
+          errorCode: classified.errorCode || "openai_stream_cut",
+          elapsedMs: timing.elapsedMs(),
+          historyCount,
+          streamPhase: res.headersSent ? "streaming" : "pre_stream",
+          timings: timing.snapshot(),
+          message: streamErr?.message || String(streamErr),
+          stack: streamErr?.stack,
+        });
         if (!res.headersSent) {
           return res.status(500).json({
-            answer: "サーバ側でエラーが発生しました。",
+            answer: PATIENT_TEMP_ERROR_ANSWER,
             emergency: false,
+            requestId,
           });
         }
         try {
           writeNdjsonLine(res, {
             type: "error",
-            message: "応答の送信が途中で止まりました。時間をおいて再度お試しください。",
+            message: PATIENT_TEMP_ERROR_ANSWER,
+            requestId,
           });
         } catch {
           /* ignore */
@@ -7764,9 +8171,48 @@ export default async function handler(req, res) {
       return;
     }
 
-    const completion = await openai.chat.completions.create(
-      buildOpenAICompletionParams({ messages, stream: false })
-    );
+    activeStage = "openai_create";
+    let completion;
+    try {
+      let lastErr;
+      for (let attempt = 1; attempt <= OPENAI_CREATE_MAX_ATTEMPTS; attempt++) {
+        try {
+          completion = await openai.chat.completions.create(
+            buildOpenAICompletionParams({ messages, stream: false })
+          );
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (attempt >= OPENAI_CREATE_MAX_ATTEMPTS || !isRetryableOpenAIError(err)) {
+            throw err;
+          }
+          await sleep(Math.min(1600, 250 * attempt));
+        }
+      }
+      if (lastErr) throw lastErr;
+      timing.mark("openai_connected");
+      timing.mark("openai_first_byte");
+    } catch (createErr) {
+      const classified = classifyOpenAIError(createErr);
+      logChatError({
+        requestId,
+        stage: "openai_create",
+        status: classified.httpStatus,
+        errorCode: classified.errorCode,
+        elapsedMs: timing.elapsedMs(),
+        historyCount,
+        streamPhase: "pre_stream",
+        timings: timing.snapshot(),
+        message: createErr?.message || String(createErr),
+        stack: createErr?.stack,
+      });
+      return res.status(classified.httpStatus).json({
+        answer: classified.patientAnswer,
+        emergency: false,
+        requestId,
+      });
+    }
 
     const raw =
       (completion.choices[0]?.message?.content || "").trim() ||
@@ -7785,6 +8231,7 @@ export default async function handler(req, res) {
       referencedPages
     );
     const answer = finalizeAssistantAnswer(raw, referencedPages, userMessage, safeHistory);
+    timing.mark("stream_complete");
 
     // Vercel のログにチャット内容（生テキスト）を残す
     // - IP やブラウザ情報などの識別子は含めない
@@ -7809,7 +8256,16 @@ export default async function handler(req, res) {
       clientId,
     });
 
-    const payload = { answer, emergency: false, referencedPages };
+    logChatTiming({
+      requestId,
+      historyCount,
+      streamPhase: "non_stream",
+      ok: true,
+      timings: timing.snapshot(),
+      elapsedMs: timing.elapsedMs(),
+    });
+
+    const payload = { answer, emergency: false, referencedPages, requestId };
     if (siteKnowledgeDebug) {
       payload.siteKnowledgeDebug = siteKnowledgeDebug;
       payload.knowledgeConfidence = knowledgeConfidence;
@@ -7829,63 +8285,6 @@ export default async function handler(req, res) {
     }
     return res.status(200).json(payload);
   } catch (e) {
-    const detail = e?.message || String(e);
-    const status = e?.status ?? e?.response?.status;
-    const code = e?.code;
-    console.error(
-      "chat handler error:",
-      detail,
-      status != null ? `http=${status}` : "",
-      code != null ? `code=${code}` : "",
-      e?.stack ? String(e.stack).slice(0, 800) : ""
-    );
-
-    if (e instanceof APIConnectionError) {
-      return res.status(500).json({
-        answer: "AIサービスへ接続できませんでした。時間をおいて再度お試しください。",
-        emergency: false,
-      });
-    }
-
-    if (status === 401) {
-      return res.status(500).json({
-        answer:
-          "AIサービスの認証に失敗しました。本番環境の OPENAI_API_KEY をダッシュボードで確認してください。",
-        emergency: false,
-      });
-    }
-
-    if (status === 403) {
-      return res.status(500).json({
-        answer:
-          "AIの利用がこのキーでは許可されていません（組織・プロジェクト設定を確認してください）。",
-        emergency: false,
-      });
-    }
-
-    if (status === 404) {
-      return res.status(500).json({
-        answer: `AIモデル「${OPENAI_MODEL}」が利用できません。Vercel の OPENAI_MODEL を gpt-4o-mini などに設定し直してください。`,
-        emergency: false,
-      });
-    }
-
-    if (status === 429 || code === "insufficient_quota") {
-      return res.status(500).json({
-        answer:
-          "AIサービス側の混雑、または利用上限に達しています。しばらくしてからお試しいただくか、請求・枠をご確認ください。",
-        emergency: false,
-      });
-    }
-
-    if (status === 400 && e instanceof APIError) {
-      return res.status(500).json({
-        answer:
-          "AIへのリクエストが拒否されました（モデル名・入力内容の制限）。管理者が OPENAI_MODEL 等を確認してください。",
-        emergency: false,
-      });
-    }
-
-    return res.status(500).json({ answer: "サーバ側でエラーが発生しました。", emergency: false });
+    return fail(activeStage || "handler", e);
   }
 }

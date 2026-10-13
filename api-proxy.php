@@ -121,6 +121,11 @@ $sendResponseHeaders = static function () use (&$headersSent, &$responseHeaders,
   }
 };
 
+// Vercel maxDuration=60s より先に PHP が切れないよう、cURL は 55s に合わせる。
+// （旧 120s だと Vercel 切断後も PHP が待ち続け、途中切断・空応答の原因になる）
+@ini_set('max_execution_time', '70');
+@set_time_limit(70);
+
 curl_setopt_array($ch, [
   CURLOPT_POST => true,
   CURLOPT_POSTFIELDS => $rawBody,
@@ -128,8 +133,8 @@ curl_setopt_array($ch, [
   CURLOPT_RETURNTRANSFER => false,
   CURLOPT_HEADER => false,
   CURLOPT_FOLLOWLOCATION => false,
-  CURLOPT_TIMEOUT => 120,
-  CURLOPT_CONNECTTIMEOUT => 15,
+  CURLOPT_TIMEOUT => 55,
+  CURLOPT_CONNECTTIMEOUT => 10,
   CURLOPT_HEADERFUNCTION => static function ($curl, string $headerLine) use (&$responseHeaders): int {
     $len = strlen($headerLine);
     $parts = explode(':', $headerLine, 2);
@@ -166,11 +171,19 @@ $ok = curl_exec($ch);
 $curlErr = curl_error($ch);
 
 if ($ok === false) {
+  $errno = curl_errno($ch);
+  error_log(sprintf(
+    '[api-proxy] curl_failed errno=%d err=%s headersSent=%s',
+    $errno,
+    $curlErr,
+    $headersSent ? '1' : '0'
+  ));
   if (!$headersSent) {
     http_response_code(502);
     header('Content-Type: application/json; charset=UTF-8');
+    // 患者向けは内部詳細を出さない
     echo json_encode([
-      'answer' => '上流APIへの接続に失敗しました。時間をおいて再度お試しください。',
+      'answer' => '申し訳ありません。一時的に回答できませんでした。少し時間をおいて、もう一度お試しください。',
       'emergency' => false,
       'error' => 'Upstream connection failed',
     ], JSON_UNESCAPED_UNICODE);

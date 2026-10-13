@@ -79,6 +79,30 @@ function historyForRequest() {
     }));
 }
 
+/** 患者向け一時エラー案内（内部詳細は出さない） */
+const PATIENT_TEMP_ERROR =
+  "申し訳ありません。一時的に回答できませんでした。少し時間をおいて、もう一度お試しください。";
+
+/**
+ * API の answer を患者表示用に整形する。
+ * サーバ内部向け文言・技術情報は出さない。
+ */
+function patientFacingErrorText(raw) {
+  const t = String(raw || "").trim();
+  if (!t) return PATIENT_TEMP_ERROR;
+  if (
+    /OPENAI|API_KEY|ダッシュボード|Vercel|モデル|認証に失敗|リクエスト形式|管理者が|上流API/i.test(
+      t
+    )
+  ) {
+    return PATIENT_TEMP_ERROR;
+  }
+  if (/サーバ側でエラー|サーバエラー/.test(t)) {
+    return PATIENT_TEMP_ERROR;
+  }
+  return t;
+}
+
 const RICH_HTML_PREFIX = "[[[RICH_HTML]]]";
 const RICH_HTML_MARKER_ANY_RE = /\[\[\[(?:\/)?RICH_HTML\]\]\]+/gi;
 const RICH_HTML_MARKER_HEAD_RE = /^(\[\[\[(?:\/)?RICH_HTML\]\]\]+)/i;
@@ -736,10 +760,10 @@ try {
   if (ct.includes("application/x-ndjson")) {
     if (!res.ok) {
       hideTyping();
-      let errText = "サーバエラーが発生しました。時間をおいて再度お試しください。";
+      let errText = PATIENT_TEMP_ERROR;
       try {
         const errData = JSON.parse(await res.text());
-        errText = (errData && errData.answer) || errText;
+        errText = patientFacingErrorText((errData && errData.answer) || errText);
       } catch {
         /* ignore */
       }
@@ -789,7 +813,9 @@ try {
           streamHadError = true;
           hideTyping();
           if (!shell) shell = addStreamingAssistantShell();
-          shell.contentEl.textContent = obj.message || "応答の送信が途中で止まりました。";
+          shell.contentEl.textContent = patientFacingErrorText(
+            obj.message || PATIENT_TEMP_ERROR
+          );
         }
       }
     }
@@ -812,8 +838,7 @@ try {
     } else if (!sawDone) {
       const prevChips = shell.bubble.querySelector(".assistant-ref-chips");
       if (prevChips) prevChips.remove();
-      shell.contentEl.textContent =
-        "通信が途切れた可能性があります。もう一度お試しください。";
+      shell.contentEl.textContent = PATIENT_TEMP_ERROR;
     } else {
       const prevChips = shell.bubble.querySelector(".assistant-ref-chips");
       if (prevChips) prevChips.remove();
@@ -832,9 +857,9 @@ try {
   }
 
   if (!res.ok) {
-    const errText =
-      (data && (data.answer || data.error)) ||
-      "サーバエラーが発生しました。時間をおいて再度お試しください。";
+    const errText = patientFacingErrorText(
+      (data && data.answer) || PATIENT_TEMP_ERROR
+    );
     addMessage("assistant", errText);
     return;
   }
@@ -847,7 +872,7 @@ try {
   pushHistory("assistant", ansNorm);
 } catch {
   hideTyping();
-  addMessage("assistant", "通信エラーが発生しました。");
+  addMessage("assistant", PATIENT_TEMP_ERROR);
 }
 }
 

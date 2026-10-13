@@ -31,7 +31,8 @@ const HOSPITAL_BAG_PAGE_BARE = "https://kanai.or.jp/obstetrics/childbirth/";
 
 const REDIS_KEY = "chat:site-knowledge:v6";
 
-const DEFAULT_MAX_PAGES = parseInt(process.env.SITE_FETCH_MAX_PAGES || "16", 10);
+/** 同時取得ページ数（既定8。16だと cold start 時に予算超過しやすい） */
+const DEFAULT_MAX_PAGES = parseInt(process.env.SITE_FETCH_MAX_PAGES || "8", 10);
 const DEFAULT_MAX_CHARS = parseInt(process.env.SITE_MAX_CHARS_PER_PAGE || "3000", 10);
 const SNIPPET_TOP_CHUNKS = Math.min(
   10,
@@ -89,7 +90,8 @@ const URL_LIST_TTL_MS = parseInt(
   process.env.SITE_URL_LIST_TTL_MS || String(30 * 60 * 1000),
   10
 );
-const FETCH_TIMEOUT_MS = parseInt(process.env.SITE_FETCH_TIMEOUT_MS || "8000", 10);
+/** 1ページ取得の上限（全体予算は chat.js の SITE_KNOWLEDGE_BUDGET_MS） */
+const FETCH_TIMEOUT_MS = parseInt(process.env.SITE_FETCH_TIMEOUT_MS || "5000", 10);
 const MAX_SITEMAP_URLS = parseInt(process.env.SITE_SITEMAP_MAX_URLS || "300", 10);
 
 const FACILITY_2CHAR = new Set([
