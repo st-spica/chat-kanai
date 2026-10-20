@@ -1,6 +1,6 @@
 <?php
 /**
- * AIお悩み相談
+ * ご質問・ご意見 AIチャット
  * 同サーバー WordPress のヘッダー／フッターのみを利用する。
  * 配置想定: WP ルート直下の consul_ai/index.php
  */
@@ -36,7 +36,7 @@ if ($consul_ai_base === '' || $consul_ai_base === '.') {
 add_filter(
   'pre_get_document_title',
   static function () {
-    return 'AIご質問・ご意見チャット';
+    return 'ご質問・ご意見AIチャット';
   },
   20
 );
