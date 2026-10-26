@@ -9,7 +9,7 @@
  *
  * ドメイン確定後はコード変更不要。Vercel 環境変数だけ書き換え:
  *   REPORT_FROM_EMAIL … AIチャットレポート <noreply@検証済みドメイン>
- *   REPORT_EMAIL_TO   … ueno@st-spica.jp
+ *   REPORT_EMAIL_TO   … 送信先（複数はカンマ区切り。未設定なら送信しない）
  *
  * 手動テスト:
  *   curl -X GET "https://xxx.vercel.app/api/daily-report?date=2026-07-31" \
@@ -23,7 +23,19 @@ import {
   hasSupabaseConfig,
 } from "./_chatLog.js";
 
-const REPORT_TO = (process.env.REPORT_EMAIL_TO || "ueno@st-spica.jp").trim();
+function reportRecipients() {
+  const raw = (process.env.REPORT_EMAIL_TO || "").trim();
+  const listed = raw.split(/[,;]+/).map((s) => s.trim()).filter(Boolean);
+  const out = [];
+  const seen = new Set();
+  for (const addr of listed) {
+    const key = addr.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(addr);
+  }
+  return out;
+}
 const REPORT_FROM_RAW = (
   process.env.REPORT_FROM_EMAIL || "onboarding@resend.dev"
 ).trim();
@@ -116,6 +128,10 @@ function isAuthorized(req) {
 }
 
 async function sendReportEmail({ ymd, rows }) {
+  const recipients = reportRecipients();
+  if (!recipients.length) {
+    return { ok: false, error: "REPORT_EMAIL_TO is not configured" };
+  }
   if (!RESEND_API_KEY) {
     return { ok: false, error: "RESEND_API_KEY is not configured" };
   }
@@ -132,7 +148,7 @@ async function sendReportEmail({ ymd, rows }) {
     },
     body: JSON.stringify({
       from: reportFromHeader(),
-      to: [REPORT_TO],
+      to: recipients,
       subject,
       html,
       attachments: [
@@ -198,7 +214,7 @@ export default async function handler(req, res) {
 
     console.log(
       "daily-report sent",
-      JSON.stringify({ ymd, todayJst, count: rows.length, to: REPORT_TO, id: mail.id })
+      JSON.stringify({ ymd, todayJst, count: rows.length, to: reportRecipients(), id: mail.id })
     );
 
     return res.status(200).json({
@@ -206,7 +222,7 @@ export default async function handler(req, res) {
       ymd,
       todayJst,
       count: rows.length,
-      to: REPORT_TO,
+      to: reportRecipients(),
       emailId: mail.id,
       hint:
         rows.length === 0
