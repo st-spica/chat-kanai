@@ -8,7 +8,7 @@
  * - 認証: Authorization: Bearer <CRON_SECRET>（Cron 時は Vercel が自動付与）
  *
  * ドメイン確定後はコード変更不要。Vercel 環境変数だけ書き換え:
- *   REPORT_FROM_EMAIL … AI相談レポート <noreply@検証済みドメイン>
+ *   REPORT_FROM_EMAIL … AIチャットレポート <noreply@検証済みドメイン>
  *   REPORT_EMAIL_TO   … ueno@st-spica.jp
  *
  * 手動テスト:
@@ -24,10 +24,17 @@ import {
 } from "./_chatLog.js";
 
 const REPORT_TO = (process.env.REPORT_EMAIL_TO || "ueno@st-spica.jp").trim();
-const REPORT_FROM = (
-  process.env.REPORT_FROM_EMAIL ||
-  "AI相談レポート <onboarding@resend.dev>"
+const REPORT_FROM_RAW = (
+  process.env.REPORT_FROM_EMAIL || "onboarding@resend.dev"
 ).trim();
+
+/** 表示名は固定。アドレスだけ環境変数の検証済み送信元を使う */
+function reportFromHeader() {
+  const embedded = REPORT_FROM_RAW.match(/<([^>]+)>/);
+  const bare = REPORT_FROM_RAW.match(/[^\s<>]+@[^\s<>]+/);
+  const email = (embedded?.[1] || bare?.[0] || "onboarding@resend.dev").trim();
+  return `AIチャットレポート <${email}>`;
+}
 const RESEND_API_KEY = (process.env.RESEND_API_KEY || "").trim();
 const CRON_SECRET = (process.env.CRON_SECRET || "").trim();
 
@@ -78,7 +85,7 @@ function buildHtml(ymd, rows) {
   return `<!doctype html>
 <html lang="ja">
 <body style="font-family:sans-serif;color:#222;line-height:1.5;">
-  <h2 style="margin:0 0 8px;">金井産婦人科 AIお悩み相談 日次レポート</h2>
+  <h2 style="margin:0 0 8px;">金井産婦人科 AIチャット 日次レポート</h2>
   <p style="margin:0 0 16px;">
     対象期間: <strong>${escapeHtml(ymd)} 0:00〜24:00</strong><br>
     件数: <strong>${count}</strong>／ユーザー: <strong>${uniqueUsers}人</strong>
@@ -115,7 +122,7 @@ async function sendReportEmail({ ymd, rows }) {
 
   const csv = buildCsv(rows);
   const html = buildHtml(ymd, rows);
-  const subject = `【AI相談】日次レポート ${ymd}（${rows.length}件）`;
+  const subject = `【AIチャット】日次レポート ${ymd}`;
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -124,7 +131,7 @@ async function sendReportEmail({ ymd, rows }) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: REPORT_FROM,
+      from: reportFromHeader(),
       to: [REPORT_TO],
       subject,
       html,
