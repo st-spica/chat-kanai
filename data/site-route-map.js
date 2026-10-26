@@ -1,5 +1,5 @@
 import { isHpvVaccineQuery } from "./hpv-vaccine.js";
-import { isMaskPolicyQuery } from "./mask-policy.js";
+import { isMaskPolicyQuery, MASK_POLICY_PAGE } from "./mask-policy.js";
 import { isDischargeGiftQuery } from "./discharge-gift.js";
 import {
   isCervicalCancerScreeningQuery,
@@ -1547,6 +1547,16 @@ export function matchSiteRoutes(userMessage) {
   const photoHit = isPhotoRecordingFocusedMessage(msg);
   const service = detectClinicService(msg);
   const out = [];
+  if (isMaskPolicyQuery(msg)) {
+    out.push({
+      id: "mask_policy",
+      label: MASK_POLICY_PAGE.title,
+      patterns: [],
+      urls: [MASK_POLICY_PAGE.url],
+      boost: 300,
+      matchedPattern: "mask_policy",
+    });
+  }
   for (const rule of SITE_ROUTE_MAP) {
     // 退院プレゼントは撮影サービスや分娩予約特典に寄せない
     if (

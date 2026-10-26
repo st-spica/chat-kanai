@@ -13,7 +13,7 @@ import {
   MASK_WEAR_VISITOR_ANSWER,
 } from "../data/mask-policy.js";
 import { detectClinicIntent, searchClinicKnowledge } from "../api/_clinicKnowledge.js";
-import { detectClinicService } from "../data/site-route-map.js";
+import { detectClinicService, matchSiteRoutes } from "../data/site-route-map.js";
 import { resolveConversationTopic } from "../data/conversation-topic.js";
 
 const FORBIDDEN = [
@@ -75,6 +75,38 @@ const cases = [
     absent: "mask-wearing-rules",
   },
   {
+    q: "マスクを忘れた場合、もらえますか？",
+    purpose: "provide",
+    intent: "mask_provision",
+    answer: MASK_OUTPATIENT_DISTRIBUTION_ANSWER,
+    hit: "mask-provision-unconfirmed",
+    absent: "mask-wearing-rules",
+  },
+  {
+    q: "マスクは購入できますか？",
+    purpose: "provide",
+    intent: "mask_provision",
+    answer: MASK_OUTPATIENT_DISTRIBUTION_ANSWER,
+    hit: "mask-provision-unconfirmed",
+    absent: "mask-wearing-rules",
+  },
+  {
+    q: "マスクはいくらですか？",
+    purpose: "provide",
+    intent: "mask_provision",
+    answer: MASK_OUTPATIENT_DISTRIBUTION_ANSWER,
+    hit: "mask-provision-unconfirmed",
+    absent: "mask-wearing-rules",
+  },
+  {
+    q: "マスクを持っていないのですが",
+    purpose: "provide",
+    intent: "mask_provision",
+    answer: MASK_OUTPATIENT_DISTRIBUTION_ANSWER,
+    hit: "mask-provision-unconfirmed",
+    absent: "mask-wearing-rules",
+  },
+  {
     q: "マスクは無料で配っていますか？",
     purpose: "provide",
     intent: "mask_provision",
@@ -112,6 +144,13 @@ for (const c of cases) {
   if (/06-6931-2391/.test(built?.answer || "")) problems.push("電話番号");
   const chip = (built?.referencedPages || []).map((p) => p.url);
   if (!chip.includes(MASK_POLICY_PAGE.url)) problems.push("公式ページのチップがない");
+  if (built?.referencedPages?.[0]?.title !== "マスク着用と有料化について") {
+    problems.push(`チップ名: ${built?.referencedPages?.[0]?.title}`);
+  }
+  if (/%e6%9c%96/.test(MASK_POLICY_PAGE.url)) problems.push("誤った文字コードのURL");
+  if (/10月31日|無料/.test(built?.answer || "")) problems.push("無料期間の説明がある");
+  const routeUrls = matchSiteRoutes(c.q).flatMap((r) => r.urls || []);
+  if (!routeUrls.includes(MASK_POLICY_PAGE.url)) problems.push("ルートが正規URLを返さない");
   if (problems.length) {
     failed += 1;
     console.log("NG", c.q);
@@ -181,6 +220,18 @@ if (continued.detectedIntent !== "mask_wearing") {
   console.log("NG においの続きに吸われた", continued.detectedIntent);
 } else {
   console.log("OK においの続きでも着用対象の質問");
+}
+
+const linkRes = await fetch(MASK_POLICY_PAGE.url, {
+  method: "GET",
+  redirect: "follow",
+  headers: { "user-agent": "Mozilla/5.0" },
+});
+if (linkRes.status !== 200) {
+  failed += 1;
+  console.log("NG チップURLのHTTP", linkRes.status, MASK_POLICY_PAGE.url);
+} else {
+  console.log("OK チップURLはHTTP 200");
 }
 
 if (failed) {

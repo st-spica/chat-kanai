@@ -2890,22 +2890,21 @@
       "answer": "当院では感染防止のため、院内全てのエリアでマスクの着用をお願いしております。受診される患者さま、面会の方、病棟へ付添いの方も対象です。\n\nご来院の際はマスクをご用意ください。外来診療時にマスクをお持ちでない方には、令和8年11月1日から1枚50円でお配りします。",
       "careSource": "data/mask-policy.js",
       "clinicInformation": {
-        "sourceUrl": "https://kanai.or.jp/%e4%bb%a4%e5%92%8c8%e5%b9%b411%e6%9c%8801%e6%97%a5%e4%bb%a5%e9%99%8d%e3%81%ae%e3%83%9e%e3%82%b9%e3%82%af%e7%9d%80%e7%94%a8%e3%81%a8%e6%9c%96%e6%96%99%e5%8c%96%e3%81%ab%e3%81%a4%e3%81%84%e3%81%a6/",
+        "sourceUrl": "https://kanai.or.jp/%e4%bb%a4%e5%92%8c8%e5%b9%b411%e6%9c%8801%e6%97%a5%e4%bb%a5%e9%99%8d%e3%81%ae%e3%83%9e%e3%82%b9%e3%82%af%e7%9d%80%e7%94%a8%e3%81%a8%e6%9c%89%e6%96%99%e5%8c%96%e3%81%ab%e3%81%a4%e3%81%84%e3%81%a6/",
         "allAreasWearing": true,
         "outpatientWearingRequired": true,
         "visitorWearingRequested": true,
         "wardAttendantWearingRequested": true,
         "outpatientForgotMask": {
-          "freeUntil": "2026-10-31",
+          "publishedAt": "2026-10-20",
           "paidFrom": "2026-11-01",
           "priceYen": 50,
           "unit": "1枚",
-          "ask": "受付スタッフ",
-          "payment": "会計時に精算"
+          "ask": "受付スタッフ"
         }
       },
-      "relatedSiteUrl": "https://kanai.or.jp/%e4%bb%a4%e5%92%8c8%e5%b9%b411%e6%9c%8801%e6%97%a5%e4%bb%a5%e9%99%8d%e3%81%ae%e3%83%9e%e3%82%b9%e3%82%af%e7%9d%80%e7%94%a8%e3%81%a8%e6%9c%96%e6%96%99%e5%8c%96%e3%81%ab%e3%81%a4%e3%81%84%e3%81%a6/",
-      "relatedSiteLabel": "令和8年11月01日以降のマスク着用と有料化について",
+      "relatedSiteUrl": "https://kanai.or.jp/%e4%bb%a4%e5%92%8c8%e5%b9%b411%e6%9c%8801%e6%97%a5%e4%bb%a5%e9%99%8d%e3%81%ae%e3%83%9e%e3%82%b9%e3%82%af%e7%9d%80%e7%94%a8%e3%81%a8%e6%9c%89%e6%96%99%e5%8c%96%e3%81%ab%e3%81%a4%e3%81%84%e3%81%a6/",
+      "relatedSiteLabel": "マスク着用と有料化について",
       "responseRules": {
         "distinguishWearingFromProvision": true,
         "doNotSelectOnMaskWordAlone": true,
@@ -2923,10 +2922,11 @@
       "availability": "available",
       "responseMode": "fixed",
       "questionPatterns": [
+        "マスクを忘れた場合、もらえますか",
         "マスクをもらえますか",
-        "マスクを忘れたらもらえますか",
-        "マスクは無料で配っていますか",
-        "マスクは50円ですか"
+        "マスクは購入できますか",
+        "マスクはいくらですか",
+        "マスクを持っていないのですが"
       ],
       "keywords": [
         "マスク",
@@ -2936,23 +2936,23 @@
         "50円",
         "もらえますか"
       ],
-      "summary": "外来診療でマスク未持参の方は、令和8年10月31日まで無料、11月1日から1枚50円。受付へ。会計時精算。面会・入院・スタッフへこの料金を広げない。",
-      "answer": "外来診療時にマスクをお持ちでない方への配布は、令和8年10月31日までは無料、令和8年11月1日からは1枚50円です。\n\nお忘れの場合は受付スタッフにお声がけください。マスク代は会計時に精算します。",
+      "summary": "マスクを忘れた場合は受付で1枚50円。無料期間は回答に書かない。料金開始は令和8年11月1日（ページ公開は2026-10-20）。",
+      "answer": "はい、マスクをお忘れの場合は、受付にて1枚50円でご購入いただけます。\n\nご希望の際は、受付スタッフにお声がけください。",
       "careSource": "data/mask-policy.js",
       "clinicInformation": {
         "outpatientDistribution": {
-          "freeUntil": "2026-10-31",
+          "publishedAt": "2026-10-20",
           "paidFrom": "2026-11-01",
           "priceYen": 50,
           "unit": "1枚",
-          "ask": "受付スタッフ",
-          "payment": "会計時に精算"
+          "place": "受付",
+          "omitFormerFreePeriodInAnswer": true
         },
         "doNotApplyFeeToVisitorsOrInpatients": true,
         "doNotLimitProvisionToInpatients": true
       },
-      "relatedSiteUrl": "https://kanai.or.jp/%e4%bb%a4%e5%92%8c8%e5%b9%b411%e6%9c%8801%e6%97%a5%e4%bb%a5%e9%99%8d%e3%81%ae%e3%83%9e%e3%82%b9%e3%82%af%e7%9d%80%e7%94%a8%e3%81%a8%e6%9c%96%e6%96%99%e5%8c%96%e3%81%ab%e3%81%a4%e3%81%84%e3%81%a6/",
-      "relatedSiteLabel": "令和8年11月01日以降のマスク着用と有料化について",
+      "relatedSiteUrl": "https://kanai.or.jp/%e4%bb%a4%e5%92%8c8%e5%b9%b411%e6%9c%8801%e6%97%a5%e4%bb%a5%e9%99%8d%e3%81%ae%e3%83%9e%e3%82%b9%e3%82%af%e7%9d%80%e7%94%a8%e3%81%a8%e6%9c%89%e6%96%99%e5%8c%96%e3%81%ab%e3%81%a4%e3%81%84%e3%81%a6/",
+      "relatedSiteLabel": "マスク着用と有料化について",
       "responseRules": {
         "distinguishWearingFromProvision": true,
         "outpatientFeeOnly": true,
