@@ -45,6 +45,67 @@ export const FACILITIES_NO_REST_SPACE_ANSWER = [
 ].join("\n");
 
 /**
+ * 自動販売機は2026年10月26日に撤去。
+ * ミネラルウォーターは院内で1本150円の販売予定。
+ * 自動受付機とは別。
+ */
+export const VENDING_MACHINE_REMOVED_ANSWER = [
+  "当院の自動販売機は、2026年10月26日に撤去しました。現在、院内に自動販売機はありません。",
+  "",
+  "ミネラルウォーターは、院内で1本150円で販売する予定です。",
+].join("\n");
+
+/**
+ * 自動販売機の有無。自動受付機は含めない。
+ * @param {string} msg
+ */
+export function isVendingMachineQuery(msg) {
+  const text = String(msg || "");
+  if (/自動受付機/.test(text) && !/自動販売機|自販機/.test(text)) return false;
+  return /自動販売機|自販機/.test(text);
+}
+
+/**
+ * 院内で購入するミネラルウォーター。羊水・破水・カフェインは含めない。
+ * @param {string} msg
+ */
+export function isMineralWaterSaleQuery(msg) {
+  const text = String(msg || "");
+  if (/羊水|破水|カフェイン|コーヒー|紅茶/.test(text)) return false;
+  return /ミネラルウォーター|ペットボトル(?:の)?(?:水|ウォーター)|(?:お水|水|ウォーター)(?:を|は)?(?:買|売|購入)/.test(
+    text
+  );
+}
+
+/**
+ * @param {string} userMessage
+ */
+export function isVendingOrMineralWaterQuery(userMessage) {
+  const msg = String(userMessage || "");
+  if (isVendingMachineQuery(msg) || isMineralWaterSaleQuery(msg)) return true;
+  return (
+    /ジュース|飲料|ドリンク|飲み物/.test(msg) &&
+    /買|売|購入|自販|自動販売/.test(msg)
+  );
+}
+
+/**
+ * @param {string} userMessage
+ */
+export function buildVendingMachineAnswer(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!isVendingOrMineralWaterQuery(msg)) return null;
+  return {
+    answer: VENDING_MACHINE_REMOVED_ANSWER,
+    intent: "vending_machine",
+    focus: isMineralWaterSaleQuery(msg) && !isVendingMachineQuery(msg) ? "mineral_water" : "removed",
+    availability: "unavailable",
+    useExactAnswer: true,
+    referencedPages: [],
+  };
+}
+
+/**
  * 他トピックへ流さない
  * @param {string} msg
  */
@@ -100,6 +161,8 @@ export function isClinicFacilitiesQuery(userMessage) {
   if (/個室/.test(msg) && !/料金|費用|いくら|差額/.test(msg)) return true;
   if (/授乳スペース|授乳室/.test(msg)) return true;
   if (/休憩スペース|休憩室/.test(msg)) return true;
+  // 自動販売機・院内の水販売は専用回答。施設概要に混ぜない
+  if (isVendingOrMineralWaterQuery(msg)) return false;
   if (/どんな設備|設備がありますか|施設を見たい|病院の中はどんな/.test(msg)) {
     return true;
   }

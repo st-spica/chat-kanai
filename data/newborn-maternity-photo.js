@@ -6,6 +6,8 @@
  * 通常回答は指定文を言い換えない。
  */
 
+import { isDischargeGiftQuery } from "./discharge-gift.js";
+
 export const NEWBORN_MATERNITY_PHOTO_REF_PAGE = {
   url: "https://kanai.or.jp/photographer/",
   title: "ニューボーン＆マタニティフォトについて",
@@ -51,6 +53,8 @@ function isOtherPhotoTopic(msg) {
 export function isNewbornMaternityPhotoQuery(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg) return false;
+  // 退院時にもらう1日目の写真は、外部の撮影サービスではない
+  if (isDischargeGiftQuery(msg)) return false;
   // 「出産中に写真」「4Dエコーの写真」は別意図
   if (/出産中|分娩中|陣痛中/.test(msg)) return false;
   if (/4\s*[DdＤｄ]|エコー/.test(msg)) return false;

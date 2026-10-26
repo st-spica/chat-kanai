@@ -48,6 +48,7 @@ import {
   isGynecologicExamConsultQuery,
   isGynecologicMedicationQuery,
   isGynecologicSurgeryQuery,
+  gynecologicSurgerySubject,
   isGynecologyTopicMessage,
   isGynecologyUltrasoundFrequencyQuery,
   isEveningConsultationHoursQuery,
@@ -192,19 +193,40 @@ import {
 } from "../data/milkcare.js";
 import {
   buildClinicFacilitiesAnswer,
+  buildVendingMachineAnswer,
   FACILITIES_REF_PAGE,
   isClinicFacilitiesQuery,
+  isVendingOrMineralWaterQuery,
 } from "../data/clinic-facilities.js";
+import {
+  buildMaskPolicyAnswer,
+  isMaskPolicyQuery,
+} from "../data/mask-policy.js";
+import {
+  buildDischargeGiftAnswer,
+  DISCHARGE_GIFT_PAGE,
+  isDischargeGiftQuery,
+} from "../data/discharge-gift.js";
 import {
   buildClinicAccessAnswer,
   ACCESS_REF_PAGE,
   isClinicAccessQuery,
 } from "../data/clinic-access.js";
 import {
+  buildFatherClassParticipationAnswer,
+  buildPrepapaClassAnswer,
   buildPrenatalClassesAnswer,
+  isFatherClassParticipationQuery,
+  isPrepapaClassQuery,
   isPrenatalClassesQuery,
   PRENATAL_CLASSES_REF_PAGE,
+  specificUnrecognizedClassLabel,
 } from "../data/prenatal-classes.js";
+import {
+  buildUnconfirmedClinicServiceAnswer,
+  isUndocumentedServiceMetaQuery,
+  pageConfirmsNamedService,
+} from "../data/clinic-service-availability.js";
 import {
   buildAppointmentGuidanceAnswer,
   containsClinicPhoneNumber,
@@ -218,6 +240,11 @@ import {
   HPV_VACCINE_REF_PAGE,
   isHpvVaccineQuery,
 } from "../data/hpv-vaccine.js";
+import {
+  buildClinicVaccineAnswer,
+  classifyClinicVaccineQuery,
+  intentForVaccineClass,
+} from "../data/clinic-vaccines.js";
 import {
   buildCervicalCancerScreeningAnswer,
   CERVICAL_SCREENING_REF_PAGE,
@@ -733,12 +760,7 @@ const GYNECOLOGIC_SURGERY_NOT_OFFERED_ANSWER =
 
 /** 手術名に寄せた未実施文（確定情報の範囲） */
 function buildGynecologicSurgeryNotOfferedAnswer(userMessage) {
-  const msg = String(userMessage || "");
-  let focus = "婦人科の手術";
-  if (/子宮筋腫|筋腫/.test(msg)) focus = "子宮筋腫の手術";
-  else if (/卵巣嚢|卵巣のう|卵巣嚢腫/.test(msg)) focus = "卵巣のう腫の手術";
-  else if (/内膜症|子宮内膜症/.test(msg)) focus = "子宮内膜症の手術";
-  else if (/子宮摘出|全摘/.test(msg)) focus = "子宮摘出手術";
+  const focus = gynecologicSurgerySubject(userMessage);
   return `申し訳ありませんが、当院では${focus}は行っておりません。診察やお薬による治療については、当院の婦人科でご相談いただけます。`;
 }
 
@@ -789,7 +811,17 @@ function isServiceAvailabilityQuestion(userMessage) {
     return false;
   }
   if (isGenderSelectionQuery(msg)) return true;
+  if (isPrepapaClassQuery(msg) || specificUnrecognizedClassLabel(msg)) return true;
+  if (isUndocumentedServiceMetaQuery(msg)) return true;
   if (SERVICE_AVAILABILITY_TOPICS.some((t) => t.query.test(msg))) return true;
+  if (
+    /(?:ありますか|やって(?:ます|いる)|予約したい|実施して)/.test(msg) &&
+    /教室|クラス|学級|コース|ワクチン|予防接種|手術|検診|サービス|設備|施設|診療|分娩|立ち会|面会/.test(
+      msg
+    )
+  ) {
+    return true;
+  }
   return /(?:できますか|対応していますか|お願いできますか|指定できますか|選べますか|選択できますか|処方してもらえますか|検査はできますか|やってますか|していますか|受けられますか|実施していますか)/.test(
     msg
   );
@@ -806,19 +838,23 @@ function matchServiceAvailabilityTopic(userMessage) {
 /** 未確認時の簡潔案内 */
 function buildServiceAvailabilityUnknownAnswer(userMessage) {
   const topic = matchServiceAvailabilityTopic(userMessage);
-  const label = topic?.label || "";
-  if (label) {
-    return `${label}については、現在確認できる情報がありません。詳しくは当院まで直接お問い合わせください。`;
+  const unrecognized = specificUnrecognizedClassLabel(userMessage);
+  const label = unrecognized || topic?.label || "";
+  if (isUndocumentedServiceMetaQuery(userMessage) || unrecognized) {
+    return buildUnconfirmedClinicServiceAnswer(userMessage, unrecognized || "");
   }
-  // ラベル不明でも断定しない
+  if (label) {
+    return buildUnconfirmedClinicServiceAnswer(userMessage, label);
+  }
+  // ラベル不明でも、未実施とは断定しない
   const m = String(userMessage || "").match(
-    /(.+?)(?:はできますか|に対応|をお願い|を指定|を選|を処方|の検査は|もやって|を実施)/
+    /(.+?)(?:はありますか|はできますか|に対応|をお願い|を指定|を選|を処方|の検査は|もやって|を実施|を予約)/
   );
   const guessed = m ? String(m[1]).replace(/[？?！!\s　]+$/g, "").trim() : "";
-  if (guessed && guessed.length >= 2 && guessed.length <= 20) {
-    return `${guessed}については、現在確認できる情報がありません。詳しくは当院まで直接お問い合わせください。`;
+  if (guessed && guessed.length >= 2 && guessed.length <= 24) {
+    return buildUnconfirmedClinicServiceAnswer(userMessage, guessed);
   }
-  return "現在確認できる情報がありません。詳しくは当院まで直接お問い合わせください。";
+  return buildUnconfirmedClinicServiceAnswer(userMessage);
 }
 
 /**
@@ -848,11 +884,14 @@ function siteEvidenceSupportsServiceAvailability(userMessage, sourceChunks) {
     .filter((t) => t.length >= 2 && !/^(当院|病院|ください)$/.test(t));
   if (!tokens.length) return false;
   const specific = tokens.filter(
-    (t) => !/^(でき|対応|お願い|処方|検査|出産|分娩)$/.test(t)
+    (t) => !/^(でき|対応|お願い|処方|検査|出産|分娩|教室|クラス|学級|コース|サービス|ページ|案内)$/.test(t)
   );
   const use = specific.length ? specific : tokens;
   const hits = use.filter((t) => hayAll.includes(t));
   // サービス固有語が本文にあること（関連ページがあるだけでは不可）
+  if (specificUnrecognizedClassLabel(userMessage)) {
+    return pageConfirmsNamedService(userMessage, hayAll);
+  }
   return hits.length >= 1 && hits.some((t) => t.length >= 3 || /ピル|検診|ワクチン|立ち会|面会|無痛/.test(t));
 }
 
@@ -882,6 +921,17 @@ function resolveServiceAvailabilityStatus(opts) {
   // 専用ルートで公式ページが確定しているもの
   if (attendFocused || meetingFocused || photoFocused) {
     return "available";
+  }
+  // 一覧にない教室名は、産前産後教室ページだけでは実施とみなさない
+  const unrecognizedClass = specificUnrecognizedClassLabel(userMessage);
+  if (unrecognizedClass) {
+    const explicit = (sourceChunks || []).some((c) =>
+      pageConfirmsNamedService(
+        userMessage,
+        `${c.title || ""}\n${c.text || ""}`
+      )
+    );
+    if (!explicit) return "unknown";
   }
   // clinic-knowledge の unavailable はスコア閾値より優先（確定の未実施）
   const unavailableClinic = (clinicHits || []).find(
@@ -1308,16 +1358,18 @@ const SYSTEM = `
 ・【入院中の食事とお祝いディナー】入院食・病院のご飯・好き嫌いの一般相談は hospital_meals。お祝いディナー明示時のみ celebration_dinner／meal_customization。入院食の質問にお祝いディナーの説明を流用しない。入院食はスタッフ相談・可能な範囲の配慮・全希望対応は保証しない。食物アレルギーは好き嫌いと別扱いし、安全のためスタッフ申告を案内（対応可否は断定しない）。
 ・【お祝いディナーの食材】メニューはあらかじめ決まっている。苦手な食材による変更は原則不可。可能な範囲での配慮にとどめる。「食材を外せます」「ご希望に沿った料理を提供できます」など対応保証は禁止。直前にお祝いディナーの話がある場合、食材の苦手・除外希望はその続きとして理解し、話題の聞き直しはしない。
 ・日常的な赤ちゃんの育児相談（夜泣き・睡眠・生活リズム等）では、「いつでも／お気軽にご相談ください」「具体的な状況を教えてください」「当院でサポートします」など、常時相談窓口と誤認される表現は使わない。月齢を認識し、1・2ヶ月健診の対象時期なら健診時相談を案内し、それ以降（目安:生後3ヶ月〜）は自治体の保健センターや小児科などを案内する。過ぎた健診をこれから使える相談先として案内しない。月齢不明で案内先の判断に必要なときだけ簡潔に月齢を確認する（体調不良・母親の限界・緊急は除く）。
-・【診療サービスの対応可否を推測しない（最重要）】「婦人科だからできるはず」「ワクチンページがあるから子供も接種できるはず」「産婦人科だから小児も診られるはず」「分娩を扱うから分娩スタイルも選べるはず」「関連ページがあるから対応しているはず」「一般的な産婦人科では対応している」などの推測は禁止。「できます／対応しています」と答えるには、対象サービスと対象者が一致する明確な院内情報（院内登録情報または公式サイトの該当記述）が必要。情報が確認できないときは「できる／できない」を断定せず、確認できる情報がない旨を伝え当院へ直接問い合わせるよう案内する。妊婦向けワクチンの記載を、お子さま本人への予防接種の根拠にしない。産み分けは「婦人科でご相談いただけます」と案内しない（未実施の院内情報がある場合はそれに従う）。
+・【診療サービスの対応可否を推測しない（最重要）】「婦人科だからできるはず」「ワクチンページがあるから子供も接種できるはず」「産婦人科だから小児も診られるはず」「分娩を扱うから分娩スタイルも選べるはず」「関連ページがあるから対応しているはず」「一般的な産婦人科では対応している」「一般的な産婦人科にはプレパパ教室があるから当院でもある」などの推測は禁止。実施状況は次の3つだけ。①院内登録または公式サイトにそのサービス自体の実施が書いてある→「実施しています」。②院内登録で未実施・休止が確定している→「実施しておりません」。③どちらも確認できない→「現在確認できる情報では、実施しているか確認できません」。公式サイトに記載がないことだけでは「実施していません」と断定しない。関連ページ（例: 産前産後教室のページ）があるだけでは、別の教室（プレパパ教室など）の実施根拠にしない。父親が既存の教室に参加できるかと、プレパパ教室という教室の有無は別。妊婦向けワクチンの記載を、お子さま本人への予防接種の根拠にしない。産み分けは「婦人科でご相談いただけます」と案内しない（未実施の院内情報がある場合はそれに従う）。
 ・【婦人科の手術と診察・処方を区別する】当院では婦人科の手術（子宮筋腫・卵巣のう腫・内膜症・子宮摘出など）は行っていない。手術が必要なら対応医療機関への相談を案内する。一方、診察・診断・お薬の相談は婦人科で受けられる。お薬は診察のうえ医師が必要性を判断し、特定の薬の処方を保証しない。「手術」という語だけで中絶など別サービスの登録情報を流用しない。中絶については既存の院内登録情報に従う（このターンで勝手に未実施へ上書きしない）。産科・分娩の処置には婦人科手術の未実施ルールを当てはめない。
 ・【妊婦健診のエコー頻度】院内登録情報を優先する。「毎回行われるわけではない」「医師が必要と判断した場合のみ」などの一般論で上書きしない。胎嚢確認後は毎回の妊婦健診でエコー。胎嚢確認前は毎回実施と断定しない。婦人科診察のエコーには妊婦健診ルールを流用しない。
 ・【入院時の持ち物】公式サイトの一覧を優先する。一般的な病院の持ち物を勝手に追加しない。当院でご用意している物（病衣・タオル・シャンプー・スリッパ等）を持参必須と案内しない。「ご用意いただく物」「分娩セット」「当院でご用意している物」を混同しない。産後ケアの持ち物に分娩入院の一覧を流用しない。
+・【退院プレゼント】ご出産された方へ、オリジナルBébéグッズ（臍帯箱・フード付きバスタオル・トートバッグ）と、生まれて1日目の赤ちゃんのお写真を退院時にお渡ししている。退院プレゼント・退院祝い・出産プレゼント・出産記念品・おみやげ・お土産は同じ案内。短い「おみやげ」も、別のお土産を指す会話でなければ退院プレゼントを案内する。「退院プレゼントはない」「お土産の販売はない」と断定しない。ニューボーンフォト（外部撮影）や分娩予約特典・お祝いディナーと混同しない。確認できない院内サービスは「実施しておりません」ではなく「確認できません」。
+・【マスクの着用と配布】「マスク」という語だけでは配布の知識を選ばない。着用（必要か、誰が着けるか）と配布（もらえるか、無料か、50円か、忘れたら）は別の質問。公式案内では院内全てのエリアで着用。受診される患者さま、面会の方、病棟への付添いも着用。患者さまだけとは案内しない。外来診療時にマスクをお持ちでない方は、令和8年10月31日まで無料、令和8年11月1日から1枚50円。忘れは受付へ。マスク代は会計時に精算。この50円を面会・付添い・入院・スタッフへ広げない。「入院中の患者さまに限って提供」とは言わない。においづわり対策のマスクと院内ルールを混同しない。入院持ち物の一覧にあるマスクを、外来の50円配布の根拠にしない。
 ・【夜診の予約】夜診は予約不可・受付順。電話予約や事前予約が可能と案内しない。妊婦健診・WEB予約・初診予約の可否を夜診に流用しない。締切や診療時間など不要な条件を付け足さない。診療時間表を勝手に付け足さない。
 ・【診療時間・休診】曜日別の確定データ以外から推測しない。一般的な病院の時間をコピーしたり、別曜日の枠を流用したりしない。第3・第5土曜日は休診。火曜に午後診・夜診はない。木・金に夜診はない。臨時休診は通常予定と混同しない。
 ・【お子さま同伴・キッズルーム】お子さま連れの来院は可能。院内にキッズルームあり。診療内容・時間帯による制限や「事前電話確認」を勝手に付け足さない。キッズルームを理由にスタッフ託児・診察中の預かり・分娩時同伴・入院宿泊まで対応可能と推測しない。お子さま本人の診察・予防接種と同伴案内を混同しない。
-・【院内施設・入院部屋】施設案内は公式ページ（facilities）を優先案内する。共用の授乳スペース・休憩スペースは設置していない（院内確定）。カフェスペース・ラウンジ・売店・託児室など、抜粋／院内知識に無い設備を一般的な産婦人科の設備として推測・追加しない。授乳スペースがないことと入院中に授乳できないことは別。母乳ケア・キッズルーム・面会・個室料金と混同しない。
+・【院内施設・入院部屋】施設案内は公式ページ（facilities）を優先案内する。共用の授乳スペース・休憩スペースは設置していない（院内確定）。自動販売機は2026年10月26日に撤去済みで、院内にはない（院内確定）。ある・設置しているとは案内しない。ミネラルウォーターは院内で1本150円で販売する予定。自動受付機と自動販売機を混同しない。カフェスペース・ラウンジ・売店・託児室など、抜粋／院内知識に無い設備を一般的な産婦人科の設備として推測・追加しない。授乳スペースがないことと入院中に授乳できないことは別。母乳ケア・キッズルーム・面会・個室料金と混同しない。
 ・【アクセス・最寄駅・駐車場】公式アクセスページ（https://kanai.or.jp/access/）の確定情報のみ案内する。最寄は大阪メトロ蒲生四丁目駅（3号出口から南へ徒歩約3分）とJR鴫野駅（徒歩約10分）。一般的なアクセス質問では電話問い合わせを勧めない。道順・詳細はアクセスページへ案内する。未確認の駐輪場や交通手段を推測しない。診療案内・初診案内ページへ誘導しない。
-・【産前産後教室】lessonページ掲載の教室のみ案内。質問された教室を優先し、聞いていない教室を毎回並べない。未掲載・休止中の教室を実施中と推測しない。開催日時・料金・予約はページ根拠がある範囲のみ。「断定できません」を安易に使わず公式ページへ自然に案内。一般的な有無の質問で毎回医師確認を付けない。出血・張り・切迫早産・安静指示や参加可否判断を求められた場合は医療安全優先（AIは参加可否を断定しない）。体重管理・マタニティフォトと混同しない。
+・【産前産後教室】lessonページ掲載の教室（後期クラス、マタニティビクス、マタニティヨーガ、ママフィット、ママヨガ）のみ「実施しています」と案内する。質問された教室を優先し、聞いていない教室を毎回並べない。プレパパ教室・両親学級は未実施（院内確定）。未掲載の教室名は、教室ページがあるだけでは実施中にしない。確認できなければ「実施しているか確認できません」とし、未実施とは断定しない。開催日時・料金・予約はページ根拠がある範囲のみ。出血・張り・切迫早産・安静指示や参加可否判断を求められた場合は医療安全優先（AIは参加可否を断定しない）。体重管理・マタニティフォトと混同しない。
 ・【予約方法・電話番号】診療内容が不明なまま「電話で予約できる」と断定しない。予約方法はサービスにより異なる。通常の回答では当院の電話番号（06-6931-2391等）を出力しない。電話番号を聞かれたら公式サイト（beginner等）へ案内する。母乳ケアは電話予約のみ、夜診は予約不可・受付順。緊急の医療相談では直ちに当院へ連絡・必要時は119番を案内する（緊急時は電話番号表示可）。
 ・【子宮頸がんワクチンと検診】別サービス。ワクチン質問に #gyne_cancer（検診）を使わない。ワクチンは gynecology/#cervical_cancer。検診は #gyne_cancer。インフル・RS・小児ワクチンと混同しない。通常回答で電話番号を出さない。
 ・【分娩料金】予約金（10,000円）と予納金（100,000円／300,000円）を混同しない。予約金のうち5,000円は入院費への精算であり「5,000円のみ返金不可」と誤解釈しない。金額は確定データ以外から推測しない。産後ケア料金に分娩料金を流用しない。きょうだい割引・パパママ割引は分娩料金ページの制度であり、分娩予約特典ページと混同しない。
@@ -1706,6 +1758,9 @@ const PROMPT_MOTHER_DISTRESS = [
 const PROMPT_VACCINATION_AUDIENCE = [
   "【このターン：予防接種・ワクチンの案内（対象者の区別が最優先）】",
   "・接種対象者（妊婦／お子さま／成人など）とワクチン種類を区別する。",
+  "・「ワクチン」「予防接種」だけの質問では、産科のRSウイルスワクチン・インフルエンザワクチンと、婦人科の子宮頸がん予防ワクチン（HPV）の両方を案内する。産科のページだけを根拠にしない。",
+  "・ワクチン名が指定されているときは、そのワクチンだけを優先する。",
+  "・子宮頸がんワクチンの質問に子宮がん検診（#gyne_cancer）を使わない。",
   "・公式サイトや院内登録に、その対象者向けの記載がある場合だけ「実施している」と案内する。",
   "・妊婦向けワクチン（例: RSウイルス母子免疫）の記載を、お子さま本人への予防接種の根拠にしない。",
   "・対象者やワクチンが不明なときは、実施可否を断定せず、どなたの・どの予防接種か確認するか、当院へ電話確認を案内する。",
@@ -4464,6 +4519,88 @@ export default async function handler(req, res) {
       return res.status(200).json(payload);
     }
 
+    // ワクチン全般・妊婦向け・RS・インフルエンザ。
+    // 全般は産科と婦人科を統合しチップを2件返す。HPV単体は直後の専用処理。
+    const vaccineClass = classifyClinicVaccineQuery(userMessage);
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      vaccineClass &&
+      (vaccineClass.focus === "general" ||
+        vaccineClass.focus === "pregnant" ||
+        vaccineClass.focus === "rsv" ||
+        vaccineClass.focus === "flu" ||
+        vaccineClass.focus === "named") &&
+      allowStructuredIntent(intentForVaccineClass(vaccineClass))
+    ) {
+      const built = buildClinicVaccineAnswer(userMessage);
+      let answer = String(built?.answer || "").trim();
+      answer = preparePatientFacingAnswer(answer, { allowPhone: false });
+      const referencedPages = (built?.referencedPages || []).map((p) => ({
+        url: String(p.url || ""),
+        title: String(p.title || ""),
+      }));
+      const vaccineIntent = intentForVaccineClass(vaccineClass);
+      const matchedClinicKnowledge = clinicKnowledgeHits
+        .filter((h) =>
+          ["rsv", "flu", "hpv", "overview"].includes(
+            h.item?.vaccineKind ||
+              (h.item?.intent === "hpv_vaccination"
+                ? "hpv"
+                : h.item?.intent === "rsv_vaccination"
+                  ? "rsv"
+                  : h.item?.intent === "influenza_vaccination"
+                    ? "flu"
+                    : h.item?.intent === "clinic_vaccination"
+                      ? "overview"
+                      : "")
+          )
+        )
+        .map((h) => ({
+          id: h.item.id,
+          intent: h.item.intent,
+          service: h.item.service,
+          vaccineKind: h.item.vaccineKind || null,
+          score: h.score,
+        }));
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: vaccineIntent,
+          detectedService: clinicDetectedService,
+          matchedClinicKnowledge,
+          referenceChips: referencedPages,
+          focus: built?.focus || vaccineClass.focus,
+          vaccineKinds: built?.kinds || vaccineClass.kinds,
+          rejectedKnowledge: clinicRejected,
+          note: "ワクチンは全般なら産科・婦人科を統合。特定名はその種類を優先。検診ページは使わない",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: vaccineIntent,
+          vaccineFocus: vaccineClass.focus,
+          matchedClinicKnowledge,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = vaccineIntent;
+        payload.matchedClinicKnowledge = matchedClinicKnowledge;
+        payload.referenceChips = referencedPages;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(attachTopicDebug(payload, vaccineIntent));
+    }
+
     // 子宮頸がんワクチン（検診 #gyne_cancer と混同しない。#cervical_cancer）
     if (
       !metaChatHit &&
@@ -6319,6 +6456,121 @@ export default async function handler(req, res) {
       return res.status(200).json(attachTopicDebug(payload, "female_doctor"));
     }
 
+    // プレパパ教室は未実施（確定）。産前産後教室ページを実施の根拠にしない
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      allowStructuredIntent("prepapa_class") &&
+      isPrepapaClassQuery(userMessage)
+    ) {
+      const ckHit = clinicKnowledgeHits.find(
+        (h) =>
+          h.item?.id === "prenatal-class-prepapa-unavailable" ||
+          h.item?.intent === "prepapa_class"
+      );
+      const built = buildPrepapaClassAnswer(userMessage);
+      const answer = preparePatientFacingAnswer(
+        String(built?.answer || ckHit?.item?.answer || "").trim(),
+        { allowPhone: false }
+      );
+      const referencedPages = (built?.referencedPages || [PRENATAL_CLASSES_REF_PAGE]).map(
+        (p) => ({
+          url: String(p.url || PRENATAL_CLASSES_REF_PAGE.url),
+          title: String(p.title || PRENATAL_CLASSES_REF_PAGE.title),
+        })
+      );
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "prepapa_class",
+          detectedService: "prenatal_postnatal_class",
+          availability: "unavailable",
+          matchedClinicKnowledge: ckHit
+            ? [
+                {
+                  id: ckHit.item.id,
+                  intent: ckHit.item.intent,
+                  availability: "unavailable",
+                  score: ckHit.score,
+                },
+              ]
+            : [
+                {
+                  id: "prenatal-class-prepapa-unavailable",
+                  intent: "prepapa_class",
+                  availability: "unavailable",
+                  score: 100,
+                },
+              ],
+          referenceChips: referencedPages,
+          note: "プレパパ教室は未実施。チップは実施中の産前産後教室（代替）",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "prepapa_class",
+          availability: "unavailable",
+          matchedSiteUrl: PRENATAL_CLASSES_REF_PAGE.url,
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "prepapa_class";
+        payload.availability = "unavailable";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.referenceChips = referencedPages;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(attachTopicDebug(payload, "prepapa_class"));
+    }
+
+    // 父親の教室参加は、プレパパ教室の有無とは別
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isFatherClassParticipationQuery(userMessage)
+    ) {
+      const built = buildFatherClassParticipationAnswer(userMessage);
+      const answer = preparePatientFacingAnswer(String(built?.answer || "").trim(), {
+        allowPhone: false,
+      });
+      const referencedPages = built?.referencedPages || [PRENATAL_CLASSES_REF_PAGE];
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "prenatal_classes",
+          focus: "father_participation",
+          referenceChips: referencedPages,
+          note: "父親の参加可否。プレパパ教室の実施とは別",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: { intent: "prenatal_classes", focus: "father_participation" },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "prenatal_classes";
+        payload.referenceChips = referencedPages;
+      }
+      return res.status(200).json(attachTopicDebug(payload, "prenatal_classes"));
+    }
+
     // 産前産後教室（質問された教室を優先。lesson へ案内。体重管理と分離）
     if (
       !metaChatHit &&
@@ -6508,6 +6760,196 @@ export default async function handler(req, res) {
         payload.rejectedKnowledge = clinicRejected;
       }
       return res.status(200).json(attachTopicDebug(payload, "clinic_access"));
+    }
+
+    // 退院プレゼント（おみやげ等の同義語を同じ知識へ）
+    {
+      const giftContext = (safeHistory || [])
+        .filter((h) => h?.role === "user")
+        .map((h) => String(h.content || ""))
+        .slice(-4)
+        .join("\n");
+      if (
+        !metaChatHit &&
+        !casualGreetingOnly &&
+        isDischargeGiftQuery(userMessage, giftContext) &&
+        allowStructuredIntent("discharge_gift")
+      ) {
+        const built = buildDischargeGiftAnswer(userMessage, giftContext);
+        const answer = String(built?.answer || "").trim();
+        const referencedPages = (built?.referencedPages || [DISCHARGE_GIFT_PAGE]).map(
+          (p) => ({
+            url: String(p.url || DISCHARGE_GIFT_PAGE.url),
+            title: String(p.title || DISCHARGE_GIFT_PAGE.title),
+          })
+        );
+        if (includeDebug) {
+          siteKnowledgeDebug = {
+            ...(siteKnowledgeDebug || {}),
+            detectedIntent: "discharge_gift",
+            detectedService: "discharge_gift",
+            matchedClinicKnowledge: [
+              {
+                id: "discharge-gift",
+                intent: "discharge_gift",
+                service: "discharge_gift",
+                score: 100,
+              },
+            ],
+            matchedSiteUrl: DISCHARGE_GIFT_PAGE.url,
+            referenceChips: referencedPages,
+            focus: built?.focus || "gift",
+            responseMode: "fixed",
+            rejectedKnowledge: clinicRejected,
+            note: "退院プレゼントとお土産は同じ案内。見出し【退院プレゼント】と本文を対応させる",
+          };
+        }
+        await appendChatLog({
+          message: userMessage,
+          answer,
+          clientId,
+          meta: {
+            intent: "discharge_gift",
+            service: "discharge_gift",
+            focus: built?.focus || "gift",
+          },
+        });
+        const payload = {
+          answer,
+          emergency: false,
+          referencedPages,
+        };
+        if (includeDebug) {
+          payload.debug = siteKnowledgeDebug;
+          payload.detectedIntent = "discharge_gift";
+          payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+          payload.matchedSiteUrl = DISCHARGE_GIFT_PAGE.url;
+          payload.referenceChips = referencedPages;
+          payload.rejectedKnowledge = clinicRejected;
+        }
+        return res.status(200).json(attachTopicDebug(payload, "discharge_gift"));
+      }
+    }
+
+    // マスクは着用と提供を分ける。単語「マスク」だけでは提供案内にしない
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      isMaskPolicyQuery(userMessage)
+    ) {
+      const built = buildMaskPolicyAnswer(userMessage);
+      const maskIntent = built?.intent || "mask_wearing";
+      if (built?.answer && allowStructuredIntent(maskIntent)) {
+        const answer = String(built.answer).trim();
+        const referencedPages = (built.referencedPages || []).map((p) => ({
+          url: String(p.url || ""),
+          title: String(p.title || ""),
+        })).filter((p) => p.url);
+        if (includeDebug) {
+          siteKnowledgeDebug = {
+            ...(siteKnowledgeDebug || {}),
+            detectedIntent: maskIntent,
+            detectedService: "mask_policy",
+            matchedClinicKnowledge: [
+              {
+                id:
+                  maskIntent === "mask_provision"
+                    ? "mask-provision-unconfirmed"
+                    : "mask-wearing-rules",
+                intent: maskIntent,
+                service: "mask_policy",
+                score: 100,
+              },
+            ],
+            referenceChips: referencedPages,
+            focus: built.focus || "general",
+            responseMode: "fixed",
+            rejectedKnowledge: clinicRejected,
+            note: "マスクは着用と配布を区別。外来の未持参は令和8年11月1日から1枚50円",
+          };
+        }
+        await appendChatLog({
+          message: userMessage,
+          answer,
+          clientId,
+          meta: {
+            intent: maskIntent,
+            service: "mask_policy",
+            focus: built.focus || "general",
+            purpose: built.purpose,
+          },
+        });
+        const payload = {
+          answer,
+          emergency: false,
+          referencedPages,
+        };
+        if (includeDebug) {
+          payload.debug = siteKnowledgeDebug;
+          payload.detectedIntent = maskIntent;
+          payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+          payload.referenceChips = referencedPages;
+          payload.rejectedKnowledge = clinicRejected;
+        }
+        return res.status(200).json(attachTopicDebug(payload, maskIntent));
+      }
+    }
+
+    // 自動販売機は2026-10-26撤去。ミネラルウォーターは1本150円の販売予定
+    if (
+      !metaChatHit &&
+      !casualGreetingOnly &&
+      allowStructuredIntent("vending_machine") &&
+      isVendingOrMineralWaterQuery(userMessage)
+    ) {
+      const built = buildVendingMachineAnswer(userMessage);
+      const answer = String(built?.answer || "").trim();
+      const referencedPages = [];
+      if (includeDebug) {
+        siteKnowledgeDebug = {
+          ...(siteKnowledgeDebug || {}),
+          detectedIntent: "vending_machine",
+          detectedService: "vending_machine",
+          matchedClinicKnowledge: [
+            {
+              id: "vending-machine-removed",
+              intent: "vending_machine",
+              service: "vending_machine",
+              score: 100,
+            },
+          ],
+          referenceChips: referencedPages,
+          focus: built?.focus || "removed",
+          responseMode: "fixed",
+          rejectedKnowledge: clinicRejected,
+          note: "自動販売機は2026-10-26撤去。ミネラルウォーターは院内1本150円の販売予定",
+        };
+      }
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: {
+          intent: "vending_machine",
+          service: "vending_machine",
+          vendingMachine: false,
+          mineralWaterPriceYen: 150,
+          focus: built?.focus || "removed",
+        },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebug) {
+        payload.debug = siteKnowledgeDebug;
+        payload.detectedIntent = "vending_machine";
+        payload.matchedClinicKnowledge = payload.debug.matchedClinicKnowledge;
+        payload.referenceChips = referencedPages;
+        payload.rejectedKnowledge = clinicRejected;
+      }
+      return res.status(200).json(attachTopicDebug(payload, "vending_machine"));
     }
 
     // 院内施設・入院部屋（未確認設備の推測禁止。facilities へ案内）

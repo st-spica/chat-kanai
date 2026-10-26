@@ -100,9 +100,23 @@ import {
   isMilkcareQuery,
   isMilkcareReservationQuery,
 } from "../data/milkcare.js";
-import { isClinicFacilitiesQuery } from "../data/clinic-facilities.js";
+import {
+  isClinicFacilitiesQuery,
+  isVendingOrMineralWaterQuery,
+} from "../data/clinic-facilities.js";
+import {
+  isMaskWearingQuery,
+  maskPolicyPurpose,
+} from "../data/mask-policy.js";
+import {
+  dischargeGiftSearchTerms,
+  isDischargeGiftQuery,
+} from "../data/discharge-gift.js";
 import { isClinicAccessQuery } from "../data/clinic-access.js";
-import { isPrenatalClassesQuery } from "../data/prenatal-classes.js";
+import {
+  isPrepapaClassQuery,
+  isPrenatalClassesQuery,
+} from "../data/prenatal-classes.js";
 import {
   isAppointmentGuidanceQuery,
   isPhoneNumberQuery,
@@ -113,6 +127,13 @@ import {
   isCervicalCancerScreeningQuery,
   isHpvVaccineVsScreeningQuery,
 } from "../data/cervical-cancer-screening.js";
+import {
+  classifyClinicVaccineQuery,
+  intentForVaccineClass,
+  selectVaccineKnowledgeHits,
+  vaccineItemKind,
+  wantedVaccineKinds,
+} from "../data/clinic-vaccines.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -247,9 +268,16 @@ export const STRICT_MATCH_INTENTS = new Set([
   "milkcare_price",
   "milkcare_overview",
   "clinic_facilities",
+  "vending_machine",
+  "mask_wearing",
+  "mask_provision",
+  "discharge_gift",
   "clinic_access",
   "prenatal_classes",
+  "prepapa_class",
   "hpv_vaccination",
+  "rsv_vaccination",
+  "influenza_vaccination",
   "cervical_cancer_screening",
   "birth_reservation_deposit",
   "birth_advance_payment",
@@ -664,9 +692,14 @@ export function detectClinicIntent(userMessage) {
     return "photo_recording_policy";
   }
 
-  // お子さまの予防接種（未実施）／予防接種の可否
-  if (isChildVaccinationQuery(msg) || detectVaccinationAudience(msg)) {
+  // お子さまの予防接種（未実施）。「ワクチン」だけではここに寄せない
+  if (isChildVaccinationQuery(msg)) {
     return "vaccination_availability";
+  }
+  // ワクチンは種類と診療科で分ける（全般は産科・婦人科を統合）
+  const vaccineClass = classifyClinicVaccineQuery(msg);
+  if (vaccineClass && vaccineClass.focus !== "child") {
+    return intentForVaccineClass(vaccineClass);
   }
 
   // お子さま同伴・キッズルーム（託児・本人診察とは分離）
@@ -700,6 +733,9 @@ export function detectClinicIntent(userMessage) {
   if (isBreechPresentationQuery(msg)) {
     return "breech_presentation_consultation";
   }
+
+  // プレパパ教室は未実施。産前産後教室の実施案内に混ぜない
+  if (isPrepapaClassQuery(msg)) return "prepapa_class";
 
   // 産前産後教室（体重管理より先。教室名を体重トピックに流さない）
   if (isPrenatalClassesQuery(msg)) {
@@ -774,6 +810,9 @@ export function detectClinicIntent(userMessage) {
     return "female_doctor";
   }
 
+  // 退院プレゼント（お土産・1日目の写真を含む）。撮影サービスより先
+  if (isDischargeGiftQuery(msg)) return "discharge_gift";
+
   // ニューボーン＆マタニティフォト（外部紹介・固定回答）
   if (isNewbornMaternityPhotoQuery(msg)) {
     return "newborn_maternity_photo";
@@ -794,6 +833,9 @@ export function detectClinicIntent(userMessage) {
   if (isClinicAccessQuery(msg)) {
     return "clinic_access";
   }
+
+  // 自動販売機は撤去済み。施設概要より先
+  if (isVendingOrMineralWaterQuery(msg)) return "vending_machine";
 
   // 院内施設・入院部屋（未確認設備の推測禁止）
   if (isClinicFacilitiesQuery(msg)) {
@@ -858,6 +900,15 @@ export function detectClinicIntent(userMessage) {
   // 日常的な育児相談（体調・母親の限界は別扱い。緊急は呼び出し側で先に処理）
   if (isDailyBabyCareConsultMessage(msg)) {
     return "baby_care_consultation";
+  }
+
+  // マスクは着用と提供を分ける。面会・入院持ち物より先
+  {
+    const maskPurpose = maskPolicyPurpose(msg);
+    if (maskPurpose === "wear") return "mask_wearing";
+    if (maskPurpose === "provide" || maskPurpose === "belongings") {
+      return "mask_provision";
+    }
   }
 
   // 分娩入院の持ち物
@@ -957,6 +1008,7 @@ function expandMessageForClinicMatch(userMessage) {
   }
   if (/駐車|パーキング|車で来|車で行/.test(msg)) extras.push("駐車場", "駐車");
   if (/持ち物|何を持|持参/.test(msg)) extras.push("持ち物");
+  for (const term of dischargeGiftSearchTerms(msg)) extras.push(term);
   return normalizeQueryText(`${msg} ${extras.join(" ")}`);
 }
 
@@ -977,6 +1029,7 @@ function patternActionTags(text) {
  */
 export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
   const msg = String(userMessage || "").trim();
+  const vaccineClass = classifyClinicVaccineQuery(msg);
   if (!msg || !item?.enabled) {
     return { score: 0, reasons: [], rejected: true, rejectReason: "empty" };
   }
@@ -1462,17 +1515,18 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
       };
     }
   }
-  // HPVワクチンは検診・他ワクチンに流用しない
-  if (
-    item.id === "cervical-cancer-hpv-vaccine" ||
-    itemIntent === "hpv_vaccination"
-  ) {
-    if (!isHpvVaccineQuery(msg) || isHpvVaccineVsScreeningQuery(msg)) {
+  // ワクチン知識は質問の範囲だけ使う。
+  // 全般は産科（RS・インフルエンザ）と婦人科（HPV）の両方。
+  // 特定のワクチン名があるときはその種類だけ。共通語だけでは産科に寄せない。
+  const vaccineKind = vaccineItemKind(item);
+  if (vaccineKind) {
+    const wanted = wantedVaccineKinds(msg);
+    if (!wanted || !wanted.has(vaccineKind)) {
       return {
         score: 0,
-        reasons: ["HPVワクチン:対象外質問のため除外"],
+        reasons: [`ワクチン知識:対象外(${vaccineKind})`],
         rejected: true,
-        rejectReason: "hpv_vaccinationは子宮頸がんワクチン関連のみ",
+        rejectReason: `${vaccineKind}はこの質問のワクチン範囲外`,
       };
     }
   }
@@ -1501,6 +1555,50 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
       };
     }
   }
+  if (item.id === "discharge-gift" || itemIntent === "discharge_gift") {
+    if (!isDischargeGiftQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["退院プレゼント:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "discharge_giftは退院プレゼント・お土産の質問のみ",
+      };
+    }
+  }
+  // マスク着用は、着用ルールの質問以外（提供・におい対策）に流用しない
+  if (item.id === "mask-wearing-rules" || itemIntent === "mask_wearing") {
+    if (!isMaskWearingQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["マスク着用:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "mask_wearingは着用ルールの質問のみ",
+      };
+    }
+  }
+  // マスク提供は、配布・受け取りの質問以外に流用しない
+  if (item.id === "mask-provision-unconfirmed" || itemIntent === "mask_provision") {
+    const maskPurpose = maskPolicyPurpose(msg);
+    if (maskPurpose !== "provide" && maskPurpose !== "belongings") {
+      return {
+        score: 0,
+        reasons: ["マスク提供:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "mask_provisionは提供・配布の質問のみ",
+      };
+    }
+  }
+  // 自動販売機の撤去情報は、自販機・水の販売質問以外に流用しない
+  if (item.id === "vending-machine-removed" || itemIntent === "vending_machine") {
+    if (!isVendingOrMineralWaterQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["自動販売機:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "vending_machineは自販機・ミネラルウォーターの質問のみ",
+      };
+    }
+  }
   // 院内施設は対象外（母乳ケア・面会・個室料金等）に流用しない
   if (
     item.id === "clinic-facilities" ||
@@ -1515,17 +1613,31 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
       };
     }
   }
-  // 産前産後教室は対象外（体重管理・フォト等）に流用しない
+  // プレパパ教室の未実施情報は、その質問以外に流用しない
+  if (
+    item.id === "prenatal-class-prepapa-unavailable" ||
+    itemIntent === "prepapa_class"
+  ) {
+    if (!isPrepapaClassQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["プレパパ:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "prepapa_classはプレパパ教室の質問のみ",
+      };
+    }
+  }
+  // 産前産後教室は対象外（体重管理・フォト・プレパパ等）に流用しない
   if (
     item.id === "prenatal-classes" ||
     itemIntent === "prenatal_classes"
   ) {
-    if (!isPrenatalClassesQuery(msg)) {
+    if (!isPrenatalClassesQuery(msg) || isPrepapaClassQuery(msg)) {
       return {
         score: 0,
         reasons: ["産前産後教室:対象外質問のため除外"],
         rejected: true,
-        rejectReason: "prenatal_classesは教室関連のみ",
+        rejectReason: "prenatal_classesは実施中の教室の質問のみ",
       };
     }
   }
@@ -1938,6 +2050,18 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
 
   score += Math.min(30, Math.max(0, Number(item.priority) || 0) * 0.15);
 
+  // 全般・妊婦向けなど複数ワクチンは、名前が無くても両方の知識を残す
+  if (
+    vaccineKind &&
+    vaccineClass &&
+    (vaccineClass.focus === "general" ||
+      vaccineClass.focus === "pregnant" ||
+      vaccineClass.focus === "named")
+  ) {
+    score += 90;
+    reasons.push(`ワクチン統合:${vaccineKind}`);
+  }
+
   const uniq = [];
   const seen = new Set();
   for (const r of reasons) {
@@ -2030,7 +2154,16 @@ export async function searchClinicKnowledge(userMessage, opts = {}) {
   }
 
   const minKeep = Math.max(topScore * 0.55, topScore - 40, MIN_PASS_SCORE);
-  const hits = scored.filter((h) => h.score >= minKeep).slice(0, TOP_ITEMS);
+  let hits = scored.filter((h) => h.score >= minKeep).slice(0, TOP_ITEMS);
+  const vaccineHits = selectVaccineKnowledgeHits(userMessage, scored);
+  if (vaccineHits) {
+    const cls = classifyClinicVaccineQuery(userMessage);
+    if (cls && cls.kinds.length > 1) {
+      hits = vaccineHits;
+    } else if (vaccineHits.length) {
+      hits = vaccineHits.slice(0, TOP_ITEMS);
+    }
+  }
   return {
     hits,
     topScore,

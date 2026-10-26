@@ -22,6 +22,8 @@ import {
   preferredUrlsForMessage,
 } from "../data/site-route-map.js";
 import { isHpvVaccineQuery } from "../data/hpv-vaccine.js";
+import { classifyClinicVaccineQuery } from "../data/clinic-vaccines.js";
+import { dischargeGiftSearchTerms } from "../data/discharge-gift.js";
 import { isCervicalCancerScreeningQuery } from "../data/cervical-cancer-screening.js";
 import { isFirstVisitWhatToBringQuery } from "../data/first-visit-what-to-bring.js";
 import { isEmergencyMaternalNeonatalTransferQuery } from "../data/emergency-maternal-neonatal-transfer.js";
@@ -540,7 +542,7 @@ function htmlTableToText(tableHtml) {
   return lines.length ? `\n${lines.join("\n")}\n` : "\n";
 }
 
-function htmlToStructuredText(html) {
+export function htmlToStructuredText(html) {
   let h = String(html || "");
   h = h.replace(/<!--[\s\S]*?-->/g, " ");
   h = h.replace(/<script[\s\S]*?<\/script>/gi, " ");
@@ -574,6 +576,24 @@ function htmlToStructuredText(html) {
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
   h = h.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").replace(/[ \t]{2,}/g, " ");
   return h.trim();
+}
+
+/**
+ * 【見出し】とその直後の本文を切らない。後ろにある場合は先頭へ寄せる。
+ * @param {string} text
+ * @param {string} heading
+ * @param {number} [span]
+ */
+export function promoteNamedSection(text, heading, span = 420) {
+  const src = String(text || "");
+  const mark = `【${heading}】`;
+  const i = src.indexOf(mark);
+  if (i < 0) return src;
+  const next = src.indexOf("【", i + mark.length);
+  const end = next > i ? Math.min(next, i + span) : Math.min(src.length, i + span);
+  const block = src.slice(i, end).trim();
+  if (!block || i < 1200) return src;
+  return `${block}\n\n${src}`;
 }
 
 /**
@@ -635,17 +655,18 @@ async function fetchPageChunk(url, maxChars, meta = {}) {
       ) ||
       Boolean(meta.displayUrl && /#doctor_schedule/i.test(meta.displayUrl)) ||
       Boolean(meta.displayUrl && /\/facilities\/?/i.test(meta.displayUrl));
-    const text = (
-      useStructured
-        ? htmlToStructuredText(focusedHtml)
-        : htmlToText(focusedHtml)
-    ).slice(0, maxChars);
+    const structured = useStructured
+      ? promoteNamedSection(htmlToStructuredText(focusedHtml), "退院プレゼント")
+      : htmlToText(focusedHtml);
+    const text = structured.slice(0, maxChars);
     if (!text || text.length < 40) return null;
     const h1 = extractHeadings(focusedHtml, "h1");
     const h2 = [
       ...extractHeadings(focusedHtml, "h2"),
       ...extractHeadings(focusedHtml, "h3"),
-    ].slice(0, 20);
+      ...extractHeadings(focusedHtml, "h4"),
+      ...extractHeadings(focusedHtml, "h5"),
+    ].slice(0, 24);
     const { publishedAt, modifiedAt } = extractMetaDates(html);
     const pageType = meta.pageType || classifyPageType(fetchUrl);
     const lastmod = meta.lastmod || modifiedAt || publishedAt || null;
@@ -846,6 +867,9 @@ export function expandQueryForSearch(userMessage, now = new Date()) {
   }
   if (isPhotoRecordingFocusedMessage(msg)) {
     extras.push("院内撮影禁止", "写真", "動画", "録音", "患者さまへのお願い");
+  }
+  for (const term of dischargeGiftSearchTerms(msg)) {
+    if (!extras.includes(term)) extras.push(term);
   }
   // 婦人科: アフターピル↔緊急避妊薬、性病↔性感染症 などの表記ゆれを吸収
   for (const g of matchGynecologyTopicGroups(msg)) {
@@ -1431,6 +1455,10 @@ function scoreChunkForQuery(userMessage, chunk, routeBoostMap, now = new Date())
         !isChildVaccinationQuery(m) &&
         !isHpvVaccineQuery(m),
       /ワクチン|インフルエンザ|\/vaccine/,
+    ],
+    [
+      (m) => classifyClinicVaccineQuery(m)?.focus === "general",
+      /子宮頸がんワクチン|HPV|#cervical_cancer|\/vaccine/,
     ],
     [
       (m) => isHpvVaccineQuery(m),
@@ -2137,8 +2165,11 @@ export function labelForKnowledgeChunk(c) {
   if (/\/aftersupport\//i.test(url) && !/#milkcare/i.test(url)) {
     return "産後ケアのご案内";
   }
+  if (/\/obstetrics\/vaccine\/?/i.test(url)) {
+    return "妊婦さま向けワクチンのご案内";
+  }
   if (/#cervical_cancer/i.test(url)) {
-    return "子宮頸がんワクチンについて";
+    return "子宮頸がんワクチンのご案内";
   }
   if (/#gyne_cancer/i.test(url)) {
     return "子宮がん検診について";

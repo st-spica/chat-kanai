@@ -93,6 +93,71 @@ export const PRENATAL_CLASSES = [
 
 const CLASS_LIST_FOR_OVERVIEW = PRENATAL_CLASSES.map((c) => c.name).join("、");
 
+/** 院内確定で実施していない教室。ページに教室があること自体は根拠にしない。 */
+export const PREPAPA_CLASS_UNAVAILABLE_ANSWER = [
+  "当院では、現在プレパパ教室は実施しておりません。",
+  "",
+  "なお、妊娠中の方を対象とした教室は開催していますので、ご興味がございましたら下記のページをご覧ください。",
+].join("\n");
+
+/**
+ * 父親・パパが既存教室に同席できるか。
+ * プレパパ教室という独立した教室の有無とは別。
+ * @param {string} msg
+ */
+export function isFatherClassParticipationQuery(msg) {
+  const text = String(msg || "");
+  if (!/教室|クラス/.test(text)) return false;
+  if (/プレ\s*パパ|プレパパ|両親学級|パパ向け|パパ教室|父親向け/i.test(text)) {
+    return false;
+  }
+  return /(?:父親|父|パパ|夫|旦那|パートナー).{0,16}(?:参加|一緒|同伴|出られ|来られ|入れる)/.test(
+    text
+  );
+}
+
+/**
+ * プレパパ教室・父親向け両親学級など、実施していないと確定している教室の質問か
+ * @param {string} userMessage
+ */
+export function isPrepapaClassQuery(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!msg || isFatherClassParticipationQuery(msg)) return false;
+  return (
+    /プレ\s*パパ|プレパパ|prepapa/i.test(msg) ||
+    /パパ向け.{0,12}教室|パパ教室/.test(msg) ||
+    /父親向け.{0,12}(?:教室|学級|両親学級)/.test(msg) ||
+    /(?:父親|父|パパ).{0,8}両親学級|両親学級/.test(msg)
+  );
+}
+
+/**
+ * 公式の教室一覧にない固有の教室名。
+ * 産前産後教室ページがあるだけでは、その教室の実施根拠にしない。
+ * @param {string} msg
+ * @returns {string|null}
+ */
+export function specificUnrecognizedClassLabel(msg) {
+  const text = String(msg || "");
+  if (!text.trim() || findMentionedClass(text) || isPrepapaClassQuery(text)) {
+    return null;
+  }
+  const m = text.match(/([A-Za-zＡ-Ｚァ-ヶー一-龥]{2,24})(?:教室|クラス|学級)/);
+  if (!m) return null;
+  const head = m[1];
+  if (
+    /^(産前産後|産前|産後|母親|マタニティ|ママ|後期|アクティブ|どんな|どの|この|その|当院|妊娠中|妊婦)/.test(
+      head
+    )
+  ) {
+    return null;
+  }
+  if (/マタニティ|ママフィット|ママヨガ|後期クラス|アクティブ|産前|産後|母親/.test(head)) {
+    return null;
+  }
+  return m[0];
+}
+
 /**
  * @param {string} msg
  */
@@ -137,6 +202,9 @@ export function isPrenatalClassesQuery(userMessage) {
   ) {
     return false;
   }
+
+  // プレパパ等の未実施教室、一覧にない固有名は産前産後教室の「実施しています」にしない
+  if (isPrepapaClassQuery(msg) || specificUnrecognizedClassLabel(msg)) return false;
 
   if (findMentionedClass(msg)) return true;
   if (/産前教室|産後教室|産前産後教室|母親教室|アクティブクラス/.test(msg)) {
@@ -261,8 +329,45 @@ function detailAnswer(klass, msg) {
  *   referencedPages: Array<{url:string,title:string}>,
  * }|null}
  */
+export function buildPrepapaClassAnswer(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!isPrepapaClassQuery(msg)) return null;
+  return {
+    answer: PREPAPA_CLASS_UNAVAILABLE_ANSWER,
+    intent: "prepapa_class",
+    focus: /予約|申し込み|申込/.test(msg) ? "reservation" : "unavailable",
+    availability: "unavailable",
+    classId: "prepapa",
+    useExactAnswer: true,
+    referencedPages: [PRENATAL_CLASSES_REF_PAGE],
+  };
+}
+
+/**
+ * 父親の同席可否。プレパパ教室の有無とは答えを分ける。
+ * @param {string} userMessage
+ */
+export function buildFatherClassParticipationAnswer(userMessage) {
+  const msg = String(userMessage || "").trim();
+  if (!isFatherClassParticipationQuery(msg)) return null;
+  return {
+    answer: [
+      "後期クラスの参加は、妊婦さまご本人のみです。",
+      "",
+      "そのほかの教室で父親の方が参加できるかは、教室ごとに記載が異なります。参加対象は下記のページでご確認ください。",
+    ].join("\n"),
+    intent: "prenatal_classes",
+    focus: "father_participation",
+    availability: "partial",
+    classId: "late_class",
+    useExactAnswer: true,
+    referencedPages: [PRENATAL_CLASSES_REF_PAGE],
+  };
+}
+
 export function buildPrenatalClassesAnswer(userMessage) {
   const msg = String(userMessage || "").trim();
+  if (isPrepapaClassQuery(msg) || specificUnrecognizedClassLabel(msg)) return null;
   if (!isPrenatalClassesQuery(msg)) return null;
 
   const ref = [PRENATAL_CLASSES_REF_PAGE];

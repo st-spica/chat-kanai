@@ -1,3 +1,11 @@
+import { isHpvVaccineQuery } from "./hpv-vaccine.js";
+import { isMaskPolicyQuery } from "./mask-policy.js";
+import { isDischargeGiftQuery } from "./discharge-gift.js";
+import {
+  isCervicalCancerScreeningQuery,
+  isHpvVaccineVsScreeningQuery,
+} from "./cervical-cancer-screening.js";
+
 /**
  * 質問 → 優先確認ページ（正規ルート辞書）
  *
@@ -422,6 +430,16 @@ export function isInfertilityScheduleQuery(userMessage) {
  * 中絶・産科処置は含めない
  * @param {string} userMessage
  */
+/** 質問が指している婦人科手術。種類が無ければ総称 */
+export function gynecologicSurgerySubject(userMessage) {
+  const msg = String(userMessage || "");
+  if (/子宮筋腫|筋腫/.test(msg)) return "子宮筋腫の手術";
+  if (/卵巣嚢|卵巣のう|卵巣嚢腫/.test(msg)) return "卵巣のう腫の手術";
+  if (/内膜症|子宮内膜症/.test(msg)) return "子宮内膜症の手術";
+  if (/子宮摘出|全摘/.test(msg)) return "子宮摘出手術";
+  return "婦人科の手術";
+}
+
 export function isGynecologicSurgeryQuery(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg || isAbortionQuery(msg)) return false;
@@ -907,6 +925,21 @@ export function isDailyBabyCareConsultMessage(userMessage) {
 export function detectClinicService(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg) return null;
+  if (isDischargeGiftQuery(msg)) return "discharge_gift";
+  // マスクの着用・提供は、面会や入院持ち物のサービスに寄せない
+  if (isMaskPolicyQuery(msg)) return "mask_policy";
+  // 自動販売機は撤去済み。自動受付機とは別（clinic-facilities とは循環しないようここで判定）
+  if (
+    (/自動販売機|自販機/.test(msg) &&
+      !(/自動受付機/.test(msg) && !/自動販売機|自販機/.test(msg))) ||
+    (/ミネラルウォーター|ペットボトル(?:の)?(?:水|ウォーター)|(?:お水|水|ウォーター)(?:を|は)?(?:買|売|購入)/.test(
+      msg
+    ) &&
+      !/羊水|破水|カフェイン|コーヒー|紅茶/.test(msg)) ||
+    (/ジュース|飲料|ドリンク|飲み物/.test(msg) && /買|売|購入|自販|自動販売/.test(msg))
+  ) {
+    return "vending_machine";
+  }
   // 母子同室・入院スケジュール（面会より先）
   if (
     /母子同室|入院スケジュール|夜間の母子同室/.test(msg) ||
@@ -947,6 +980,23 @@ export function detectClinicService(userMessage) {
   // お子さまの予防接種（未実施サービス）
   if (isChildVaccinationQuery(msg)) {
     return "pediatric_vaccination";
+  }
+  // 子宮がん検診はワクチンより先（婦人科一般サービスにまとめない）
+  if (
+    isHpvVaccineVsScreeningQuery(msg) ||
+    (isCervicalCancerScreeningQuery(msg) && !isHpvVaccineQuery(msg))
+  ) {
+    return "cervical_cancer_screening";
+  }
+  // ワクチンは種類ごとにサービスを分ける。全般の質問はサービスを一つに固定しない
+  if (isHpvVaccineQuery(msg) && !isHpvVaccineVsScreeningQuery(msg)) {
+    return "hpv_vaccination";
+  }
+  if (
+    /RS\s*ウイルス|ＲＳ\s*ウイルス|アブリスボ|インフルエンザ|インフル/i.test(msg) ||
+    (/妊婦/.test(msg) && /ワクチン|予防接種/.test(msg))
+  ) {
+    return "obstetric_vaccination";
   }
   // 産み分け（未実施）
   if (isGenderSelectionQuery(msg)) {
@@ -1096,6 +1146,8 @@ export function isFeeFocusedMessage(userMessage) {
 /** @param {string} userMessage */
 export function isDeliveryBenefitsFocusedMessage(userMessage) {
   const msg = String(userMessage || "").trim();
+  // 退院プレゼント・出産記念品は分娩予約特典ではない
+  if (isDischargeGiftQuery(msg)) return false;
   // 出産費用割引（きょうだい・パパママ）は分娩料金ページへ（特典ページと分離）
   if (
     /きょうだい割引|兄弟割引|姉妹割引|パパママ割引|独自.{0,8}割引|割引制度/.test(
@@ -1285,6 +1337,16 @@ export const SITE_ROUTE_MAP = [
     ],
     urls: ["https://kanai.or.jp/facilities/"],
     boost: 250,
+  },
+  {
+    id: "discharge_gift",
+    label: "退院プレゼント",
+    patterns: [
+      /退院プレゼント|退院祝い|出産プレゼント|出産記念|記念品|おみやげ|お土産|臍帯箱|退院.{0,16}もら/,
+      /赤ちゃんの写真.{0,8}もら|もらえますか.{0,8}写真/,
+    ],
+    urls: ["https://kanai.or.jp/obstetrics/hospitalization/"],
+    boost: 300,
   },
   {
     id: "hospitalization",
@@ -1486,6 +1548,14 @@ export function matchSiteRoutes(userMessage) {
   const service = detectClinicService(msg);
   const out = [];
   for (const rule of SITE_ROUTE_MAP) {
+    // 退院プレゼントは撮影サービスや分娩予約特典に寄せない
+    if (
+      isDischargeGiftQuery(msg) &&
+      (rule.id === "newborn_maternity_photo" ||
+        rule.id === "delivery_reservation_benefits")
+    ) {
+      continue;
+    }
     // 立ち会い質問では面会ルートを付けない
     if (rule.id === "visit" && attendHit) continue;
     // 撮影可否が主目的のときは立ち会いルートを付けない（状況語の誤優先防止）
@@ -1578,7 +1648,42 @@ export function matchSiteRoutes(userMessage) {
       }
     }
   }
+  // ワクチン全般は産科ページだけで終わらせず、婦人科のHPV案内も優先取得する
+  if (isGeneralVaccineRouteQuery(msg)) {
+    const hpvUrl = "https://kanai.or.jp/gynecology/#cervical_cancer";
+    const hasHpv = out.some((r) =>
+      (r.urls || []).some((u) => String(u).includes("#cervical_cancer"))
+    );
+    if (!hasHpv) {
+      out.push({
+        id: "hpv_vaccination",
+        label: "子宮頸がんワクチン",
+        patterns: [],
+        urls: [hpvUrl],
+        boost: 190,
+        matchedPattern: "general-vaccine-gynecology",
+      });
+    }
+  }
   return out;
+}
+
+/**
+ * ワクチン名も対象者も特定しない予防接種の質問か。
+ * このとき産科ワクチンページだけを根拠にしない。
+ * @param {string} msg
+ */
+function isGeneralVaccineRouteQuery(msg) {
+  const text = String(msg || "");
+  if (!/ワクチン|予防接種/.test(text)) return false;
+  if (isChildVaccinationQuery(text)) return false;
+  if (isHpvVaccineQuery(text)) return false;
+  if (/子宮頸がん|子宮頚がん|検診|細胞診/.test(text)) return false;
+  if (/インフルエンザ|インフル|アブリスボ|RS\s*ウイルス|ＲＳ\s*ウイルス/i.test(text)) {
+    return false;
+  }
+  if (/妊婦|妊娠/.test(text)) return false;
+  return true;
 }
 
 /**

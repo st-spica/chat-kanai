@@ -500,7 +500,10 @@ function isDisplayableRefUrl(href) {
   return true;
 }
 
-/** 院内サイト参照ページをピル型リンクで吹き出し下部に表示（最大1件）。表示できたら true */
+/** 吹き出し下の参照チップ上限。ワクチン全般は産科・婦人科の2件 */
+const MAX_VISIBLE_REF_CHIPS = 2;
+
+/** 院内サイト参照ページをピル型リンクで吹き出し下部に表示（最大2件）。表示できたら true */
 function appendReferenceChips(bubble, pages) {
   if (!bubble || !pages || !pages.length) return false;
   const prev = bubble.querySelector(".assistant-ref-chips");
@@ -521,7 +524,7 @@ function appendReferenceChips(bubble, pages) {
     a.textContent = `${icon} ${label}`;
     row.appendChild(a);
     any = true;
-    break; // 表示は1件まで
+    if (row.querySelectorAll("a.chat-ref-chip").length >= MAX_VISIBLE_REF_CHIPS) break;
   }
   if (!any) return false;
   bubble.appendChild(row);

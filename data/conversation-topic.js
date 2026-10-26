@@ -67,13 +67,24 @@ import {
   isMaleDoctorQuery,
 } from "./female-doctor.js";
 import { isNewbornMaternityPhotoQuery } from "./newborn-maternity-photo.js";
+import { isDischargeGiftQuery } from "./discharge-gift.js";
 import {
   isMilkcareQuery,
   isMilkcareReservationQuery,
 } from "./milkcare.js";
-import { isClinicFacilitiesQuery } from "./clinic-facilities.js";
+import {
+  isClinicFacilitiesQuery,
+  isVendingOrMineralWaterQuery,
+} from "./clinic-facilities.js";
+import {
+  isMaskPolicyQuery,
+  maskPolicyPurpose,
+} from "./mask-policy.js";
 import { isClinicAccessQuery } from "./clinic-access.js";
-import { isPrenatalClassesQuery } from "./prenatal-classes.js";
+import {
+  isPrepapaClassQuery,
+  isPrenatalClassesQuery,
+} from "./prenatal-classes.js";
 import { isClinicHoursQuery } from "./clinic-hours.js";
 import {
   isAppointmentGuidanceQuery,
@@ -81,6 +92,10 @@ import {
   isUrgentContactQuery,
 } from "./appointment-guidance.js";
 import { isHpvVaccineQuery } from "./hpv-vaccine.js";
+import {
+  classifyClinicVaccineQuery,
+  intentForVaccineClass,
+} from "./clinic-vaccines.js";
 import {
   isCervicalCancerScreeningQuery,
   isHpvVaccineVsScreeningQuery,
@@ -195,14 +210,23 @@ export function detectStandaloneIntent(userMessage) {
   // 女性医師・指名
   if (isFemaleDoctorQuery(msg) || isMaleDoctorQuery(msg)) return "female_doctor";
 
+  // 退院プレゼント（お土産の短い質問を含む）。撮影サービスより先
+  if (isDischargeGiftQuery(msg)) return "discharge_gift";
+
   // ニューボーン＆マタニティフォト
   if (isNewbornMaternityPhotoQuery(msg)) return "newborn_maternity_photo";
 
   // 交通アクセス・最寄駅・駐車場
   if (isClinicAccessQuery(msg)) return "clinic_access";
 
+  // 自動販売機は撤去済み。施設概要より先
+  if (isVendingOrMineralWaterQuery(msg)) return "vending_machine";
+
   // 院内施設・入院部屋（未確認設備の推測禁止）
   if (isClinicFacilitiesQuery(msg)) return "clinic_facilities";
+
+  // プレパパ教室は未実施。産前産後教室と混ぜない
+  if (isPrepapaClassQuery(msg)) return "prepapa_class";
 
   // 産前産後教室（体重管理より先）
   if (isPrenatalClassesQuery(msg)) return "prenatal_classes";
@@ -210,8 +234,13 @@ export function detectStandaloneIntent(userMessage) {
   // 診療時間・休診日
   if (isClinicHoursQuery(msg)) return "clinic_hours";
 
-  // 子宮頸がんワクチン／検診（共通語だけでまとめない）
+  // ワクチンは全般と個別を分ける。検診はワクチンにまとめない
   if (isHpvVaccineVsScreeningQuery(msg)) return "cervical_cancer_screening";
+  const vaccineClass = classifyClinicVaccineQuery(msg);
+  if (vaccineClass?.focus === "child") return "vaccination_availability";
+  if (vaccineClass && vaccineClass.focus !== "child") {
+    return intentForVaccineClass(vaccineClass);
+  }
   if (isHpvVaccineQuery(msg)) return "hpv_vaccination";
   if (isCervicalCancerScreeningQuery(msg)) return "cervical_cancer_screening";
 
@@ -262,6 +291,15 @@ export function detectStandaloneIntent(userMessage) {
   // 妊娠中の勤務調整・書類（つわりセルフケアより先）
   if (isPregnancyWorkDocumentQuery(msg)) {
     return "pregnancy_work_accommodation_document";
+  }
+
+  // マスクの着用・提供（におい対策の「マスク」や面会より先）
+  {
+    const maskPurpose = maskPolicyPurpose(msg);
+    if (maskPurpose === "wear") return "mask_wearing";
+    if (maskPurpose === "provide" || maskPurpose === "belongings") {
+      return "mask_provision";
+    }
   }
 
   // 食べずわり・においづわり（一般つわりより先）
@@ -362,7 +400,8 @@ export function isFollowUpForIntent(msg, previousIntent) {
         m
       ) &&
       m.length <= 50 &&
-      !isBirthPricingQuery(m)
+      !isBirthPricingQuery(m) &&
+      !isMaskPolicyQuery(m)
     );
   }
 
@@ -661,16 +700,25 @@ export function clinicKnowledgeIdForIntent(intent) {
     four_d_ultrasound: "obstetrics-4d-ultrasound",
     female_doctor: "clinic-female-doctor",
     newborn_maternity_photo: "newborn-maternity-photo",
+    discharge_gift: "discharge-gift",
     milkcare_reservation: "postpartum-milkcare-reservation",
     milkcare_reception: "postpartum-milkcare-reservation",
     milkcare_schedule: "postpartum-milkcare-reservation",
     milkcare_price: "postpartum-milkcare-reservation",
     milkcare_overview: "postpartum-milkcare-reservation",
     clinic_facilities: "clinic-facilities",
+    vending_machine: "vending-machine-removed",
+    mask_wearing: "mask-wearing-rules",
+    mask_provision: "mask-provision-unconfirmed",
     clinic_access: "clinic-access",
     prenatal_classes: "prenatal-classes",
+    prepapa_class: "prenatal-class-prepapa-unavailable",
     clinic_hours: "clinic-consultation-hours",
     hpv_vaccination: "cervical-cancer-hpv-vaccine",
+    rsv_vaccination: "obstetric-rsv-vaccine",
+    influenza_vaccination: "obstetric-influenza-vaccine",
+    clinic_vaccination: "clinic-vaccination-overview",
+    vaccination_availability: "child-vaccination-not-offered",
     cervical_cancer_screening: "cervical-cancer-screening",
     reservation_method_guidance: "appointment-guidance",
     first_visit_reservation: "appointment-guidance",

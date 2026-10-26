@@ -264,13 +264,13 @@
         "子宮頸がんワクチンは何曜日ですか",
         "HPVワクチンは何曜日に打てますか"
       ],
+      "vaccineKind": "hpv",
       "keywords": [
         "子宮頸がんワクチン",
+        "子宮頸がん予防ワクチン",
         "HPVワクチン",
         "HPV",
-        "シルガード",
-        "予防接種",
-        "接種"
+        "シルガード"
       ],
       "summary": "子宮頸がんワクチン（HPV）は接種可。木・金・土の午前診・完全予約制。予約は平日13:00〜16:00電話。検診（#gyne_cancer）と混同しない。",
       "answer": "はい、当院では子宮頸がんワクチン（HPVワクチン）の接種を行っております。接種は完全予約制で、木曜・金曜・土曜日の午前診に実施しています。ご予約は平日13:00〜16:00にお電話にて承っております。接種対象や料金などの詳細は、下記のページをご確認ください。",
@@ -293,7 +293,129 @@
         "preferOfficialPage": true
       },
       "priority": 210,
-      "updatedAt": "2026-10-09",
+      "updatedAt": "2026-10-26",
+      "enabled": true
+    },
+    {
+      "id": "clinic-vaccination-overview",
+      "category": "ワクチン/全般",
+      "intent": "clinic_vaccination",
+      "service": "clinic_vaccination",
+      "vaccineKind": "overview",
+      "availability": "available",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "ワクチンは打てますか",
+        "ワクチンは接種できますか",
+        "どんな予防接種がありますか",
+        "予防接種はできますか",
+        "ワクチン接種はしていますか"
+      ],
+      "keywords": [
+        "ワクチン",
+        "予防接種"
+      ],
+      "summary": "ワクチン全般は産科（RS・インフルエンザ）と婦人科（HPV）を統合して案内。共通語「ワクチン」だけでは産科ページを選ばない。検診とは別。",
+      "answer": "はい、当院ではワクチン接種を行っています。\n\n妊婦さま向けのRSウイルスワクチンやインフルエンザワクチンのほか、婦人科では子宮頸がん予防ワクチン（HPVワクチン）にも対応しています。\n\nワクチンの種類によって接種対象や予約方法が異なりますので、詳しくは下記のページをご確認ください。",
+      "careSource": "data/clinic-vaccines.js",
+      "clinicInformation": {
+        "departments": ["obstetrics", "gynecology"],
+        "vaccines": ["RSウイルスワクチン", "インフルエンザワクチン", "子宮頸がん予防ワクチン（HPVワクチン）"]
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/obstetrics/vaccine/",
+      "relatedSiteLabel": "妊婦さま向けワクチンのご案内",
+      "relatedPages": [
+        {
+          "url": "https://kanai.or.jp/obstetrics/vaccine/",
+          "title": "妊婦さま向けワクチンのご案内"
+        },
+        {
+          "url": "https://kanai.or.jp/gynecology/#cervical_cancer",
+          "title": "子宮頸がんワクチンのご案内"
+        }
+      ],
+      "responseRules": {
+        "integrateDepartments": true,
+        "avoidSelectingObstetricsByGenericVaccineKeyword": true,
+        "avoidConfusingWithScreening": true,
+        "preferSpecificVaccineWhenNamed": true
+      },
+      "priority": 180,
+      "updatedAt": "2026-10-26",
+      "enabled": true
+    },
+    {
+      "id": "obstetric-rsv-vaccine",
+      "category": "産科/RSウイルスワクチン",
+      "intent": "rsv_vaccination",
+      "service": "obstetric_vaccination",
+      "vaccineKind": "rsv",
+      "availability": "available",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "RSウイルスワクチンの料金は",
+        "RSウイルスワクチンは打てますか",
+        "RSウイルスワクチンはありますか",
+        "アブリスボはいくらですか",
+        "妊婦のRSウイルスワクチンは"
+      ],
+      "keywords": [
+        "RSウイルス",
+        "RSウイルスワクチン",
+        "アブリスボ"
+      ],
+      "summary": "妊婦向けRSウイルスワクチン（アブリスボ）は予約制。大阪市・守口市・東大阪市は無料、それ以外は30,800円（税込）。他院受診中は診察料1,100円。HPV・検診・小児ワクチンと混同しない。",
+      "answer": "はい、当院では妊婦さま向けのRSウイルスワクチン（アブリスボ）の接種を行っています。予約制です。当院で妊婦健診を受けている方は、健診時にスタッフへお申し込みください。料金は、接種日当日に大阪市・守口市・東大阪市に住民票がある方は無料、それ以外の方は30,800円（税込）です。",
+      "careSource": "data/clinic-vaccines.js",
+      "clinicInformation": {
+        "available": true,
+        "product": "アブリスボ",
+        "audience": "妊婦",
+        "reservationRequired": true,
+        "feeFreeMunicipalities": ["大阪市", "守口市", "東大阪市"],
+        "feeOtherwise": "30800円（税込）",
+        "otherHospitalExamFee": "1100円",
+        "publicFundingWeeks": "妊娠28週0日から36週6日"
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/obstetrics/vaccine/",
+      "relatedSiteLabel": "妊婦さま向けワクチンのご案内",
+      "priority": 200,
+      "updatedAt": "2026-10-26",
+      "enabled": true
+    },
+    {
+      "id": "obstetric-influenza-vaccine",
+      "category": "産科/インフルエンザワクチン",
+      "intent": "influenza_vaccination",
+      "service": "obstetric_vaccination",
+      "vaccineKind": "flu",
+      "availability": "available",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "インフルエンザの予防接種はできますか",
+        "インフルエンザワクチンは打てますか",
+        "妊婦でもインフルエンザワクチンは打てますか",
+        "インフルエンザワクチンの料金は"
+      ],
+      "keywords": [
+        "インフルエンザ",
+        "インフルエンザワクチン",
+        "インフル"
+      ],
+      "summary": "インフルエンザワクチンは、当院通院中かつ接種当日に妊婦健診予約がある方が対象。本館の午前1診・午後診。夜診不可。料金3,520円（税込）。HPV・検診・小児ワクチンと混同しない。",
+      "answer": "はい、当院ではインフルエンザワクチンの接種を行っています。対象は、当院に通院中で、接種当日に妊婦健診のご予約がある方です。接種は本館の午前1診・午後診で行い、夜診は対応していません。料金は3,520円（税込）です。",
+      "careSource": "data/clinic-vaccines.js",
+      "clinicInformation": {
+        "available": true,
+        "audience": "当院通院中で接種当日に妊婦健診の予約がある方",
+        "product": "3価ワクチン（A型株2種＋B型株1種）",
+        "schedule": "本館 午前1診・午後診（夜診は非対応）",
+        "fee": "3520円（税込）"
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/obstetrics/vaccine/",
+      "relatedSiteLabel": "妊婦さま向けワクチンのご案内",
+      "priority": 200,
+      "updatedAt": "2026-10-26",
       "enabled": true
     },
     {
@@ -1447,8 +1569,7 @@
         "換気",
         "無香料",
         "柔軟剤",
-        "香水",
-        "マスク"
+        "香水"
       ],
       "summary": "妊娠中はにおいに敏感になることがある。換気、料理を冷ます、無香料製品、家事分担、マスクなどが対策。表記ゆれ（におい/匂い/臭い）に対応。",
       "answer": "においに敏感になると普段の生活でもつらいですよね。こまめな換気、温かい料理を冷ましてから食べる、柔軟剤や芳香剤を無香料に変える、においがつらい家事は家族に頼む、外出時のマスクなどが対策の一例です。症状が強い場合は受診をご検討ください。",
@@ -2152,6 +2273,47 @@
       "enabled": true
     },
     {
+      "id": "prenatal-class-prepapa-unavailable",
+      "category": "産前産後教室/プレパパ",
+      "intent": "prepapa_class",
+      "service": "prenatal_postnatal_class",
+      "availability": "unavailable",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "プレパパはありますか",
+        "プレパパ教室はやっていますか",
+        "プレパパ教室を予約したいです",
+        "パパ向けの教室はありますか",
+        "父親向けの両親学級はありますか"
+      ],
+      "keywords": [
+        "プレパパ",
+        "プレパパ教室",
+        "パパ向けの教室",
+        "両親学級"
+      ],
+      "summary": "プレパパ教室・父親向け両親学級は未実施。産前産後教室ページがあるだけでは実施とみなさない。父親が既存教室に参加できるかとは別。",
+      "answer": "当院では、現在プレパパ教室は実施しておりません。\n\nなお、妊娠中の方を対象とした教室は開催していますので、ご興味がございましたら下記のページをご覧ください。",
+      "careSource": "data/prenatal-classes.js",
+      "clinicInformation": {
+        "available": false,
+        "serviceName": "プレパパ教室",
+        "distinctFromFatherParticipation": true,
+        "alternative": "妊娠中の方を対象とした産前産後教室"
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/lesson/",
+      "relatedSiteLabel": "産前産後教室のご案内",
+      "responseRules": {
+        "doNotInferFromRelatedPage": true,
+        "doNotInferFromTypicalObstetricPractice": true,
+        "chipIsAlternativeClasses": true,
+        "distinctFromFatherParticipation": true
+      },
+      "priority": 220,
+      "updatedAt": "2026-10-26",
+      "enabled": true
+    },
+    {
       "id": "labor-hospital-contact-timing",
       "category": "出産/陣痛・入院連絡",
       "intent": "labor_hospital_contact",
@@ -2658,6 +2820,202 @@
       },
       "priority": 200,
       "updatedAt": "2026-10-09",
+      "enabled": true
+    },
+    {
+      "id": "vending-machine-removed",
+      "category": "院内案内/自動販売機",
+      "intent": "vending_machine",
+      "service": "vending_machine",
+      "availability": "unavailable",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "自動販売機はありますか",
+        "自販機はありますか",
+        "自動販売機でジュースは買えますか",
+        "ミネラルウォーターはいくらですか",
+        "水は売っていますか"
+      ],
+      "keywords": [
+        "自動販売機",
+        "自販機",
+        "ミネラルウォーター"
+      ],
+      "summary": "自動販売機は2026年10月26日に撤去。院内に自販機はない。ミネラルウォーターは院内で1本150円の販売予定。自動受付機とは別。",
+      "answer": "当院の自動販売機は、2026年10月26日に撤去しました。現在、院内に自動販売機はありません。\n\nミネラルウォーターは、院内で1本150円で販売する予定です。",
+      "careSource": "data/clinic-facilities.js",
+      "clinicInformation": {
+        "vendingMachine": {
+          "available": false,
+          "removedOn": "2026-10-26"
+        },
+        "mineralWater": {
+          "planned": true,
+          "priceYen": 150,
+          "unit": "1本",
+          "place": "院内"
+        },
+        "distinctFromReceptionKiosk": true
+      },
+      "responseRules": {
+        "doNotSayVendingMachineExists": true,
+        "doNotConfuseWithReceptionKiosk": true,
+        "mineralWaterIsPlannedSale": true
+      },
+      "priority": 220,
+      "updatedAt": "2026-10-26",
+      "enabled": true
+    },
+    {
+      "id": "mask-wearing-rules",
+      "category": "院内案内/マスク着用",
+      "intent": "mask_wearing",
+      "service": "mask_policy",
+      "availability": "available",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "マスクは必要ですか",
+        "診察のときマスクは必要ですか",
+        "患者もマスクをしないといけませんか",
+        "面会者もマスクが必要ですか",
+        "マスクは患者さんだけですか"
+      ],
+      "keywords": [
+        "マスク",
+        "着用",
+        "受診",
+        "面会"
+      ],
+      "summary": "院内全てのエリアでマスク着用。受診患者、面会、病棟への付添いが対象。外来で未持参の場合は令和8年11月1日から1枚50円。",
+      "answer": "当院では感染防止のため、院内全てのエリアでマスクの着用をお願いしております。受診される患者さま、面会の方、病棟へ付添いの方も対象です。\n\nご来院の際はマスクをご用意ください。外来診療時にマスクをお持ちでない方には、令和8年11月1日から1枚50円でお配りします。",
+      "careSource": "data/mask-policy.js",
+      "clinicInformation": {
+        "sourceUrl": "https://kanai.or.jp/%e4%bb%a4%e5%92%8c8%e5%b9%b411%e6%9c%8801%e6%97%a5%e4%bb%a5%e9%99%8d%e3%81%ae%e3%83%9e%e3%82%b9%e3%82%af%e7%9d%80%e7%94%a8%e3%81%a8%e6%9c%96%e6%96%99%e5%8c%96%e3%81%ab%e3%81%a4%e3%81%84%e3%81%a6/",
+        "allAreasWearing": true,
+        "outpatientWearingRequired": true,
+        "visitorWearingRequested": true,
+        "wardAttendantWearingRequested": true,
+        "outpatientForgotMask": {
+          "freeUntil": "2026-10-31",
+          "paidFrom": "2026-11-01",
+          "priceYen": 50,
+          "unit": "1枚",
+          "ask": "受付スタッフ",
+          "payment": "会計時に精算"
+        }
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/%e4%bb%a4%e5%92%8c8%e5%b9%b411%e6%9c%8801%e6%97%a5%e4%bb%a5%e9%99%8d%e3%81%ae%e3%83%9e%e3%82%b9%e3%82%af%e7%9d%80%e7%94%a8%e3%81%a8%e6%9c%96%e6%96%99%e5%8c%96%e3%81%ab%e3%81%a4%e3%81%84%e3%81%a6/",
+      "relatedSiteLabel": "令和8年11月01日以降のマスク着用と有料化について",
+      "responseRules": {
+        "distinguishWearingFromProvision": true,
+        "doNotSelectOnMaskWordAlone": true,
+        "doNotAssertUnconfirmedAudience": true
+      },
+      "priority": 230,
+      "updatedAt": "2026-10-26",
+      "enabled": true
+    },
+    {
+      "id": "mask-provision-unconfirmed",
+      "category": "院内案内/マスク配布",
+      "intent": "mask_provision",
+      "service": "mask_policy",
+      "availability": "available",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "マスクをもらえますか",
+        "マスクを忘れたらもらえますか",
+        "マスクは無料で配っていますか",
+        "マスクは50円ですか"
+      ],
+      "keywords": [
+        "マスク",
+        "配布",
+        "無料",
+        "有料",
+        "50円",
+        "もらえますか"
+      ],
+      "summary": "外来診療でマスク未持参の方は、令和8年10月31日まで無料、11月1日から1枚50円。受付へ。会計時精算。面会・入院・スタッフへこの料金を広げない。",
+      "answer": "外来診療時にマスクをお持ちでない方への配布は、令和8年10月31日までは無料、令和8年11月1日からは1枚50円です。\n\nお忘れの場合は受付スタッフにお声がけください。マスク代は会計時に精算します。",
+      "careSource": "data/mask-policy.js",
+      "clinicInformation": {
+        "outpatientDistribution": {
+          "freeUntil": "2026-10-31",
+          "paidFrom": "2026-11-01",
+          "priceYen": 50,
+          "unit": "1枚",
+          "ask": "受付スタッフ",
+          "payment": "会計時に精算"
+        },
+        "doNotApplyFeeToVisitorsOrInpatients": true,
+        "doNotLimitProvisionToInpatients": true
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/%e4%bb%a4%e5%92%8c8%e5%b9%b411%e6%9c%8801%e6%97%a5%e4%bb%a5%e9%99%8d%e3%81%ae%e3%83%9e%e3%82%b9%e3%82%af%e7%9d%80%e7%94%a8%e3%81%a8%e6%9c%96%e6%96%99%e5%8c%96%e3%81%ab%e3%81%a4%e3%81%84%e3%81%a6/",
+      "relatedSiteLabel": "令和8年11月01日以降のマスク着用と有料化について",
+      "responseRules": {
+        "distinguishWearingFromProvision": true,
+        "outpatientFeeOnly": true,
+        "doNotSayInpatientsOnly": true
+      },
+      "priority": 230,
+      "updatedAt": "2026-10-26",
+      "enabled": true
+    },
+    {
+      "id": "discharge-gift",
+      "category": "産科/退院プレゼント",
+      "intent": "discharge_gift",
+      "service": "discharge_gift",
+      "availability": "available",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "退院プレゼント",
+        "おみやげ",
+        "退院するとき何かもらえますか",
+        "出産の記念品はありますか",
+        "赤ちゃんの写真はもらえますか",
+        "退院祝いはありますか",
+        "お土産",
+        "出産プレゼント"
+      ],
+      "keywords": [
+        "退院プレゼント",
+        "退院祝い",
+        "出産プレゼント",
+        "出産記念品",
+        "おみやげ",
+        "お土産",
+        "臍帯箱",
+        "トートバッグ"
+      ],
+      "summary": "ご出産の方へ退院時にオリジナルBébéグッズ（臍帯箱・フード付きバスタオル・トートバッグ）と、生まれて1日目の赤ちゃんの写真を渡す。お土産はこの案内。",
+      "answer": "当院では、ご出産された方へ、退院時のプレゼントをご用意しています。\n\nオリジナルBébéグッズ（臍帯箱・フード付きバスタオル・トートバッグ）や、生まれて1日目の赤ちゃんのお写真などをお渡ししています。\n\n詳しくは下記のページをご覧ください。",
+      "careSource": "data/discharge-gift.js",
+      "clinicInformation": {
+        "items": [
+          "オリジナルBébéグッズ（臍帯箱・フード付きバスタオル・トートバッグ）",
+          "生まれて1日目の赤ちゃんのお写真"
+        ],
+        "synonyms": [
+          "退院プレゼント",
+          "退院祝い",
+          "出産プレゼント",
+          "出産記念品",
+          "おみやげ",
+          "お土産"
+        ]
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/obstetrics/hospitalization/",
+      "relatedSiteLabel": "入院中の生活・退院プレゼント",
+      "responseRules": {
+        "doNotSayUnavailable": true,
+        "souvenirMeansDischargeGift": true,
+        "distinctFromNewbornPhotoService": true,
+        "distinctFromBirthBenefits": true
+      },
+      "priority": 230,
+      "updatedAt": "2026-10-26",
       "enabled": true
     },
     {
