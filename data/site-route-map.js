@@ -1,6 +1,7 @@
 import { isHpvVaccineQuery } from "./hpv-vaccine.js";
 import { isMaskPolicyQuery, MASK_POLICY_PAGE } from "./mask-policy.js";
 import { isDischargeGiftQuery } from "./discharge-gift.js";
+import { isMotherBabySeparateRoomQuery } from "./mother-baby-rooming-in.js";
 import {
   isCervicalCancerScreeningQuery,
   isHpvVaccineVsScreeningQuery,
@@ -940,6 +941,7 @@ export function detectClinicService(userMessage) {
   ) {
     return "vending_machine";
   }
+  if (isMotherBabySeparateRoomQuery(msg)) return "mother_baby_separate_room";
   // 母子同室・入院スケジュール（面会より先）
   if (
     /母子同室|入院スケジュール|夜間の母子同室/.test(msg) ||

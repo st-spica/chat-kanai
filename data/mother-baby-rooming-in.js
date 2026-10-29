@@ -13,6 +13,56 @@ export const MOTHER_BABY_ROOMING_IN_REF_PAGE = {
   title: "入院中の生活・入院スケジュール",
 };
 
+/** 母子別室・預かり。同室開始時期とは別。無条件の別室保証はしない。 */
+export const MOTHER_BABY_SEPARATE_ROOM_PAGE = {
+  url: "https://kanai.or.jp/obstetrics/hospitalization/",
+  title: "入院中の生活",
+};
+
+export const MOTHER_BABY_SEPARATE_ROOM_ANSWER = [
+  "当院では、基本的には母児同室をおすすめしておりますが、",
+  "お母さまの体調やご状況に合わせて、",
+  "スタッフと相談しながら進めています。",
+  "",
+  "ご不安なことがございましたら、",
+  "遠慮なくスタッフにご相談くださいね。",
+].join("\n");
+
+/**
+ * 母子／母児の表記を揃える
+ * @param {string} userMessage
+ */
+export function normalizeMotherBabyWording(userMessage) {
+  return String(userMessage || "").replace(/母児/g, "母子");
+}
+
+/**
+ * 別室・預かり・同室必須かどうか。開始時期（いつから）は含めない。
+ * @param {string} userMessage
+ */
+export function isMotherBabySeparateRoomQuery(userMessage) {
+  const msg = normalizeMotherBabyWording(userMessage).trim();
+  if (!msg) return false;
+  const asksTiming =
+    /いつから|いつ始まり|何日目|当日から|翌日から|始まりますか/.test(msg) &&
+    !/別室|別々|預か|預け|必須|じゃないとダメ|しなくて/.test(msg);
+  if (asksTiming) return false;
+
+  if (/母子別室|別室/.test(msg) && /母|赤ちゃん|新生児|出産|入院/.test(msg)) {
+    return true;
+  }
+  if (/別々に/.test(msg) && /赤ちゃん|母子|出産/.test(msg)) return true;
+  if (/預か|預け/.test(msg) && /赤ちゃん|ベビー|新生児/.test(msg)) return true;
+  if (
+    /母子同室/.test(msg) &&
+    /必須|じゃないとダメ|しなきゃ|しなければ|強制|絶対|別室|別々/.test(msg)
+  ) {
+    return true;
+  }
+  if (/母子同室じゃな|同室じゃなく|同室しなくて/.test(msg)) return true;
+  return false;
+}
+
 export const MOTHER_BABY_ROOMING_IN_ANSWER = [
   "当院では、通常、出産翌日（産後1日目）から、",
   "お母さんの体調に合わせて母子同室を開始します。",
@@ -80,8 +130,10 @@ export const HOSPITALIZATION_SCHEDULE_OVERVIEW_ANSWER = [
  * @param {string} userMessage
  */
 export function isMotherBabyRoomingInQuery(userMessage) {
-  const msg = String(userMessage || "").trim();
-  if (!msg) return false;
+  const raw = String(userMessage || "").trim();
+  if (!raw) return false;
+  if (isMotherBabySeparateRoomQuery(raw)) return false;
+  const msg = normalizeMotherBabyWording(raw);
 
   // 面会・料金・持ち物・産後ケアは除外
   if (/面会|お見舞い|入院費|個室料金|持ち物|産後ケア|母乳ケア/.test(msg)) {
@@ -114,9 +166,20 @@ export function isMotherBabyRoomingInQuery(userMessage) {
  *   referencedPages: Array<{url:string,title:string}>,
  * }|null}
  */
+export function buildMotherBabySeparateRoomAnswer(userMessage) {
+  if (!isMotherBabySeparateRoomQuery(userMessage)) return null;
+  return {
+    answer: MOTHER_BABY_SEPARATE_ROOM_ANSWER,
+    intent: "mother_baby_separate_room",
+    focus: "consult_not_guaranteed",
+    useExactAnswer: true,
+    referencedPages: [MOTHER_BABY_SEPARATE_ROOM_PAGE],
+  };
+}
+
 export function buildMotherBabyRoomingInAnswer(userMessage) {
-  const msg = String(userMessage || "").trim();
-  if (!isMotherBabyRoomingInQuery(msg)) return null;
+  const msg = normalizeMotherBabyWording(userMessage).trim();
+  if (!isMotherBabyRoomingInQuery(userMessage)) return null;
 
   const ref = [MOTHER_BABY_ROOMING_IN_REF_PAGE];
 

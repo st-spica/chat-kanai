@@ -74,7 +74,8 @@ function buildCsv(rows) {
         .join(",")
     );
   }
-  return lines.join("\n");
+  // WindowsのExcelはBOMなしUTF-8をShift_JISとして開く。先頭のBOMでUTF-8と判定させる。
+  return `\uFEFF${lines.join("\r\n")}\r\n`;
 }
 
 function buildHtml(ymd, rows) {

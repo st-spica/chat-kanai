@@ -3,7 +3,7 @@
  *
  * ① 実施が確認できる → 実施しています
  * ② 未実施が確認できる → 実施しておりません
- * ③ どちらも確認できない → 実施しているか確認できません
+ * ③ どちらも確認できない → 丁寧な未確認案内（未実施とは断定しない）
  *
  * 公式サイトに無いことだけでは②にしない。
  * 関連ページがあるだけでは①にしない。
@@ -48,23 +48,18 @@ export function pageConfirmsNamedService(userMessage, pageText) {
   return specific.some((t) => hay.includes(t));
 }
 
+/** 院内サービスの実施状況が確認できないときの共通回答。未実施とは断定しない。 */
+export const UNCONFIRMED_CLINIC_SERVICE_ANSWER = [
+  "申し訳ありませんが、現在確認できる情報では、詳しいご案内ができません。",
+  "",
+  "お手数をおかけしますが、詳しくは当院スタッフまでお問い合わせいただけますと幸いです。",
+].join("\n");
+
 /**
  * 確認できない院内サービスへの案内。未実施とは断定しない。
- * @param {string} userMessage
- * @param {string} [serviceLabel]
+ * @param {string} [_userMessage]
+ * @param {string} [_serviceLabel]
  */
-export function buildUnconfirmedClinicServiceAnswer(userMessage, serviceLabel = "") {
-  const msg = String(userMessage || "").trim();
-  if (isUndocumentedServiceMetaQuery(msg)) {
-    return [
-      "現在確認できる情報では、実施しているか確認できません。",
-      "",
-      "公式サイトや院内の登録情報にないサービスを、実施しているとはご案内できません。",
-    ].join("\n");
-  }
-  const label = String(serviceLabel || "").trim();
-  if (label && label.length >= 2 && label.length <= 40) {
-    return `${label}については、現在確認できる情報では、実施しているか確認できません。`;
-  }
-  return "現在確認できる情報では、実施しているか確認できません。";
+export function buildUnconfirmedClinicServiceAnswer(_userMessage = "", _serviceLabel = "") {
+  return UNCONFIRMED_CLINIC_SERVICE_ANSWER;
 }

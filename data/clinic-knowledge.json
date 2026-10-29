@@ -1227,6 +1227,50 @@
       "enabled": true
     },
     {
+      "id": "mother-baby-separate-room",
+      "category": "入院/母子別室",
+      "intent": "mother_baby_separate_room",
+      "service": "mother_baby_separate_room",
+      "availability": "consult",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "母子別室できますか",
+        "母児別室は可能ですか",
+        "赤ちゃんを預かってもらえますか",
+        "夜は赤ちゃんを預けられますか",
+        "母子同室じゃないとダメですか",
+        "出産後、赤ちゃんと別々に過ごせますか",
+        "母児同室は必須ですか",
+        "夜間は赤ちゃんを預かってもらえますか"
+      ],
+      "keywords": [
+        "母子別室",
+        "母児別室",
+        "別室",
+        "預かってもらえ",
+        "預けられ"
+      ],
+      "summary": "基本は母児同室をすすめる。ママの体調や状況によりスタッフと相談。別室を無条件には保証しない。同室の開始時期とは別。",
+      "answer": "当院では、基本的には母児同室をおすすめしておりますが、お母さまの体調やご状況に合わせて、スタッフと相談しながら進めています。\n\nご不安なことがございましたら、遠慮なくスタッフにご相談くださいね。",
+      "careSource": "data/mother-baby-rooming-in.js",
+      "clinicInformation": {
+        "recommended": "母児同室",
+        "separateRoom": "体調や状況によりスタッフと相談。無条件の保証はしない",
+        "distinctFromRoomingInStartSchedule": true
+      },
+      "relatedSiteUrl": "https://kanai.or.jp/obstetrics/hospitalization/",
+      "relatedSiteLabel": "入院中の生活",
+      "responseRules": {
+        "useExactAnswer": true,
+        "doNotGuaranteeSeparateRoom": true,
+        "normalize母児To母子": true,
+        "alwaysShowRelatedLink": true
+      },
+      "priority": 230,
+      "updatedAt": "2026-10-29",
+      "enabled": true
+    },
+    {
       "id": "emergency-contraception-prescription",
       "category": "婦人科/緊急避妊",
       "intent": "emergency_contraception_prescription",

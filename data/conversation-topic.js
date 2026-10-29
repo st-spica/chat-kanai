@@ -60,7 +60,10 @@ import { isFirstVisitFeeQuery } from "./first-visit-fee.js";
 import { isFirstVisitWhatToBringQuery } from "./first-visit-what-to-bring.js";
 import { isEmergencyMaternalNeonatalTransferQuery } from "./emergency-maternal-neonatal-transfer.js";
 import { isEmergencyContraceptionQuery } from "./emergency-contraception.js";
-import { isMotherBabyRoomingInQuery } from "./mother-baby-rooming-in.js";
+import {
+  isMotherBabyRoomingInQuery,
+  isMotherBabySeparateRoomQuery,
+} from "./mother-baby-rooming-in.js";
 import { isFourDUltrasoundQuery } from "./four-d-ultrasound.js";
 import {
   isFemaleDoctorQuery,
@@ -197,6 +200,9 @@ export function detectStandaloneIntent(userMessage) {
   if (isEmergencyContraceptionQuery(msg)) {
     return "emergency_contraception_prescription";
   }
+
+  // 母子別室・預かりは同室開始時期より先
+  if (isMotherBabySeparateRoomQuery(msg)) return "mother_baby_separate_room";
 
   // 母子同室・入院スケジュール
   if (isMotherBabyRoomingInQuery(msg)) return "mother_baby_rooming_in";
@@ -697,6 +703,7 @@ export function clinicKnowledgeIdForIntent(intent) {
     emergency_maternal_neonatal_transfer: "emergency-maternal-neonatal-transfer",
     emergency_contraception_prescription: "emergency-contraception-prescription",
     mother_baby_rooming_in: "mother-baby-rooming-in-schedule",
+    mother_baby_separate_room: "mother-baby-separate-room",
     four_d_ultrasound: "obstetrics-4d-ultrasound",
     female_doctor: "clinic-female-doctor",
     newborn_maternity_photo: "newborn-maternity-photo",

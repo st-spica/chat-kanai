@@ -89,7 +89,10 @@ import { isFirstVisitFeeQuery } from "../data/first-visit-fee.js";
 import { isFirstVisitWhatToBringQuery } from "../data/first-visit-what-to-bring.js";
 import { isEmergencyMaternalNeonatalTransferQuery } from "../data/emergency-maternal-neonatal-transfer.js";
 import { isEmergencyContraceptionQuery } from "../data/emergency-contraception.js";
-import { isMotherBabyRoomingInQuery } from "../data/mother-baby-rooming-in.js";
+import {
+  isMotherBabyRoomingInQuery,
+  isMotherBabySeparateRoomQuery,
+} from "../data/mother-baby-rooming-in.js";
 import { isFourDUltrasoundQuery } from "../data/four-d-ultrasound.js";
 import {
   isFemaleDoctorQuery,
@@ -259,6 +262,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "emergency_maternal_neonatal_transfer",
   "emergency_contraception_prescription",
   "mother_baby_rooming_in",
+  "mother_baby_separate_room",
   "four_d_ultrasound",
   "female_doctor",
   "newborn_maternity_photo",
@@ -789,6 +793,9 @@ export function detectClinicIntent(userMessage) {
   if (isEmergencyContraceptionQuery(msg)) {
     return "emergency_contraception_prescription";
   }
+
+  // 母子別室・預かりは開始時期と混ぜない
+  if (isMotherBabySeparateRoomQuery(msg)) return "mother_baby_separate_room";
 
   // 母子同室・入院スケジュール（一般産院の直後同室推測を防ぐ）
   if (isMotherBabyRoomingInQuery(msg)) {
@@ -1401,6 +1408,19 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         reasons: ["婦人科一般処方:アフターピルのため除外"],
         rejected: true,
         rejectReason: "アフターピルはemergency-contraception-prescriptionへ",
+      };
+    }
+  }
+  if (
+    item.id === "mother-baby-separate-room" ||
+    itemIntent === "mother_baby_separate_room"
+  ) {
+    if (!isMotherBabySeparateRoomQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["母子別室:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "mother_baby_separate_roomは別室・預かり・同室必須の質問のみ",
       };
     }
   }
