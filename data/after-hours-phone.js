@@ -1,3 +1,5 @@
+import { explainEmergencyKeywords } from "./emergency-screen.js";
+
 /**
  * 診療時間外の電話問い合わせ
  *
@@ -32,14 +34,12 @@ export const AFTER_HOURS_SYMPTOM_PROBES = [
 ];
 
 /**
- * 患者が明示した緊急症状。時間外・電話不通だけでは真にしない。
+ * 患者が明示した緊急症状。時間外・電話不通・電話番号だけでは真にしない。
+ * 否定（ありません）は症状の申告にしない。
  * @param {string} userMessage
  */
 export function hasExplicitEmergencySymptom(userMessage) {
-  const msg = String(userMessage || "");
-  return /破水|大量.{0,6}出血|出血が(?:多|止ま)|血が止まら|強い腹痛|激しい腹痛|胎動が(?:少|ない|減)|胎動減少|意識がもうろう|呼吸困難|けいれん|高熱|耐えられない痛/.test(
-    msg
-  );
+  return explainEmergencyKeywords(userMessage).emergency;
 }
 
 /**
@@ -54,19 +54,34 @@ export function isAfterHoursPhoneQuery(userMessage) {
     return false;
   }
   if (
-    /電話が(?:つなが|繋が)ら|電話(?:は|が)?出ない|呼び出し(?:ても)?.{0,8}(?:出ない|つながら|繋がら)/.test(
+    /電話が(?:つなが|繋が)(?:ら|りません|らない)|電話(?:は|が)?出ない|呼び出し(?:ても)?.{0,8}(?:出ない|つながら|繋がら|つながりま)/.test(
       msg
     )
   ) {
     return true;
   }
-  if (/時間外と(?:言|い)われた|時間外でした|時間外の(?:案内|電話|対応|メッセージ)/.test(msg)) {
+  if (
+    /時間外(?:だ|と)?(?:言|い)われた|時間外でした|時間外の(?:案内|電話|対応|メッセージ)|今は時間外/.test(
+      msg
+    )
+  ) {
     return true;
   }
   if (/診療時間外|受付時間外|診察時間外|時間外(?:です|ですが|なので|のため)/.test(msg)) {
     return true;
   }
-  if (/電話/.test(msg) && /時間外|休診|つながら|繋がら|出ない/.test(msg)) {
+  if (
+    /時間外/.test(msg) &&
+    /言われた|言われ|かけた|かけたら|つながら|繋がら|つながりま|出ない|休診|日曜|どうしたら/.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+  if (/電話/.test(msg) && /時間外|休診|つながら|繋がら|つながりま|出ない/.test(msg)) {
+    return true;
+  }
+  if (/(?:番号|電話).{0,24}(?:かけ|掛け)/.test(msg) && /時間外/.test(msg)) {
     return true;
   }
   return false;

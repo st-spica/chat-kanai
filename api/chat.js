@@ -75,6 +75,7 @@ import {
   buildAfterHoursPhoneAnswer,
   isAfterHoursPhoneQuery,
 } from "../data/after-hours-phone.js";
+import { explainEmergencyKeywords } from "../data/emergency-screen.js";
 import {
   buildBirthPricingAnswer,
   BIRTH_PRICING_REF_PAGE,
@@ -2015,28 +2016,56 @@ function shouldAddShortBackchannelPrompt(userMessage, safeHistory) {
   return isShortBackchannelMessage(userMessage, safeHistory);
 }
 
+/**
+ * 緊急判定は現在の患者発言だけを見る。
+ * 履歴・システムプロンプト・AIの過去回答は渡さない。
+ * @param {string} text
+ */
+function inspectEmergency(text) {
+  const screened = explainEmergencyKeywords(text);
+  if (screened.emergency) {
+    return screened;
+  }
+  if (isInfantUrgentSymptomMessage(text)) {
+    return {
+      emergency: true,
+      rule: "infant_urgent",
+      matchStart: null,
+      matchLength: null,
+      textKind: "current_user_message",
+      rejected: screened.rejected,
+    };
+  }
+  return screened;
+}
+
 function detectEmergency(text) {
-  // 時間外・電話がつながらないだけでは緊急回答にしない
-  if (isAfterHoursPhoneQuery(text)) return false;
-  const t = (text || "").toLowerCase();
-  const keywords = [
-    "大量出血", "血が止まら", "レバー状",
-    "強い腹痛", "激しい腹痛",
-    "意識", "もうろう", "けいれん",
-    "呼吸が苦しい", "胸が痛い",
-    "高熱", "39", "破水した",
-    "胎動が少ない", "胎動ない", "胎動減少",
-    "失神", "耐えられない痛み",
-  ];
-  if (keywords.some((k) => t.includes(k.toLowerCase()))) return true;
-  if (/大量.{0,6}出血/.test(t)) return true;
-  // 「意識がもうろうとします」など
-  if (/意識.{0,8}もうろう|もうろうと(?:し|な)/.test(t)) return true;
-  // 服薬後の重篤なアレルギー反応など
-  if (/呼吸困難|顔.{0,6}腫れ|喉.{0,6}腫れ/.test(t)) return true;
-  // 乳児の呼吸苦・重篤サインは緊急優先
-  if (isInfantUrgentSymptomMessage(text)) return true;
-  return false;
+  return inspectEmergency(text).emergency;
+}
+
+function deployedCommitId() {
+  return String(process.env.VERCEL_GIT_COMMIT_SHA || "local").slice(0, 12);
+}
+
+/**
+ * 判定理由。本文・電話番号・会話全文は出さない。
+ * @param {object} decision
+ */
+function logRouteDecision(decision) {
+  console.log(
+    JSON.stringify({
+      tag: "chat-route",
+      route: decision.route,
+      emergency: Boolean(decision.emergency),
+      rule: decision.rule || null,
+      matchStart: decision.matchStart ?? null,
+      matchLength: decision.matchLength ?? null,
+      rejected: Array.isArray(decision.rejected) ? decision.rejected : [],
+      textKind: "current_user_message",
+      answerSource: decision.answerSource,
+      commit: deployedCommitId(),
+    })
+  );
 }
 
 /**
@@ -3654,6 +3683,11 @@ export default async function handler(req, res) {
   const requestId = createRequestId();
   const timing = createTimingTracker();
   timing.mark("request_received");
+  try {
+    res.setHeader("X-Chat-Commit", deployedCommitId());
+  } catch {
+    /* ヘッダ設定に失敗しても応答は続ける */
+  }
   let streamPhase = "pre_stream";
   let historyCount = 0;
   let activeStage = "init";
@@ -4077,7 +4111,17 @@ export default async function handler(req, res) {
     ) {
       const built = buildAfterHoursPhoneAnswer(userMessage);
       const answer = String(built?.answer || "").trim();
+      const screened = explainEmergencyKeywords(userMessage);
       const referencedPages = [AFTER_HOURS_PHONE_PAGE];
+      logRouteDecision({
+        route: "after_hours_phone",
+        emergency: false,
+        rule: screened.rule,
+        matchStart: screened.matchStart,
+        matchLength: screened.matchLength,
+        rejected: screened.rejected,
+        answerSource: "fixed",
+      });
       await appendChatLog({
         message: userMessage,
         answer,
@@ -4094,13 +4138,32 @@ export default async function handler(req, res) {
           detectedIntent: "after_hours_phone",
           matchedSiteUrl: AFTER_HOURS_PHONE_PAGE.url,
           note: "時間外の電話案内。症状は聞かない。緊急症状の明示がある場合は安全案内を優先",
+          route: "after_hours_phone",
+          emergency: false,
+          rule: screened.rule,
+          matchStart: screened.matchStart,
+          matchLength: screened.matchLength,
+          rejected: screened.rejected,
+          textKind: "current_user_message",
+          answerSource: "fixed",
+          commit: deployedCommitId(),
         };
       }
       return res.status(200).json(attachTopicDebug(payload, "after_hours_phone"));
     }
 
-    // 危険サインはモデルに投げずに即時誘導（安全のため）
-    if (detectEmergency(userMessage)) {
+    // 危険サインは現在の発言だけを見て即時誘導する。履歴やシステム文では発動しない。
+    const emergencyHit = inspectEmergency(userMessage);
+    if (emergencyHit.emergency) {
+      logRouteDecision({
+        route: "emergency_fixed",
+        emergency: true,
+        rule: emergencyHit.rule,
+        matchStart: emergencyHit.matchStart,
+        matchLength: emergencyHit.matchLength,
+        rejected: emergencyHit.rejected,
+        answerSource: "fixed",
+      });
       const answer = emergencyMessage();
       await appendChatLog({
         message: userMessage,

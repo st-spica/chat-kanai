@@ -1,3 +1,5 @@
+import { isNegatedAt } from "./emergency-screen.js";
+
 /**
  * 陣痛開始後の病院連絡タイミング（院内基準）
  *
@@ -84,7 +86,18 @@ export function isLaborHospitalContactQuery(userMessage, contextText = "") {
     return false;
   }
 
-  if (mentionsLaborContactTopic(msg)) return true;
+  if (mentionsLaborContactTopic(msg)) {
+    const symptom = /破水|出血|胎動/g;
+    let saw = false;
+    let positive = false;
+    let found;
+    while ((found = symptom.exec(msg))) {
+      saw = true;
+      if (!isNegatedAt(msg, found.index, found[0].length)) positive = true;
+    }
+    if (saw && !positive && !/陣痛|間隔/.test(msg)) return false;
+    return true;
+  }
 
   const ctx = String(contextText || "");
   if (!mentionsLaborContactTopic(ctx)) return false;
@@ -184,18 +197,29 @@ function isLifeThreatening(msg) {
 /**
  * @param {string} msg
  */
+function hasPositiveMatch(msg, re) {
+  const flags = re.flags.includes("g") ? re.flags : `${re.flags}g`;
+  const scanner = new RegExp(re.source, flags);
+  let m;
+  while ((m = scanner.exec(String(msg || "")))) {
+    if (!isNegatedAt(msg, m.index, m[0].length)) return true;
+  }
+  return false;
+}
+
 function hasRupture(msg) {
-  return /破水|水が(?:出|漏れ)|羊水/.test(msg);
+  return hasPositiveMatch(msg, /破水|水が(?:出|漏れ)|羊水/);
 }
 
 /**
  * @param {string} msg
  */
 function hasHeavyBleeding(msg) {
-  return (
-    /大量出血|出血が多|血が多|生理以上|レバー状|血が止まら/.test(msg) ||
-    (/出血|血が出/.test(msg) && !/少量|ちょっと|ピンク|茶色のおりもの/.test(msg))
-  );
+  if (hasPositiveMatch(msg, /大量出血|大量.{0,6}出血|出血が多|血が多|生理以上|レバー状|血が止まら/)) {
+    return true;
+  }
+  if (/少量|ちょっと|ピンク|茶色のおりもの/.test(msg)) return false;
+  return hasPositiveMatch(msg, /出血|血が出/);
 }
 
 /**

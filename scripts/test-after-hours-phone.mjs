@@ -14,6 +14,8 @@ import { buildLaborHospitalContactAnswer } from "../data/labor-contact.js";
 import { detectClinicIntent, searchClinicKnowledge } from "../api/_clinicKnowledge.js";
 import { detectStandaloneIntent } from "../data/conversation-topic.js";
 import { detectEmergency } from "../api/chat.js";
+import { explainEmergencyKeywords } from "../data/emergency-screen.js";
+import { isLaborHospitalContactQuery } from "../data/labor-contact.js";
 
 const phoneCases = [
   "電話したら時間外と言われた",
@@ -88,6 +90,97 @@ for (const c of urgentCases) {
     if (answer.includes(probe)) problems.push(`聞き返し: ${probe}`);
   }
   check(c.q, problems);
+}
+
+const reproduced =
+  "06-6931-2391この番号にかけたら\n今は時間外だと言われたどうしたらいい？";
+const poisonedHistory = [
+  {
+    role: "assistant",
+    content:
+      "⚠️ 現在の症状からは、緊急性が高い可能性があります。大量の出血 破水した 39度 119番",
+  },
+  { role: "user", content: "前回は別の相談でした" },
+];
+
+function checkTurn(q, history, expect) {
+  const problems = [];
+  const screened = explainEmergencyKeywords(q);
+  const emergency = detectEmergency(q);
+  const afterHours = isAfterHoursPhoneQuery(q);
+  const labor = buildLaborHospitalContactAnswer(q, history);
+  if (q.includes("39") && screened.rejected.some((r) => r.reason === "embedded_in_longer_number")) {
+    if (screened.rule === "39" || screened.rule === "temperature_39") {
+      problems.push("電話番号内の39を熱と判定した");
+    }
+  }
+  if (expect.emergency) {
+    if (!emergency && labor?.medicalSafetyLevel !== "urgent") {
+      problems.push("緊急対応にならない");
+    }
+    if (afterHours) problems.push("時間外案内に吸われた");
+    if (String(labor?.answer || "").includes("現在の症状からは") && !emergency) {
+      problems.push("症状一覧の定型だけ");
+    }
+  } else {
+    if (emergency) problems.push(`緊急発動 rule=${screened.rule}`);
+    if (labor?.medicalSafetyLevel === "urgent") problems.push("陣痛緊急に吸われた");
+    if (isLaborHospitalContactQuery(q, poisonedHistory.map((h) => h.content).join("\n"))) {
+      problems.push("履歴の緊急語で陣痛判定");
+    }
+  }
+  if (expect.afterHours) {
+    const built = buildAfterHoursPhoneAnswer(q);
+    if (built?.answer !== AFTER_HOURS_PHONE_ANSWER) problems.push("時間外文面ではない");
+    if (/[？?]/.test(built?.answer || "")) problems.push("症状を質問している");
+    for (const probe of AFTER_HOURS_SYMPTOM_PROBES) {
+      if ((built?.answer || "").includes(probe)) problems.push("聞き返し");
+    }
+  }
+  if (expect.notAfterHours && afterHours) problems.push("時間外案内になった");
+  check(`${q.replace(/\n/g, " / ")} / history=${history.length}`, problems);
+}
+
+const matrix = [
+  {
+    q: reproduced,
+    emergency: false,
+    afterHours: true,
+  },
+  { q: "電話したら時間外でした", emergency: false, afterHours: true },
+  { q: "日曜日に電話がつながりません", emergency: false, afterHours: true },
+  { q: "06-6931-2391", emergency: false, afterHours: false, notAfterHours: true },
+  { q: "時間外で破水したかもしれません", emergency: true, afterHours: false },
+  { q: "大量に出血しています", emergency: true, afterHours: false },
+  {
+    q: "お腹は痛くありません。電話がつながらないだけです",
+    emergency: false,
+    afterHours: true,
+  },
+];
+
+for (const c of matrix) {
+  checkTurn(c.q, [], c);
+  checkTurn(c.q, poisonedHistory, c);
+}
+
+const legacy = explainEmergencyKeywords(reproduced);
+if (!reproduced.includes("39") || !legacy.rejected.some((r) => r.rule === "39")) {
+  fail++;
+  console.log("FAIL 再現文の39が長い数字の一部として記録されていない", legacy);
+} else if (legacy.emergency) {
+  fail++;
+  console.log("FAIL 再現文がまだ緊急", legacy);
+} else {
+  console.log("OK   再現文の39は embedded_in_longer_number として除外");
+}
+
+const fever = explainEmergencyKeywords("熱が39.2度あります");
+if (!fever.emergency || fever.rule !== "temperature_39") {
+  fail++;
+  console.log("FAIL 39度が緊急にならない", fever);
+} else {
+  console.log("OK   熱が39.2度");
 }
 
 const hoursQ = "診療時間を教えてください";
