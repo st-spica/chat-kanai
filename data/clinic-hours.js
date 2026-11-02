@@ -1,3 +1,5 @@
+import { isAfterHoursPhoneQuery } from "./after-hours-phone.js";
+
 /**
  * 金井産婦人科の診療時間・休診日（確定データ）
  *
@@ -422,6 +424,8 @@ export function hasUrgentObstetricSymptomsForHours(msg) {
 export function isClinicHoursQuery(userMessage) {
   const msg = String(userMessage || "").trim();
   if (!msg) return false;
+  // 時間外の電話不通は診療時間表ではなく、再連絡の案内
+  if (isAfterHoursPhoneQuery(msg)) return false;
   // 緊急性のある症状は診療時間ハンドラに流さない
   if (hasUrgentObstetricSymptomsForHours(msg)) return false;
   // 不妊・妊活などサービス可否は診療時間ではない（「やっていますか」の誤反応防止）

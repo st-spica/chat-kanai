@@ -38,7 +38,9 @@ export function mentionsLaborContactTopic(text) {
     return true;
   }
   // 単独の破水・胎動・多量出血も産科緊急として扱う
-  if (/破水|胎動が(?:少|ない|減)|胎動減少|大量出血|出血が多|生理以上/.test(t)) {
+  if (
+    /破水|胎動が(?:少|ない|減)|胎動減少|大量.{0,6}出血|出血が多|生理以上/.test(t)
+  ) {
     return true;
   }
   // 医師の早め入院指示

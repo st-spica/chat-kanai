@@ -2,6 +2,7 @@ import { isHpvVaccineQuery } from "./hpv-vaccine.js";
 import { isMaskPolicyQuery, MASK_POLICY_PAGE } from "./mask-policy.js";
 import { isDischargeGiftQuery } from "./discharge-gift.js";
 import { isMotherBabySeparateRoomQuery } from "./mother-baby-rooming-in.js";
+import { isAfterHoursPhoneQuery } from "./after-hours-phone.js";
 import {
   isCervicalCancerScreeningQuery,
   isHpvVaccineVsScreeningQuery,
@@ -1041,6 +1042,7 @@ export function detectClinicService(userMessage) {
   ) {
     return "childbirth";
   }
+  if (isAfterHoursPhoneQuery(msg)) return "after_hours_phone";
   // 診療時間・休診（確定データ）
   if (
     /診療時間|診察時間|休診|午前診|午後診|夜診|第[1-5]土曜|何時から|何時まで/.test(

@@ -89,6 +89,7 @@ import {
   isPrenatalClassesQuery,
 } from "./prenatal-classes.js";
 import { isClinicHoursQuery } from "./clinic-hours.js";
+import { isAfterHoursPhoneQuery } from "./after-hours-phone.js";
 import {
   isAppointmentGuidanceQuery,
   isPhoneNumberQuery,
@@ -236,6 +237,9 @@ export function detectStandaloneIntent(userMessage) {
 
   // 産前産後教室（体重管理より先）
   if (isPrenatalClassesQuery(msg)) return "prenatal_classes";
+
+  // 診療時間外の電話。時間表より先。症状の聞き返しはしない
+  if (isAfterHoursPhoneQuery(msg)) return "after_hours_phone";
 
   // 診療時間・休診日
   if (isClinicHoursQuery(msg)) return "clinic_hours";
@@ -721,6 +725,7 @@ export function clinicKnowledgeIdForIntent(intent) {
     prenatal_classes: "prenatal-classes",
     prepapa_class: "prenatal-class-prepapa-unavailable",
     clinic_hours: "clinic-consultation-hours",
+    after_hours_phone: "after-hours-phone",
     hpv_vaccination: "cervical-cancer-hpv-vaccine",
     rsv_vaccination: "obstetric-rsv-vaccine",
     influenza_vaccination: "obstetric-influenza-vaccine",

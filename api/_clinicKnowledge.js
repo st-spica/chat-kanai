@@ -47,6 +47,7 @@ import {
   QUERY_NORMALIZERS,
 } from "../data/site-route-map.js";
 import { isClinicHoursQuery } from "../data/clinic-hours.js";
+import { isAfterHoursPhoneQuery } from "../data/after-hours-phone.js";
 import {
   buildBirthPricingAnswer,
   detectBirthPricingIntent,
@@ -279,6 +280,7 @@ export const STRICT_MATCH_INTENTS = new Set([
   "clinic_access",
   "prenatal_classes",
   "prepapa_class",
+  "after_hours_phone",
   "hpv_vaccination",
   "rsv_vaccination",
   "influenza_vaccination",
@@ -751,6 +753,9 @@ export function detectClinicIntent(userMessage) {
   if (isHpvVaccineQuery(msg)) return "hpv_vaccination";
   if (isCervicalCancerScreeningQuery(msg)) return "cervical_cancer_screening";
 
+  // 診療時間外の電話。症状の聞き返しや緊急判定にはしない
+  if (isAfterHoursPhoneQuery(msg)) return "after_hours_phone";
+
   // 緊急連絡・予約方法一般・電話番号（サービス別予約より先に曖昧な電話予約断定を防ぐ）
   if (isUrgentContactQuery(msg)) return "urgent_clinic_contact";
   if (isPhoneNumberQuery(msg)) return "clinic_phone_number";
@@ -1145,6 +1150,19 @@ export function scoreClinicKnowledgeItem(userMessage, item, opts = {}) {
         rejected: true,
         rejectReason:
           "evening_consultationは夜診の予約可否のみ（クレーム・説明不足は除外）",
+      };
+    }
+  }
+  if (
+    item.id === "after-hours-phone" ||
+    itemIntent === "after_hours_phone"
+  ) {
+    if (!isAfterHoursPhoneQuery(msg)) {
+      return {
+        score: 0,
+        reasons: ["時間外電話:対象外質問のため除外"],
+        rejected: true,
+        rejectReason: "after_hours_phoneは時間外・電話不通の問い合わせのみ",
       };
     }
   }

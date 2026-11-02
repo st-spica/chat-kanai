@@ -71,6 +71,11 @@ import {
   isClinicHoursQuery,
 } from "../data/clinic-hours.js";
 import {
+  AFTER_HOURS_PHONE_PAGE,
+  buildAfterHoursPhoneAnswer,
+  isAfterHoursPhoneQuery,
+} from "../data/after-hours-phone.js";
+import {
   buildBirthPricingAnswer,
   BIRTH_PRICING_REF_PAGE,
   detectBirthPricingDrift,
@@ -1369,6 +1374,7 @@ const SYSTEM = `
 ・【マスクの着用と配布】「マスク」という語だけでは配布の知識を選ばない。着用（必要か、誰が着けるか）と配布（忘れた、もらえる、購入、いくら）は別の質問。公式案内では院内全てのエリアで着用。受診される患者さま、面会の方、病棟への付添いも着用。患者さまだけとは案内しない。マスクをお忘れの場合は受付で1枚50円で購入できる。受付スタッフへ声をかける。無料だった期間は回答に書かない。この50円を面会・付添い・入院・スタッフへ広げない。「入院中の患者さまに限って提供」とは言わない。においづわり対策のマスクと院内ルールを混同しない。リンクは登録済みの正規URLだけを使い、URLを新たに作らない。
 ・【夜診の予約】夜診は予約不可・受付順。電話予約や事前予約が可能と案内しない。妊婦健診・WEB予約・初診予約の可否を夜診に流用しない。締切や診療時間など不要な条件を付け足さない。診療時間表を勝手に付け足さない。
 ・【診療時間・休診】曜日別の確定データ以外から推測しない。一般的な病院の時間をコピーしたり、別曜日の枠を流用したりしない。第3・第5土曜日は休診。火曜に午後診・夜診はない。木・金に夜診はない。臨時休診は通常予定と混同しない。
+・【診療時間外の電話】電話がつながらない・時間外・休診の問い合わせでは、症状の詳細を聞かない。「お急ぎのご相談でしょうか」「状況をお聞かせください」「どのような症状がありますか」は使わない。症状が書かれていなければ緊急症状を推測しない。案内は、診療時間内の再連絡と、緊急時は診療時間を待たず救急医療機関へ相談する、で完結させる。破水・大量出血など症状が明示されているときだけ、既存の安全案内を優先する。「時間外」「電話がつながらない」だけでは緊急回答にしない。
 ・【お子さま同伴・キッズルーム】お子さま連れの来院は可能。院内にキッズルームあり。診療内容・時間帯による制限や「事前電話確認」を勝手に付け足さない。キッズルームを理由にスタッフ託児・診察中の預かり・分娩時同伴・入院宿泊まで対応可能と推測しない。お子さま本人の診察・予防接種と同伴案内を混同しない。
 ・【院内施設・入院部屋】施設案内は公式ページ（facilities）を優先案内する。共用の授乳スペース・休憩スペースは設置していない（院内確定）。自動販売機は2026年10月26日に撤去済みで、院内にはない（院内確定）。ある・設置しているとは案内しない。ミネラルウォーターは院内で1本150円で販売する予定。自動受付機と自動販売機を混同しない。カフェスペース・ラウンジ・売店・託児室など、抜粋／院内知識に無い設備を一般的な産婦人科の設備として推測・追加しない。授乳スペースがないことと入院中に授乳できないことは別。母乳ケア・キッズルーム・面会・個室料金と混同しない。
 ・【アクセス・最寄駅・駐車場】公式アクセスページ（https://kanai.or.jp/access/）の確定情報のみ案内する。最寄は大阪メトロ蒲生四丁目駅（3号出口から南へ徒歩約3分）とJR鴫野駅（徒歩約10分）。一般的なアクセス質問では電話問い合わせを勧めない。道順・詳細はアクセスページへ案内する。未確認の駐輪場や交通手段を推測しない。診療案内・初診案内ページへ誘導しない。
@@ -2010,6 +2016,8 @@ function shouldAddShortBackchannelPrompt(userMessage, safeHistory) {
 }
 
 function detectEmergency(text) {
+  // 時間外・電話がつながらないだけでは緊急回答にしない
+  if (isAfterHoursPhoneQuery(text)) return false;
   const t = (text || "").toLowerCase();
   const keywords = [
     "大量出血", "血が止まら", "レバー状",
@@ -2021,6 +2029,7 @@ function detectEmergency(text) {
     "失神", "耐えられない痛み",
   ];
   if (keywords.some((k) => t.includes(k.toLowerCase()))) return true;
+  if (/大量.{0,6}出血/.test(t)) return true;
   // 「意識がもうろうとします」など
   if (/意識.{0,8}もうろう|もうろうと(?:し|な)/.test(t)) return true;
   // 服薬後の重篤なアレルギー反応など
@@ -2220,6 +2229,7 @@ export {
   sanitizeHistory,
   classifyOpenAIError,
   PATIENT_TEMP_ERROR_ANSWER,
+  detectEmergency,
 };
 
 /** 当院固有事実が必要な質問か（根拠なし時は一般知識で埋めない） */
@@ -4058,6 +4068,35 @@ export default async function handler(req, res) {
           .status(200)
           .json(attachTopicDebug(payload, "labor_hospital_contact"));
       }
+    }
+
+    // 診療時間外の電話。症状の詳細は聞かない。緊急症状の明示があるときはここへ来ない
+    if (
+      allowStructuredIntent("after_hours_phone") &&
+      isAfterHoursPhoneQuery(userMessage)
+    ) {
+      const built = buildAfterHoursPhoneAnswer(userMessage);
+      const answer = String(built?.answer || "").trim();
+      const referencedPages = [AFTER_HOURS_PHONE_PAGE];
+      await appendChatLog({
+        message: userMessage,
+        answer,
+        clientId,
+        meta: { intent: "after_hours_phone", emergency: false },
+      });
+      const payload = {
+        answer,
+        emergency: false,
+        referencedPages,
+      };
+      if (includeDebugEarly) {
+        payload.debug = {
+          detectedIntent: "after_hours_phone",
+          matchedSiteUrl: AFTER_HOURS_PHONE_PAGE.url,
+          note: "時間外の電話案内。症状は聞かない。緊急症状の明示がある場合は安全案内を優先",
+        };
+      }
+      return res.status(200).json(attachTopicDebug(payload, "after_hours_phone"));
     }
 
     // 危険サインはモデルに投げずに即時誘導（安全のため）

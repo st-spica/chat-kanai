@@ -462,6 +462,39 @@
       "enabled": true
     },
     {
+      "id": "after-hours-phone",
+      "category": "診療案内/時間外電話",
+      "intent": "after_hours_phone",
+      "service": "after_hours_phone",
+      "availability": "hours_only",
+      "responseMode": "fixed",
+      "questionPatterns": [
+        "電話したら時間外と言われた",
+        "日曜日で電話がつながらない",
+        "電話がつながらない、どうしたらいい？",
+        "診療時間外ですが相談できますか？"
+      ],
+      "keywords": [
+        "時間外",
+        "電話がつながらない",
+        "診療時間外"
+      ],
+      "summary": "電話は診療時間内のみ。症状が書かれていなければ詳細を聞かない。緊急症状の明示がある場合は安全案内を優先する。",
+      "answer": "お電話いただいたのに、診療時間外のご案内となり申し訳ございません。\n\n当院のお電話は診療時間内に対応しておりますので、お急ぎでない場合は、診療時間内に改めてご連絡いただけますと幸いです。\n\nなお、緊急の症状がある場合は、診療時間を待たずに、救急医療機関へご相談ください。",
+      "careSource": "data/after-hours-phone.js",
+      "relatedSiteUrl": "https://kanai.or.jp/beginner/",
+      "relatedSiteLabel": "診療時間のご案内",
+      "responseRules": {
+        "useExactAnswer": true,
+        "doNotAskSymptomDetails": true,
+        "doNotInferEmergencyWithoutSymptoms": true,
+        "avoidUnnecessaryPhoneReferral": true
+      },
+      "priority": 220,
+      "updatedAt": "2026-11-02",
+      "enabled": true
+    },
+    {
       "id": "clinic-consultation-hours",
       "category": "診療案内/診療時間",
       "intent": "clinic_hours",
